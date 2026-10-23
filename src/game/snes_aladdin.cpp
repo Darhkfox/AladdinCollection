@@ -32,7 +32,9 @@ constexpr uint32_t kCamX = 0x1773, kCamY = 0x1777;                   // the came
 constexpr uint32_t kCamCentre = 0x1A44;                               // camera + $80 (objects' range tests)
 constexpr uint32_t kCamMaxX = 0x1A04;                                 // the level's last camera x (width - 256)
 constexpr uint32_t kCamLimLo = 0x1A40, kCamLimHi = 0x1A42;            // a zone's camera limits (boss arenas)
+constexpr uint32_t kCamHoldX = 0x1A10, kCamHoldY = 0x1A12;            // nonzero: the camera doesn't follow in x / y
 constexpr uint32_t kBg1Shown = 0x19ED, kBg1ShownY = 0x19F1;           // the scroll the NMI writes (+ shake $1A18)
+constexpr uint32_t kBg2Shown = 0x19F5;
 constexpr uint32_t kBgMode = 0x083F;                                  // the background's mode ($81:C781): its speed
 constexpr uint32_t kObjBase = 0x092B;                                 // 35 object slots of $50 bytes
 constexpr int kObjSize = 0x50, kObjCount = 35;
@@ -115,6 +117,7 @@ public:
             return false;
         case kLevelLoop:
             loop_ran_ = true;
+            loop_frame_ = s.frameCount();
             if (respawn_) {
                 // A width change mid-level: the spawner's edge columns move to the new margins, and the game's own
                 // level-start spawn runs again (objects already out are skipped), so the new margins get theirs.
@@ -178,7 +181,9 @@ public:
     // After every frame.
     void frame_end(Snes& s, FrameInfo& info) {
         snes_ = &s;
-        level_ = in_level(s);
+        // (a frame the game's logic didn't finish in, slowdown: the main task is still running, its saved stack
+        // is stale; the loop's top ran a moment ago)
+        level_ = in_level(s) || s.frameCount() - loop_frame_ <= 4;
         // The view's limits for the next frame; when they change the view keeps its place and slides.
         if (level_ && ext_ > 0) {
             const int cam = (int16_t)rd16(s, kCamX), camy = (int16_t)rd16(s, kCamY);
@@ -251,9 +256,18 @@ public:
                 ll.hi = ((((int16_t)rd16(s, kCamMaxX)) * bg2_ratio_) >> 8) + 256;
             }
         }
+        // A picture an object moves on BG2 (the Carpet Escape's wave: the map's first 256x256 screen, the rest empty,
+        // placed by the scroll at [-x, 256 - x); parked at x = 256 while it isn't there): in the margins only its
+        // own copy, not the map's 512-px repeat.
+        obj_bg2_ = !line_[1].decode && rd16(s, kBgMode) == 0x12;
+        if (obj_bg2_) {
+            const int h = unwrap10(p.bgHofs(1), (int16_t)rd16(s, kBg2Shown));
+            obj_lo_ = h == 256 ? 0 : -h;
+            obj_hi_ = h == 256 ? 0 : 256 - h;
+        }
         // The level's extent on this line (BG1's page row): past it the level is mirrored and dimmed (or black).
         int lo = -kMaxExt, hi = 256 + kMaxExt;
-        if (line_[0].decode && row >= kHudLines) {
+        if (line_[0].decode) {
             const int wy = line_[0].wy;
             int slo, shi;
             row_run(s, line_[0].wx, wy, slo, shi);
@@ -265,6 +279,7 @@ public:
             p.wideShowLo = lo;
             p.wideShowHi = hi;
             p.wideShowKeep = 0x14;
+            p.wideMirror = 0x03;
             if (cfg_.hud_anchor) {
                 PpuLayerRemap& rm = p.layerRemap[2];
                 rm.count = 2;
@@ -292,6 +307,7 @@ public:
 
     int fetchWideTile(Ppu& p, int layer, int mapX, int mapY, int screenX, uint16_t* entry) override {
         (void)p; (void)mapX; (void)mapY;
+        if (layer == 1 && obj_bg2_ && level_) return screenX >= obj_lo_ && screenX < obj_hi_ ? kWideVram : kWideBlank;
         if (layer > 1 || !level_ || !snes_ || !line_[layer].decode) return kWideVram;
         const LineLayer& ll = line_[layer];
         int x = ll.wx + screenX;
@@ -332,6 +348,7 @@ public:
     }
     void load_ext(const uint8_t* d, size_t n) {
         lim_valid_ = false;
+        loop_frame_ = 0x80000000u;
         d_off_ = 0;
         for (bool& b : oam_set_) b = false;
         const size_t need = 2 + 5 * 2 + 128 * 3;
@@ -366,10 +383,13 @@ private:
     GameConfig cfg_;
     int ext_ = 0, last_ext_ = -1;
     bool level_ = false, loop_ran_ = false, respawn_ = false;
+    uint32_t loop_frame_ = 0x80000000u;   // the frame the level loop's top last ran in
     bool lim_valid_ = false;
     int lim_lo_ = 0, lim_hi_ = 0, d_off_ = 0, last_cam_ = 0;
     int el_ = 0, er_ = 0, mid_ = 0;
-    int bg2_ratio_ = 0;   // this frame: BG2's x speed against the camera (8.8), 0 = scrolled by the game itself
+    int bg2_ratio_ = 0;
+    bool obj_bg2_ = false;   // this line: BG2 holds an object's picture (obj_lo_ / obj_hi_: its own copy on screen)
+    int obj_lo_ = 0, obj_hi_ = 0;   // this frame: BG2's x speed against the camera (8.8), 0 = scrolled by the game itself
     int dim_lo_ = -kMaxExt, dim_hi_ = 256 + kMaxExt;
     LineLayer line_[2];
     int16_t build_x_[128] = {}, oam_x_[128] = {};
@@ -416,6 +436,11 @@ private:
         const int lmin = (int16_t)rd16(s, kCamLimLo), lmax = (int16_t)rd16(s, kCamLimHi);
         lo = std::max(lo, std::min(cam, lmin));
         hi = std::min(hi, std::max(cam, lmax) + 256);
+        // The camera held in x while it follows in y: a fixed arena (Jafar's). (Both held: a death's fall.)
+        if (rd16(s, kCamHoldX) && !rd16(s, kCamHoldY)) {
+            lo = std::max(lo, cam);
+            hi = std::min(hi, cam + 256);
+        }
         const int r0 = camy >> 8, r1 = (camy + 255) >> 8;
         int p = std::max(0, cam >> 8);
         while (p > 0 && !barrier(s, p - 1, r0) && !barrier(s, p - 1, r1)) p--;
