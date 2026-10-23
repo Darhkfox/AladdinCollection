@@ -28,13 +28,17 @@ def main():
     ap.add_argument('--frames', type=int, default=600)
     ap.add_argument('--every', type=int, default=150)
     ap.add_argument('--hud', type=int, default=1)
+    ap.add_argument('--cheats', default='invincible,', help="cheats the states carry (need achievements off: a "
+                                                            "settings.ini next to the exe with [general] achievements=0)")
+    ap.add_argument('--out', default=OUT)
     a = ap.parse_args()
-    os.makedirs(OUT, exist_ok=True)
+    out = os.path.abspath(a.out)
+    os.makedirs(out, exist_ok=True)
     lines = ['1 set hud_anchor=%d' % a.hud]
     fr = 10
     for st in [int(x) for x in a.stages.split(',')]:
         core = open(R.state_path('sms_ls%d.state' % st), 'rb').read()
-        open(os.path.join(OUT, 'ls%d.state' % st), 'wb').write(app_state(core))
+        open(os.path.join(out, 'ls%d.state' % st), 'wb').write(app_state(core, 0, a.cheats))
         for m in [int(x) for x in a.modes.split(',')]:
             lines.append('%d set widescreen=%d' % (fr, m))
             lines.append('%d loadstate ls%d' % (fr + 2, st))
@@ -46,11 +50,11 @@ def main():
             fr += a.frames + 20
             lines.append('%d up right' % (fr - 10))
     lines.append('%d quit' % (fr + 10))
-    script = os.path.join(OUT, 'script.txt')
+    script = os.path.join(out, 'script.txt')
     open(script, 'w').write('\n'.join(lines) + '\n')
     # (from the repository's root: the ROM is found there)
-    subprocess.run([EXE, '--game', 'sms', '--autotest', OUT, script, '--capture-size', '1600x900'], timeout=1200, cwd=REPO)
-    print('shots in', OUT)
+    subprocess.run([EXE, '--game', 'sms', '--autotest', out, script, '--capture-size', '1600x900'], timeout=1800, cwd=REPO)
+    print('shots in', out)
 
 
 if __name__ == '__main__':

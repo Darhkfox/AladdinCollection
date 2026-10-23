@@ -289,6 +289,17 @@ API int smst_save_state(void* h, uint8_t* out, int max) {
 API int smst_load_state(void* h, const uint8_t* data, int n) {
     return ((Tool*)h)->sms.load_state(std::vector<uint8_t>(data, data + n)) ? 1 : 0;
 }
+// The module's own part of a save state (GameModule::save_ext / load_ext), as the app keeps it next to the core's.
+API int smst_module_save_ext(void* h, uint8_t* out, int max) {
+    Tool* t = (Tool*)h;
+    const std::vector<uint8_t> d = t->module ? t->module->save_ext() : std::vector<uint8_t>();
+    if (out && (int)d.size() <= max) memcpy(out, d.data(), d.size());
+    return (int)d.size();
+}
+API void smst_module_load_ext(void* h, const uint8_t* data, int n) {
+    Tool* t = (Tool*)h;
+    if (t->module) t->module->load_ext(data, (size_t)n);
+}
 API int smst_audio(void* h, int32_t* out, int max_frames) {
     Sms& s = ((Tool*)h)->sms;
     int n = std::min(max_frames, s.audio_frames);

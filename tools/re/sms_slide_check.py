@@ -14,7 +14,7 @@ time inside the view (pop-in). Writes strips sms_out/slide_e<ext>_s<stage>.png (
 import argparse
 import sms_re as R
 from PIL import Image
-from sms_wide_shots import drive, FREE
+from sms_wide_shots import drive, FREE, level_bounds
 
 
 def frame_img(px, w, h):
@@ -54,9 +54,7 @@ def run(ext, st, frames, nshots, layers):
         cam = s.module_state(5) & 0xFFFF
         vs = s.view_shift(-1)
         left = cam - ext + vs
-        lo, hi = s.ram16(0xC4B9), s.ram16(0xC480)
-        if st in (2, 3, 4, 6, 9):
-            hi = min(hi, lo + s.ram16(0xC489) * 16 - 256)
+        lo, hi = level_bounds(s)
         vw = 256 + 2 * ext
         if st != 9 and hi + 256 - lo >= vw and (left < lo or left + vw > hi + 256):
             outside += 1

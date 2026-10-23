@@ -309,6 +309,19 @@ class SMS:
         if not _dll.smst_load_state(self.h, buf, len(data)):
             raise RuntimeError('state does not load')
 
+    def save_ext(self):
+        """the module's own part of a save state (what the app stores next to save())"""
+        _dll.smst_module_save_ext.argtypes = [C.c_void_p, C.POINTER(C.c_uint8), C.c_int]
+        n = _dll.smst_module_save_ext(self.h, None, 0)
+        buf = (C.c_uint8 * max(1, n))()
+        _dll.smst_module_save_ext(self.h, buf, n)
+        return bytes(buf[:n])
+
+    def load_ext(self, data):
+        _dll.smst_module_load_ext.argtypes = [C.c_void_p, C.POINTER(C.c_uint8), C.c_int]
+        buf = (C.c_uint8 * max(1, len(data))).from_buffer_copy(data or bytes(1))
+        _dll.smst_module_load_ext(self.h, buf, len(data))
+
     def save_file(self, path):
         with open(path, 'wb') as f:
             f.write(self.save())

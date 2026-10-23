@@ -123,6 +123,7 @@ const std::vector<RomPatch> kDevMenu = {{0x4BC4, {0x0E, 0x0F}, {0x0E, 0x01}}};
 // Code caves in bank 1's unused zero fill ($7943-$7DFF).
 constexpr uint16_t CAVE_WAKE = 0x7A00, CAVE_LOAD = 0x7A30, CAVE_GONE = 0x7A70, CAVE_FULL_A = 0x7AA0,
                    CAVE_FULL_B = 0x7AA8;
+constexpr uint16_t CAVE_GONE_MAX = CAVE_GONE + 8;   // (CAVE_GONE's `or a` after `ld de,($C480)`)
 
 std::vector<RomPatch> wide_patches(int E) {
     auto zeros = [](size_t n) { return std::vector<uint8_t>(n, 0x00); };
@@ -189,7 +190,8 @@ std::vector<RomPatch> wide_patches(int E) {
     };
     // ... and an object leaves (the next one of the list takes the slot) once past the view's left edge: x < -32 - E,
     // and up to E px further near the stage's right end, where the view slides left (the camera within E px of its
-    // limit $C480). CAVE_GONE returns de = the distance for `add hl,de` at $3EC8 (x + de < 0: gone).
+    // limit). CAVE_GONE returns de = the distance for `add hl,de` at $3EC8 (x + de < 0: gone). The limit is $C480 or
+    // the map's end if that comes first (level_bounds): the module's hook at CAVE_GONE_MAX puts it in de.
     const std::vector<uint8_t> gone = {
         0xE5,                    // push hl
         0x2A, 0x82, 0xC4,        // ld hl,($C482)
@@ -255,6 +257,20 @@ uint16_t bank_rd16(const Sms& s, int bank, uint16_t a) {
     return (uint16_t)(bank_rd8(s, bank, a) | (bank_rd8(s, bank, (uint16_t)(a + 1)) << 8));
 }
 
+// The pages of a paged map: its table ($C48F, in the stage's bank) is followed by the pages' data, so it ends where
+// the first page begins. Past it lie other data (stage 0's table has 15 pages, 3840 px, while the camera's limit
+// $C480 is $1300: its camera stops at the map's end, 3584).
+int map_pages(const Sms& s, int stage) {
+    const int bank = s.rom_orig8(0x3306 + stage);
+    const uint16_t table = s.ram16(MAP);
+    static int key = -1, pages = 0;   // (from the ROM alone)
+    if (key == (bank << 16 | table)) return pages;
+    int first = 0x10000, n = 0;
+    while (n < 64 && table + 2 * n < first) first = std::min(first, (int)bank_rd16(s, bank, (uint16_t)(table + 2 * n++)));
+    key = bank << 16 | table;
+    return pages = n;
+}
+
 // The name-table entry the column streamer ($2E3A) builds for world x `wx`, playfield cell row `row` (0..19 =
 // table rows 2..21), or -1 outside the map. Metatiles are 16x16: 8 bytes, the TL TR BL BR entries.
 int map_entry(const Sms& s, int wx, int row) {
@@ -264,6 +280,7 @@ int map_entry(const Sms& s, int wx, int row) {
     const int stride = s.ram16(MAP_STRIDE);
     uint16_t at;
     if (paged_map(stage)) {
+        if ((wx >> 8) >= map_pages(s, stage)) return -1;
         at = (uint16_t)(bank_rd16(s, bank, (uint16_t)(s.ram16(MAP) + 2 * (wx >> 8))) + ((wx & 255) >> 4) + (row >> 1) * stride);
     } else {
         const int mx = (wx - (int)s.ram16(CAM_MIN)) >> 4;
@@ -314,13 +331,15 @@ struct SectionTiles {
 // the Castle of Illusion port shows its arenas.
 constexpr int ARENA_STAGE = 9, ARENA_FROM = 128, ARENA_PERIOD = 128;
 
-// The camera's range: the original view shows world x [lo, hi + 256). A flat map can end before the camera's
-// limit allows (Jafar's room): the map's end counts.
+// The camera's range: the original view shows world x [lo, hi + 256). A map can end before the camera's limit
+// allows (stages 0, 1 and 8, Jafar's room): the map's end counts.
 void level_bounds(const Sms& s, int& lo, int& hi) {
     lo = s.ram16(CAM_MIN);
     hi = s.ram16(CAM_MAX);
     const int stage = s.ram8(STAGE);
-    if (stage <= 9 && !paged_map(stage)) hi = std::min(hi, lo + s.ram16(MAP_STRIDE) * 16 - 256);
+    if (stage > 9) return;
+    if (paged_map(stage)) hi = std::min(hi, map_pages(s, stage) * 256 - 256);
+    else hi = std::min(hi, lo + s.ram16(MAP_STRIDE) * 16 - 256);
 }
 
 // module_state: [0..3] each sprite table entry's 256-px page as displayed (2 bits each, see sprite_x), [4] the
@@ -448,11 +467,15 @@ public:
         v.line_hook = wide ? line_hook : nullptr;
         s.on_vblank = nullptr;
         s.on_frame_start = nullptr;
-        v.extra_count = 0;
         v.sprite_shift = 0;
         v.line_shift = wide ? line_shift : nullptr;
         std::memset(v.bg_shift, 0, sizeof(v.bg_shift));
-        std::memset(page_, 0, sizeof(page_));
+        // (a width change within a stage keeps what the hooks recorded for the frames under way)
+        if (!wide || !wide_ || !in_stage(s)) {
+            v.extra_count = 0;
+            std::memset(page_, 0, sizeof(page_));
+        }
+        wide_ = wide;
         if (!wide) return;
         // (until the next VBlank: the camera of the frame just drawn)
         s.module_state[MS_CAM_NEXT] = s.module_state[MS_CAM] = (uint32_t)(s.ram16(CAM_X) | (s.ram8(FRAMES) << 16));
@@ -479,6 +502,11 @@ public:
             const int i = (m.z80.ix - OBJECTS) / OBJ_SIZE;
             if (i >= 0 && i < MAX_OBJECTS) m.module_state[MS_UNDRAWN] |= 1u << i;
         };
+        s.add_pc_hook(CAVE_GONE_MAX, [](Sms& m) {
+            int lo, hi;
+            level_bounds(m, lo, hi);
+            m.z80.de = (uint16_t)hi;
+        });
         s.add_pc_hook(CAVE_FULL_A, undrawn);
         s.add_pc_hook(CAVE_FULL_B, undrawn);
         // the VBlank's sprite table upload ($02D9): in reverse order on odd frames (the game's flicker)
@@ -511,6 +539,42 @@ public:
         }
         info.mask_from = 16;     // the status bar (lines 0..15) stays whole
         info.mask_lines = 176;   // (below the playfield: line_hook)
+    }
+
+    // Save states (rewind too): besides module_state, what the hooks keep from one frame to the next - the sprite
+    // pages the writers left for the next table upload (the game's logic runs across the frame's end), the extra
+    // sprites the last upload made for the frame being drawn, and the frame counter at the camera's last move.
+    std::vector<uint8_t> save_ext() const override {
+        std::vector<uint8_t> d;
+        if (!sms_ || !wide_) return d;
+        const SmsVdp& v = sms_->vdp;
+        d.push_back(EXT_VERSION);
+        d.insert(d.end(), page_, page_ + 64);
+        d.push_back((uint8_t)moved_at_);
+        d.push_back((uint8_t)v.extra_count);
+        for (int i = 0; i < v.extra_count; i++) {
+            const SmsVdp::ExtraSprite& e = v.extra[i];
+            d.insert(d.end(), {(uint8_t)e.x, (uint8_t)(e.x >> 8), e.y, e.pattern});
+        }
+        return d;
+    }
+
+    void load_ext(const uint8_t* d, size_t n) override {
+        if (!sms_) return;
+        SmsVdp& v = sms_->vdp;
+        if (n < 67 || d[0] != EXT_VERSION || n < 67u + 4u * d[66] || d[66] > SmsVdp::kMaxExtra) {
+            // (a state without them: as after a width change)
+            std::memset(page_, 0, sizeof(page_));
+            v.extra_count = 0;
+            return;
+        }
+        std::memcpy(page_, d + 1, 64);
+        moved_at_ = d[65];
+        v.extra_count = d[66];
+        for (int i = 0; i < v.extra_count; i++) {
+            const uint8_t* e = d + 67 + 4 * i;
+            v.extra[i] = {(int16_t)(e[0] | (e[1] << 8)), e[2], e[3]};
+        }
     }
 
     std::vector<CheatEntry> cheats() const override {
@@ -680,14 +744,16 @@ public:
 private:
     Sms* sms_ = nullptr;
     bool hud_anchor_ = true;
-    uint8_t page_[64];   // each sprite table buffer entry's page as the writers left it (uploaded at the VBlank)
+    static constexpr uint8_t EXT_VERSION = 1;   // (save_ext's layout)
+    uint8_t page_[64] = {};   // each sprite table buffer entry's page as the writers left it (uploaded at the VBlank)
     SectionTiles s7_;    // stage 7's sections' reloaded tiles (made from ROM when first needed)
     bool s7_built_ = false;
-    // the view's slide (apply_view): the parallax bands' first lines (line interrupts), the camera's band, the camera
-    // of the frame before and the frame counter at the camera's last move (stage 1's bands move on its phase)
+    // the view's slide (apply_view): the parallax bands' first lines (line interrupts), the camera's band, and the
+    // frame counter at the camera's last move (stage 1's bands move on its phase; kept in save states)
     int band_start_[3] = {999, 999, 999};
     int cam_band_ = 0;
-    int prev_cam_ = -1, moved_at_ = 0;
+    int moved_at_ = 0;
+    bool wide_ = false;   // (configured with widescreen: the hooks keep page_ and the extra sprites)
 
     // The parallax band of a line: 0 up to the first line interrupt's change, 1.. after each one
     int band_of(int line) const {
@@ -703,6 +769,7 @@ private:
     // every other stage scrolls as one.
     void apply_view(Sms& m) {
         SmsVdp& v = m.vdp;
+        const int before = shown_cam(m);   // (the frame before's)
         m.module_state[MS_CAM] = m.module_state[MS_CAM_NEXT];
         const int E = v.ext, cam = shown_cam(m), stage = m.ram8(STAGE);
         v.sprite_shift = view_slide(m, cam, E);
@@ -718,8 +785,7 @@ private:
             }
             cam_band_ = stage == 0 ? 0 : 3;
         }
-        if (cam != prev_cam_) moved_at_ = (int)((m.module_state[MS_CAM] >> 16) & 0xFF);
-        prev_cam_ = cam;
+        if (cam != before) moved_at_ = (int)((m.module_state[MS_CAM] >> 16) & 0xFF);
     }
 
     // A line's background shift, as it is drawn: the status bar (lines 0-15) and the rows below the playfield
