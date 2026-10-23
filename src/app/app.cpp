@@ -376,7 +376,9 @@ void App::frame(double dt) {
     }
     menu_.accent = accent();
     if (!jukebox_.active()) menu_.draw(video_, (float)time_);   // the menu reappears when the player closes
-    menu_.draw_toasts(video_, (float)dt, jukebox_.active() || mode_ != Mode::Playing || menu_.active());
+    // (bottom-centre also in play: the three games keep their status bars in the corners, the SNES one's counters
+    // where a top-right toast would cover them)
+    menu_.draw_toasts(video_, (float)dt, true);
     draw_ach_banners((float)dt);
     if (mode_ == Mode::Playing && session_ && !menu_.active() && !jukebox_.active() && (rewinding_ || fast_forward_))
         video_.draw_text(FontId::Small, H * 0.02f, H * 0.01f, rewinding_ ? "\xE2\x97\x80\xE2\x97\x80" : "\xE2\x96\xB6\xE2\x96\xB6",

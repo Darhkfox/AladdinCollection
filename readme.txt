@@ -108,8 +108,8 @@
 
   In the games:
      Mega Drive ....... A throws an apple, B swings the sword, C jumps.
-     Super Nintendo ... B jumps, Y throws an apple (the game's own OPTIONS
-                        screen can rearrange them).
+     Super Nintendo ... B jumps, A throws an apple, Y dashes (the game's
+                        own OPTIONS screen can rearrange them).
      Master System .... Button 1 throws a stone (or attacks), button 2
                         jumps; Pause pauses.
 
