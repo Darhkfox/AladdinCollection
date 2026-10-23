@@ -246,8 +246,10 @@ private:
 #endif
     void set_fullscreen(bool fs);
     void resize_window_to_scale();
+#ifdef _WIN32
     // the windowed client size for the picture (Window Size x its shape), fitted to `work` (a monitor's work area)
     void window_size(int& cw, int& ch, const RECT* work = nullptr);
+#endif
     void move_to_monitor(int index);
     double refresh_rate();
     std::string black_frames_note();     // Video menu: the refresh rate in use, or why black frames can't be shown
