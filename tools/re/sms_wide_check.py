@@ -5,7 +5,8 @@
 Renders the background only (debug layers) while the camera moves (the stages played through by
 sms_wide_shots.Player, the free-scrolling ones driven by its test patch, right then left), twice: every pixel the
 hardware region (screen x 8..255) shows is kept by world position (x, line), then every extension pixel (and the
-old blanked column) at a world position the hardware region showed at some time is compared with it. Only lines
+old blanked column) at a world position the hardware region showed at some time with the same palette (CRAM) is
+compared with it. Only lines
 whose scroll is the camera's count (parallax bands wrap on purpose), only inside the level (sms_slide_check checks
 that the view stays there).
 Animated tiles (water, lava, torches, stage 1's railings) change over time: an extension pixel counts as wrong
@@ -42,14 +43,14 @@ def play(ext, st, frames):
             continue
         px, w, h = s.pixels()
         yield (f, px, w, s.module_state(5) & 0xFFFF, s.line_hscroll(), [s.view_shift(ln) for ln in range(192)],
-               s.view_shift(-1), level_bounds(s))
+               s.view_shift(-1), level_bounds(s), bytes(s.cram))
 
 
 def cells(ext, fr):
     """(world x, line, colour, screen x, output x) of a frame's camera band: the lines whose camera (the one with the
     scroll's low byte, next to the frame's) plus their shift put the view where the frame's view is (parallax bands
     wrap on purpose); inside the level only"""
-    f, px, w, cam, hs, shl, vs, (lo, hi) = fr
+    f, px, w, cam, hs, shl, vs, (lo, hi), cram = fr
     for line in range(16, 176, 2):
         lc = cam + ((((-hs[line] - cam) & 0xFF) + 128) & 0xFF) - 128
         sh = shl[line]
@@ -64,11 +65,14 @@ def cells(ext, fr):
 
 def run(ext, st, frames, every=1, show=0):
     # pass 1: what the hardware region (screen x 8..255) shows at each world position, all frames
+    # (by palette: a fade or a colour cycle compares only with frames of the same colours)
     world = {}
+    palettes = {}
     for fr in play(ext, st, frames):
+        pal = palettes.setdefault(fr[-1], len(palettes))
         for wx, line, c, x, o in cells(ext, fr):
             if 8 <= x < 256:
-                world.setdefault((wx, line), set()).add(c)
+                world.setdefault((wx, line, pal), set()).add(c)
     # pass 2 (the same run): the sides of every n-th frame against it
     bad = collections.Counter()
     cols = collections.Counter()
@@ -79,10 +83,11 @@ def run(ext, st, frames, every=1, show=0):
         f = fr[0]
         if f % every:
             continue
+        pal = palettes[fr[-1]]
         for wx, line, c, x, o in cells(ext, fr):
             if 8 <= x < 256:
                 continue
-            ref = world.get((wx, line))
+            ref = world.get((wx, line, pal))
             if ref is None:
                 continue
             n += 1

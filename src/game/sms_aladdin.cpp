@@ -288,7 +288,7 @@ int map_entry(const Sms& s, int wx, int row) {
         at = (uint16_t)(s.ram16(MAP) + mx + (row >> 1) * stride);
     }
     const uint8_t mt = bank_rd8(s, bank, at);
-    return bank_rd16(s, bank, (uint16_t)(s.ram16(METATILES) + mt * 8 + (row & 1) * 4 + ((wx >> 3) & 1) * 2));
+    return bank_rd16(s, bank, (uint16_t)(s.ram16(METATILES) + mt * 8 + (row & 1) * 4 + ((wx >> 3) & 1) * 2)) & 0x1FFF;
 }
 
 // "A Whole New World" (stage 7) reloads tiles 259-374 with each of its five sections' graphics as the camera passes
@@ -296,7 +296,12 @@ int map_entry(const Sms& s, int wx, int row) {
 // The cells of a section use only its own list's tiles, and none of them lie within 320 px after a threshold (the
 // view while the next list loads). The view's sides can show a section whose graphics are not (or no longer) in
 // VRAM: those cells take their patterns from a copy of the section's tiles made from ROM.
-constexpr int S7_FIRST = 259, S7_TILES = 116, S7_SECTIONS = 5;
+// Colours: sections 0-3 use the stage's palette ($B3E4 table, $B4D8); once section 4 (the night sky) is under way
+// ($C6A6 = 4) the stars twinkle in entries 10-13 ($3950, from $3979) and its list's end loads the background palette
+// $33A7 ($3243) - the city's colours are gone while its last buildings are still in the left side. Cells of the
+// other palette's sections are drawn with that palette (SmsVdp::alt_cram).
+constexpr int S7_FIRST = 259, S7_TILES = 116, S7_SECTIONS = 5, S7_NIGHT = 4;
+constexpr uint16_t S7_SECTION = 0xC6A6, PALETTES = 0xB3E4, S7_NIGHT_PALETTE = 0x33A7;
 
 struct SectionTiles {
     uint8_t tiles[S7_SECTIONS][S7_TILES * 32];
@@ -747,6 +752,7 @@ private:
     uint8_t page_[64] = {};   // each sprite table buffer entry's page as the writers left it (uploaded at the VBlank)
     SectionTiles s7_;    // stage 7's sections' reloaded tiles (made from ROM when first needed)
     bool s7_built_ = false;
+    uint8_t s7_day_[32] = {}, s7_night_[32] = {};   // stage 7's palettes before / after section 4 (apply_view)
     // the view's slide (apply_view): the parallax bands' first lines (line interrupts), the camera's band, and the
     // frame counter at the camera's last move (stage 1's bands move on its phase; kept in save states)
     int band_start_[3] = {999, 999, 999};
@@ -785,6 +791,16 @@ private:
             cam_band_ = stage == 0 ? 0 : 3;
         }
         if (cam != before) moved_at_ = (int)((m.module_state[MS_CAM] >> 16) & 0xFF);
+        if (stage == 7) {
+            // stage 7's two background palettes (from ROM; the sprites' half as it is now)
+            const uint16_t day = (uint16_t)(m.rom_orig8(PALETTES + 2 * 7) | (m.rom_orig8(PALETTES + 2 * 7 + 1) << 8));
+            for (int i = 0; i < 16; i++) {
+                s7_day_[i] = m.rom_orig8((uint32_t)day + i);
+                s7_night_[i] = m.rom_orig8((uint32_t)S7_NIGHT_PALETTE + i);
+            }
+            std::memcpy(s7_day_ + 16, v.cram + 16, 16);
+            std::memcpy(s7_night_ + 16, v.cram + 16, 16);
+        }
     }
 
     // A line's background shift, as it is drawn: the status bar (lines 0-15) and the rows below the playfield
@@ -829,7 +845,7 @@ private:
         const SmsVdp& v = s.vdp;
         if (!in_stage(s)) return -1;
         // the status bar (rows 0-1): blank beyond the 256 px; below the playfield: see line_hook
-        if (vrow < 2) return v.name_entry(0, vrow);
+        if (vrow < 2) return v.name_entry(0, vrow) & 0x1FFF;
         if (vrow >= 22) return -1;
         const SmsAladdin& mod = *(const SmsAladdin*)host;
         if (mod.band_of(line) != mod.cam_band_) return -1;   // a parallax band: it repeats every 256 px
@@ -839,16 +855,24 @@ private:
             const int lo = s.ram16(CAM_MIN), end = lo + s.ram16(MAP_STRIDE) * 16;
             if (wx < lo || wx >= end) wx = lo + ARENA_FROM + (((wx - lo - ARENA_FROM) % ARENA_PERIOD) + ARENA_PERIOD) % ARENA_PERIOD;
         }
-        const int e = map_entry(s, wx, vrow - 2);
+        int e = map_entry(s, wx, vrow - 2);
         const int tile = e & 0x1FF;
-        if (e >= 0 && s.ram8(STAGE) == 7 && tile >= S7_FIRST && tile < S7_FIRST + S7_TILES) {
+        if (e >= 0 && s.ram8(STAGE) == 7) {
             SmsAladdin& m7 = *(SmsAladdin*)host;
             if (!m7.s7_built_) { m7.s7_.build(s); m7.s7_built_ = true; }
             SmsVdp& vv = m7.sms_->vdp;
-            vv.alt_patterns = m7.s7_.tiles[m7.s7_.section(wx)];
-            vv.alt_first = S7_FIRST;
-            vv.alt_count = S7_TILES;
-            return e | 0x8000;
+            const int sec = m7.s7_.section(wx);
+            if (tile >= S7_FIRST && tile < S7_FIRST + S7_TILES) {
+                vv.alt_patterns = m7.s7_.tiles[sec];
+                vv.alt_first = S7_FIRST;
+                vv.alt_count = S7_TILES;
+                e |= 0x8000;
+            }
+            const bool night = sec >= S7_NIGHT;
+            if (night != (s.ram8(S7_SECTION) >= S7_NIGHT)) {   // (the other palette's part of the flight)
+                vv.alt_cram = night ? m7.s7_night_ : m7.s7_day_;
+                e |= 0x4000;
+            }
         }
         return e;
     }
