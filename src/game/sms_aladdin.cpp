@@ -18,7 +18,6 @@ constexpr uint16_t DEMO = 0xC104;        // attract-mode demo: the demo's mode, 
 constexpr uint16_t SCENE = 0xC11F;       // story scene shown by mode $13
 constexpr uint16_t HEALTH = 0xC116;      // half gems: 6 = three gems
 constexpr uint16_t ROCKS = 0xC456;       // stones to throw (0..9)
-constexpr uint16_t INVULN = 0xC467;      // invulnerability timer after a hit ($FF = for good: password AIQY)
 constexpr uint16_t FRAMES = 0xC20E;      // frame counter (bit 0 picks the sprite table's upload order)
 constexpr uint16_t TITLE_STATE = 0xCF01; // mode 0's script: $12 = title menu
 constexpr uint16_t TITLE_CURSOR = 0xCF24;// title menu: bit 0 = PASSWORD
@@ -51,7 +50,8 @@ const Stage kStages[] = {   // (numbered as the developers' TEST MODE numbers th
     {"Jafar", "Stage 7 - The Final Battle", "UIAN"},
 };
 
-// ---- sounds: the driver's commands (docs/re_sms_game.md section 5). Music names follow where the game plays them.
+// ---- sounds: the driver's commands (docs/re_sms_game.md section 5). Music names follow where the game plays them;
+// the effects are named where their use is clear (tools/re/sms_sfx_context.py), numbered otherwise.
 const SoundEntry kSounds[] = {
     {0x81, "Opening Story", true, 77},
     {0x82, "Title", true, 77},
@@ -74,7 +74,7 @@ const SoundEntry kSounds[] = {
     {0x93, "Unused Theme", true, 77},
     {0x94, "Defeated", true, 3},
     {0x95, "Effect 95", false}, {0x96, "Effect 96", false}, {0x97, "Effect 97", false}, {0x98, "Effect 98", false},
-    {0x99, "Enemy Hit", false}, {0x9A, "Effect 9A", false}, {0x9B, "Effect 9B", false}, {0x9C, "Enemy Appears", false},
+    {0x99, "Effect 99", false}, {0x9A, "Effect 9A", false}, {0x9B, "Effect 9B", false}, {0x9C, "Effect 9C", false},
     {0x9D, "Effect 9D", false}, {0x9E, "Effect 9E", false}, {0x9F, "Effect 9F", false}, {0xA0, "Effect A0", false},
     {0xA1, "Effect A1", false}, {0xA2, "Story Effect", false}, {0xA3, "Effect A3", false}, {0xA4, "Effect A4", false},
     {0xA5, "Effect A5", false}, {0xA6, "Effect A6", false}, {0xA7, "Effect A7", false}, {0xA8, "Effect A8", false},
@@ -84,9 +84,9 @@ const SoundEntry kSounds[] = {
     {0xB5, "Effect B5", false}, {0xB6, "Effect B6", false}, {0xB7, "Story Effect 2", false}, {0xB8, "Effect B8", false},
     {0xB9, "Effect B9", false}, {0xBA, "Menu Cursor", false}, {0xBB, "Menu Select", false}, {0xBC, "Pick Up", false},
     {0xBD, "Effect BD", false}, {0xBE, "Throw a Stone", false}, {0xBF, "Effect BF", false}, {0xC0, "Effect C0", false},
-    {0xC1, "Aladdin Hit", false}, {0xC2, "Aladdin Hit 2", false}, {0xC3, "Effect C3", false}, {0xC4, "Effect C4", false},
-    {0xC5, "Heavy Hit", false}, {0xC6, "Effect C6", false}, {0xC7, "Effect C7", false}, {0xC8, "Effect C8", false},
-    {0xC9, "Effect C9", false}, {0xCA, "Effect CA", false}, {0xCB, "Effect CB", false}, {0xCC, "Effect CC", false},
+    {0xC1, "Aladdin Hurt", false}, {0xC2, "Aladdin Hurt 2", false}, {0xC3, "Effect C3", false}, {0xC4, "Jafar's Magic", false},
+    {0xC5, "Big Hit", false}, {0xC6, "Effect C6", false}, {0xC7, "Effect C7", false}, {0xC8, "Effect C8", false},
+    {0xC9, "Jump", false}, {0xCA, "Effect CA", false}, {0xCB, "Effect CB", false}, {0xCC, "Effect CC", false},
     {0xCD, "Effect CD", false}, {0xCE, "Effect CE", false}, {0xCF, "Effect CF", false}, {0xD0, "Effect D0", false},
 };
 
@@ -108,8 +108,8 @@ const std::vector<RomPatch> kInfHealth = {
     {0x4A6F4, {0xD6, 0x02}, {0xD6, 0x00}},
 };
 const std::vector<RomPatch> kInfRocks = {{0x2156, {0x35, 0x3E, 0x11}, {0x00, 0x3E, 0x11}}};
-// The developers' menu (mode 1: stage select, sound test, sprite viewers, story scene select) is behind the title's
-// PASSWORD choice instead of the password screen.
+// The developers' TEST MODE (mode 1: character viewer, stage select, sound test, input test, the story scenes) is
+// behind the title's PASSWORD choice instead of the password screen ($4BC4: the mode the title hands over to).
 const std::vector<RomPatch> kDevMenu = {{0x4BC4, {0x0E, 0x0F}, {0x0E, 0x01}}};
 
 // ---- widescreen (docs/re_sms_wide.md) ----------------------------------------------------------------
@@ -260,6 +260,8 @@ void extra_sprites(Sms& s) {
         }
     }
 }
+
+// A sprite table entry's 256-px page (module_state[0..3], see sprite_x)
 enum : uint8_t { PAGE_0 = 0, PAGE_RIGHT = 1, PAGE_LEFT = 2, PAGE_HIDDEN = 3 };
 
 class SmsAladdin : public SmsModule {
@@ -361,7 +363,6 @@ public:
         info.mask_from = 16;     // the status bar (lines 0..15) stays whole
         info.mask_lines = 176;   // below the playfield: the text box of the stages' story moments, 256 px wide
         info.pillar_below = true;
-        info.view_left = E;
     }
 
     std::vector<CheatEntry> cheats() const override {

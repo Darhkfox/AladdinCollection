@@ -143,7 +143,7 @@ void SmsVdp::render_bg(uint8_t* dst, int ln, int x0, int x1) {
             const int yy = locked ? ln : ln + vscroll_latch;
             int e = -1;
             if (outside && bg_entry) e = bg_entry(hook_host, ln, vcol, yy >> 3);
-            if (e < 0) e = name_entry(vcol & 31, (yy % 224) >> 3);
+            if (e < 0) e = name_entry(vcol & 31, (yy % 224) >> 3) & 0x7FFF;   // (bit 15: alt_patterns, modules only)
             pattern_row((uint16_t)e, yy & 7, row8);
         }
         dst[x - x0] = row8[tx & 7];
