@@ -89,8 +89,9 @@ protected:
         return sms_->audio.data();
     }
     double core_sample_rate() const override { return sms_->sample_rate(); }
-    // Four PSG channels at full volume reach about 10k: lift them to the other consoles' loudness.
-    float core_audio_gain() const override { return 1.6f; }
+    // Four PSG channels at full volume reach about 10k: lifted to the other consoles' loudness (measured: Aladdin's
+    // stage music at this gain is a little under the Mega Drive version's, the square waves sounding brighter).
+    float core_audio_gain() const override { return 2.4f; }
     std::vector<uint8_t> core_save() override { return sms_->save_state(); }
     bool core_load_state(const std::vector<uint8_t>& data) override { return sms_->load_state(data); }
 
