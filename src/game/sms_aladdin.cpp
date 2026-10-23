@@ -29,6 +29,9 @@ constexpr uint16_t CAM_X = 0xC482, CAM_MAX = 0xC480, CAM_MIN = 0xC4B9;
 constexpr uint16_t MAP = 0xC48F, MAP_STRIDE = 0xC489, METATILES = 0xC49D;
 constexpr uint16_t SAT_XT = 0xC340;      // sprite table buffer: Y at $C300 (64), X / tile pairs at $C340
 constexpr int M_SCENE = 0x13, M_PASSWORD = 0x0F, M_GAME_OVER = 0x11;
+// sound driver
+constexpr uint16_t SOUND_ON = 0xC203, SOUND_MUSIC = 0xDE06, SOUND_SFX = 0xDE07, SOUND_PRIORITY = 0xDE11;
+constexpr uint16_t JUKEBOX_IDLE = 0xC0A0;   // music player: the CPU waits here (below the stack at $C100)
 
 bool stage_mode(int m) { return m >= 2 && m <= 0x0B; }
 bool in_stage(const Sms& s) { return stage_mode(s.ram8(MODE)) && s.ram8(STAGE) <= 9; }
@@ -46,6 +49,45 @@ const Stage kStages[] = {
     {"The Palace", "A Whole New World", "AALG"},
     {"The Palace", "Jafar's Palace", "BLTO"},
     {"The Palace", "Jafar", "UIAN"},
+};
+
+// ---- sounds: the driver's commands (docs/re_sms_game.md section 5). Music names follow where the game plays them.
+const SoundEntry kSounds[] = {
+    {0x81, "Opening Story", true, 77},
+    {0x82, "Title", true, 77},
+    {0x83, "Agrabah", true, 0},
+    {0x84, "The Cave of Wonders", true, 0},
+    {0x85, "Escape from the Cave", true, 43},
+    {0x86, "The Sultan's Palace", true, 51},
+    {0x87, "A Whole New World", true, 0},
+    {0x88, "Jafar's Palace", true, 205},
+    {0x89, "Jafar", true, 29},
+    {0x8A, "The Treasure Room", true, 0},
+    {0x8B, "Jasmine", true, 51},
+    {0x8C, "Agrabah at Night", true, 102},
+    {0x8D, "Danger", true, 0},
+    {0x8E, "The Old Prisoner", true, 0},
+    {0x8F, "Jafar's Plot", true, 0},
+    {0x90, "The Genie", true, 130},
+    {0x91, "Prince Ali", true, 154},
+    {0x92, "Jafar the Genie", true, 77},
+    {0x93, "Unused Theme", true, 77},
+    {0x94, "Defeated", true, 3},
+    {0x95, "Effect 95", false}, {0x96, "Effect 96", false}, {0x97, "Effect 97", false}, {0x98, "Effect 98", false},
+    {0x99, "Enemy Hit", false}, {0x9A, "Effect 9A", false}, {0x9B, "Effect 9B", false}, {0x9C, "Enemy Appears", false},
+    {0x9D, "Effect 9D", false}, {0x9E, "Effect 9E", false}, {0x9F, "Effect 9F", false}, {0xA0, "Effect A0", false},
+    {0xA1, "Effect A1", false}, {0xA2, "Story Effect", false}, {0xA3, "Effect A3", false}, {0xA4, "Effect A4", false},
+    {0xA5, "Effect A5", false}, {0xA6, "Effect A6", false}, {0xA7, "Effect A7", false}, {0xA8, "Effect A8", false},
+    {0xA9, "Effect A9", false}, {0xAA, "Effect AA", false}, {0xAB, "Carpet Crash", false}, {0xAC, "Effect AC", false},
+    {0xAD, "Effect AD", false}, {0xAE, "Effect AE", false}, {0xAF, "Effect AF", false}, {0xB0, "Effect B0", false},
+    {0xB1, "Password Letter", false}, {0xB2, "Effect B2", false}, {0xB3, "Effect B3", false}, {0xB4, "Effect B4", false},
+    {0xB5, "Effect B5", false}, {0xB6, "Effect B6", false}, {0xB7, "Story Effect 2", false}, {0xB8, "Effect B8", false},
+    {0xB9, "Effect B9", false}, {0xBA, "Menu Cursor", false}, {0xBB, "Menu Select", false}, {0xBC, "Pick Up", false},
+    {0xBD, "Effect BD", false}, {0xBE, "Throw a Stone", false}, {0xBF, "Effect BF", false}, {0xC0, "Effect C0", false},
+    {0xC1, "Aladdin Hit", false}, {0xC2, "Aladdin Hit 2", false}, {0xC3, "Effect C3", false}, {0xC4, "Effect C4", false},
+    {0xC5, "Heavy Hit", false}, {0xC6, "Effect C6", false}, {0xC7, "Effect C7", false}, {0xC8, "Effect C8", false},
+    {0xC9, "Effect C9", false}, {0xCA, "Effect CA", false}, {0xCB, "Effect CB", false}, {0xCC, "Effect CC", false},
+    {0xCD, "Effect CD", false}, {0xCE, "Effect CE", false}, {0xCF, "Effect CF", false}, {0xD0, "Effect D0", false},
 };
 
 // ---- cheats (docs/re_sms_game.md section 4) --------------------------------------------------------------
@@ -193,6 +235,7 @@ public:
     const char* rom_names() const override { return "9027"; }
     uint32_t accent_color() const override { return 0xFFF0705E; }
     int max_ext() const override { return 102; }
+    int preview_start() const override { return 2450; }   // the intro story runs ~40 s before the title
 
     static std::vector<RomPatch> patch_list(const GameConfig& cfg) {
         std::vector<RomPatch> p;
@@ -283,6 +326,94 @@ public:
         };
     }
 
+    std::vector<SoundEntry> sounds() const override { return std::vector<SoundEntry>(std::begin(kSounds), std::end(kSounds)); }
+
+    std::vector<AchievementDef> achievements() const override {
+        return {
+            {"sms_market", "Street Rat", "Escape the guards through the Agrabah market."},
+            {"sms_rooftops", "One Jump Ahead", "Clear the rooftop chase."},
+            {"sms_cave", "Into the Cave", "Make it through the first halls of the Cave of Wonders."},
+            {"sms_treasure", "Touch Nothing", "Get through the Treasure Room."},
+            {"sms_lamp", "The Lamp", "Reach the lamp."},
+            {"sms_escape", "Out of the Fire", "Escape the collapsing Cave of Wonders on the magic carpet."},
+            {"sms_prince", "Prince Ali", "Make it through the Sultan's palace."},
+            {"sms_carpet", "Magic Carpet Ride", "Finish the night flight over Agrabah."},
+            {"sms_palace", "Jafar's Palace", "Make it through Jafar's palace."},
+            {"sms_jafar", "Jafar Defeated", "Defeat Jafar and finish the game."},
+            {"sms_newgame", "Diamond in the Rough", "Finish the game from GAME START, without a password."},
+            {"sms_nocontinue", "Never Gave Up the Lamp", "Finish the game from GAME START without a game over.", true},
+            {"sms_noscratch", "Not a Scratch", "Clear a stage without losing a gem."},
+            {"sms_flawless", "Flawless Tour", "Clear every stage, and beat Jafar, without losing a gem.", false, 10, true},
+            {"sms_jafar_flawless", "Sultan's Champion", "Defeat Jafar without losing a gem.", true},
+            {"sms_stones", "Rock Collector", "Carry nine stones at once.", false, 9},
+            {"sms_skip", "Seen It Before", "Skip a story scene (both buttons at once).", true},
+        };
+    }
+
+    // ---- Achievements (indices follow achievements())
+    enum { A_MARKET, A_ROOFTOPS, A_CAVE, A_TREASURE, A_LAMP, A_ESCAPE, A_PRINCE, A_CARPET, A_PALACE, A_JAFAR, A_NEWGAME,
+           A_NOCONTINUE, A_NOSCRATCH, A_FLAWLESS, A_JAFAR_FLAWLESS, A_STONES, A_SKIP };
+    enum { S_FIRED, S_CLEAN, S_ATTEMPT };
+    // run bits: a run is going (a stage was entered), it began with GAME START, a game over happened
+    enum : uint32_t { R_RUN = 1, R_NEWGAME = 2, R_GAME_OVER = 4 };
+
+    void achievement_frame(const Sms& m, AchievementCtx& c) const override {
+        if (c.prev.size() != sizeof(m.ram)) return;
+        const RamViewLE s{m.ram, 0x1FFF}, p{c.prev.data(), 0x1FFF};
+        auto fire = [&](int i) {
+            if (c.scratch[S_FIRED] & (1 << i)) return;
+            c.scratch[S_FIRED] |= 1 << i;
+            c.unlocked.push_back(i);
+        };
+        const int sm = s.b(MODE), pm = p.b(MODE), stage = s.b(STAGE), pstage = p.b(STAGE);
+        auto demo = [](const RamViewLE& r) { const int d = r.b(DEMO); return d >= 2 && d <= 0x0B; };
+        if (demo(s) || demo(p)) { c.scratch[S_ATTEMPT] = 0; return; }   // the attract mode's recorded play
+        // runs: GAME START (the opening scene from the title), a password, a game over, back to the title
+        if (pm == 0 && sm == M_SCENE && s.b(SCENE) == 0) c.run_bits = R_RUN | R_NEWGAME;
+        if (pm == M_PASSWORD && stage_mode(sm)) c.run_bits = R_RUN;
+        if (sm == M_GAME_OVER && pm != M_GAME_OVER) c.run_bits |= R_GAME_OVER;
+        if (sm == 0 && pm != 0) c.run_bits = 0;
+        // stage clears: the stage number goes up as the stage hands over to its story scene / the next stage
+        if (stage_mode(pm) && pstage <= 8 && stage == pstage + 1 && c.scratch[S_ATTEMPT]) {
+            fire(A_MARKET + pstage);
+            if (c.scratch[S_CLEAN]) {
+                fire(A_NOSCRATCH);
+                c.marked.push_back({A_FLAWLESS, pstage});
+            }
+            c.scratch[S_ATTEMPT] = 0;
+        }
+        // a stage attempt: from its first frame (entered - also straight from the stage before, as the lamp's chamber
+        // is -, restarted after a game over, or by the level select)
+        const bool selected = c.level_select && stage_mode(sm);
+        c.level_select = false;
+        if ((stage_mode(sm) && sm != pm) || selected) {
+            c.scratch[S_ATTEMPT] = 1;
+            c.scratch[S_CLEAN] = 1;
+        }
+        if (stage_mode(sm) && sm == pm && s.b(HEALTH) < p.b(HEALTH)) c.scratch[S_CLEAN] = 0;
+        // Jafar: eight hits ($C6AD) and the stage hands over to the ending's first scene ($20)
+        if (pm == 0x0B && sm == M_SCENE && s.b(SCENE) == 0x20) {
+            fire(A_JAFAR);
+            if (c.scratch[S_ATTEMPT] && c.scratch[S_CLEAN]) {
+                fire(A_NOSCRATCH);
+                fire(A_JAFAR_FLAWLESS);
+                c.marked.push_back({A_FLAWLESS, 9});
+            }
+            c.scratch[S_ATTEMPT] = 0;
+            if (c.run_counts && (c.run_bits & R_RUN) && (c.run_bits & R_NEWGAME)) {
+                fire(A_NEWGAME);
+                if (!(c.run_bits & R_GAME_OVER)) fire(A_NOCONTINUE);
+            }
+        }
+        if (stage_mode(sm)) {
+            const int rocks = s.b(ROCKS);
+            if (rocks > p.b(ROCKS) && rocks <= 9) c.progress.push_back({A_STONES, rocks});
+            if (rocks == 9) fire(A_STONES);
+        }
+        // a story scene skipped: both buttons set $CF92 ($66B7, scenes 0-$1F)
+        if (sm == M_SCENE && pm == M_SCENE && s.b(SCENE) < 0x20 && s.b(0xCF92) && !p.b(0xCF92)) fire(A_SKIP);
+    }
+
     std::vector<LevelEntry> levels() const override {
         std::vector<LevelEntry> v;
         for (const Stage& st : kStages) v.push_back({st.group, st.name});
@@ -313,6 +444,38 @@ public:
         // the stage's handler starts after the fade-out (rst $28) and loads the stage ($C912 set meanwhile)
         if (!run_until(s, [&]() { return s.ram8(STAGE_INIT) != 0; }, 300)) return false;
         return run_until(s, [&]() { return s.ram8(STAGE_INIT) == 0; }, 300);
+    }
+
+    // ---- music player ------------------------------------------------------------------------------------
+    // The PSG driver (bank 7, $8000) runs from the VBlank interrupt while $C203 is set; it takes requests in $DE06 /
+    // $DE07 / $DE08 (the one with the highest priority in its table at $8C40 wins against the playing sound's,
+    // $DE11): $81-$94 music, $95-$D0 sound effects, $D1 fade out, $D2 stop.
+    void jukebox_boot(Sms& s) override {
+        s.power_on();
+        s.clear_pc_hooks();
+        run_frames(s, 120);   // (the intro has started the driver)
+        // park the CPU in RAM (ei / halt / jr) with nothing for the VBlank to do but call the driver
+        static const uint8_t idle[] = {0xFB, 0x76, 0x18, 0xFD};
+        for (int i = 0; i < 4; i++) s.set_ram8((uint16_t)(JUKEBOX_IDLE + i), idle[i]);
+        s.z80.sp = 0xC100;
+        s.z80.pc = JUKEBOX_IDLE;
+        s.z80.halted = false;
+        s.set_ram8(0xC201, 0);
+        stop_sound(s);
+        run_frames(s, 4);
+    }
+    void jukebox_frame(Sms& s) override {
+        s.set_ram8(0xC201, 0);
+        s.set_ram8(SOUND_ON, 1);
+    }
+    void play_sound(Sms& s, int id) override {
+        s.set_ram8(SOUND_ON, 1);
+        s.set_ram8(SOUND_PRIORITY, 0);
+        s.set_ram8(id < 0x95 ? SOUND_MUSIC : SOUND_SFX, (uint8_t)id);
+    }
+    void stop_sound(Sms& s) override {
+        s.set_ram8(SOUND_ON, 1);
+        s.set_ram8(SOUND_MUSIC, 0xD2);
     }
 
 private:

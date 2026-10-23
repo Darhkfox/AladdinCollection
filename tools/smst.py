@@ -352,3 +352,36 @@ class SMS:
 def write_png(path, px, w, h, scale=1):
     buf = (C.c_uint32 * len(px))(*px)
     return _dll.smst_write_png(path.encode('mbcs'), buf, w, h, scale)
+
+
+# ---- achievement detectors on RAM images (headless checks of the module's achievement_frame) ----
+_dll.smst_ach_create.restype = C.c_void_p
+_dll.smst_ach_create.argtypes = [C.c_char_p]
+_dll.smst_ach_destroy.argtypes = [C.c_void_p]
+_dll.smst_ach_reset.argtypes = [C.c_void_p, C.c_int, C.c_uint32, C.POINTER(C.c_uint8)]
+_dll.smst_ach_step.argtypes = [C.c_void_p, C.POINTER(C.c_uint8), C.POINTER(C.c_int), C.c_int]
+_dll.smst_ach_run_bits.restype = C.c_uint32
+_dll.smst_ach_run_bits.argtypes = [C.c_void_p]
+
+
+class Ach:
+    """feeds RAM images to the module's achievement_frame: step(ram) -> [(kind, value, index)]
+    (kind 0 unlocked, 1 counted, 2 marked (value = bit), 3 progress (value = count))"""
+
+    def __init__(self, gid='sms', run_counts=True):
+        self.h = _dll.smst_ach_create(gid.encode())
+        _dll.smst_ach_reset(self.h, 1 if run_counts else 0, 0, None)
+
+    def __del__(self):
+        if getattr(self, 'h', None):
+            _dll.smst_ach_destroy(self.h)
+
+    def step(self, ram):
+        buf = (C.c_uint8 * 0x2000).from_buffer_copy(bytes(ram))
+        out = (C.c_int * 64)()
+        n = _dll.smst_ach_step(self.h, buf, out, 64)
+        return [((v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF) for v in out[:n]]
+
+    @property
+    def run_bits(self):
+        return _dll.smst_ach_run_bits(self.h)
