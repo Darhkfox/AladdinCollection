@@ -33,9 +33,9 @@ screen pixel (the layer's scroll register completed from its struct, per line). 
 changes, any width up to the PPU's limit works, and a width change in the middle of a level needs no redraw.
 `tools/re/snes_mapdecode.py` checks the decode against VRAM over the game's own screen in every level: identical.
 
-A layer is drawn from VRAM instead where it doesn't follow its struct: a background scrolled in raster bands by HDMA
-(`$083F` modes `$0A-$10`: Agrabah's skyline, the lava cavern's), or a fixed / fully loaded repeating picture - their
-VRAM map holds the whole 512-px repeat, so the wrap is right.
+A layer is drawn from VRAM instead where it doesn't follow its struct: a band of a background scrolled in raster
+bands by HDMA at another speed than its struct's (`$083F` modes `$0A-$0E`: Agrabah's skyline, the lava cavern's), or
+a fixed / fully loaded repeating picture - their VRAM map holds the whole 512-px repeat, so the wrap is right.
 
 **Parallax.** BG2's speed by `$083F` (`$81:C781`): modes 0 / 6 / 8 half the camera's x, 2 / 4 the camera's. Where the
 view stops at a level edge while the game's camera moves on (below), a half-speed background would slide against the
@@ -47,6 +47,44 @@ Before its first column and past what the game shows of it at the level's end (`
 sets the scroll): in the margins only its own copy, at `[-x, 256 - x)`, is shown (none while parked at x = 256), not the
 map's 512-px repeat.
 
+**Backgrounds the game scrolls itself** (`$083F` modes `$0A-$14`, the routines of `$81:C781`, run at the end of the
+camera's move `$81:C5A4`). Where the view stops, BG2 is drawn on each line where the game's own code would scroll it
+with its camera at the picture's middle, v = camera - extL + ext (`band_adj`): the line is shifted by
+`H(v) - H(camera) - (v - camera)` on top of the view's shift (`bgHofsAdj`; drawn from the level's data the whole line,
+`wideFetchAll`, where the line follows BG2's struct). So it holds still with the stopped picture and moves exactly as
+the game moves it; where the view is centred, v = camera and nothing changes. H by mode:
+- `$0A` Agrabah Market, Market at Dusk (`$81:C98C`): six bands by world y (bounds `$80:C61A`: 0, `$C8`, `$FC`, `$10C`,
+  `$11C`, `$1AC`): S, S/2, S/4, S/8 with S = `$1A30` + camera, then camera / 2 (the town, BG2's struct) and camera *
+  5/4. `$1A2F` (24 bits) drifts by `$C0` a frame and drops by the camera's move right (`$19E5` the camera before it):
+  the top four bands hold still while the camera moves right and move with it (1, 1/2, 1/4, 1/8) while it moves left.
+  With the camera at v the game would have dropped `$1A30` by v's moves instead: `band_d_` keeps that difference (mod
+  4096, a multiple of the 512-px map), updated once per logic frame.
+- `$0E` Agrabah Rooftops (`$81:C952`): seven bands (bounds `$80:C60A`): (`$1A30` + camera) / 2 and / 4 (the sky
+  drifting), then camera / 2.
+- `$0A` / `$0E` build their HDMA table by world y from camera y + 8 (`$81:C84B`; double-buffered, `$80:C628`, BG2HOFS
+  on channel 4): the first entry one line, then the bands on screen. HDMA starts from the IRQ at line 8
+  (`re_snes_game.md`, core fix), so the second entry reaches row 11 (`kBandRow0`). Each line's band is found from BG2's
+  vertical scroll (camera y) and checked against the register (a band's neighbour at its edge).
+- `$0C` the Lava Cavern (`$81:C7E7`): eleven bands in a fixed screen table (`$7E:F400`, counts from `$80:B992`, rewritten
+  in place by the logic, so mid-frame), each a 24.8 accumulator with its own speed (`$7E:F800` + `$7E:F900`): they drift
+  whatever the camera does, but band 9, which is the camera: every line holds still (H independent of the camera),
+  band 9's moves with BG1.
+- `$10` Jafar's Palace 3 (`$81:C9F2`, phase `$0841`): the camera; from its last part (phase 2, 4) at half speed past
+  `$1000` (`$81:CA55`).
+- `$12` the Carpet Escape's wave: placed by its object at its world position (`$83:F244`: camera + `$80` - x), `$14`
+  Sultan's Dungeon 3 (`$81:CA6A`): the camera (its y moves by itself): both move with BG1 - no shift.
+
+The sums S (and `$1A30` + camera for `$0E`) whose low bits the shifts need are taken when the frame's logic is done (the
+level loop reached its frame wait `$81:82E6` since its top: `logic_done_`) and used for the frame that shows that
+camera (`band_next_` / `band_shown_`); in a frame the game's logic didn't finish in, a line whose register isn't the
+worked-out value takes the sum from the register (its low bits unknown: within 1 px). A half-speed band drawn from
+the level's data shows up to ext / 2 px before its first column at the level's start: these levels fill the page
+table's border column (page -1) with their background's repeat (Agrabah Market's town: `$1800`, `$1600`, `$1800`, ...;
+the Market at Dusk's `$0200`, `$0000`, `$0200`, ...), so it is drawn from there, not mirrored as the parallax levels'
+(whose border column is empty in places: Desert Ruins); at the right end the page row goes on past what the game
+shows. `tools/re/snes_motion.py` checks every band against the game's own move of it, from the registers
+(`Ppu::lineRegs`, `snt.py line_regs`).
+
 ## 3. The view
 
 The picture is the game's 256 px plus `extL` / `extR` (`Ppu::setExt` at the first line; the PPU's `kMaxExt` is now 288
@@ -54,13 +92,11 @@ so one side can take both extensions, 2 x 140).
 
 **Where the view stops** (`span`): at the level's ends, `[0, $1A04 + 256)`, and on an arena's screen when the camera is
 held in x while free in y (`$1A10` set, `$1A12` clear: Jafar). The view is centred on the camera and stops there; a
-span narrower than the picture is centred. Only where every layer can follow a view that stays still while the game's
-camera moves (`can_stop`): BG1, and a BG2 drawn from the level's data at a known speed (`$083F` modes 0-8, with the
-parallax shift of section 2). In the levels whose background the game scrolls in raster bands (`$0A-$10`: Agrabah
-Market, Agrabah Rooftops, Market at Dusk, Lava Cavern, Jafar's Palace 3), by an object (`$12`, the Carpet Escape) or
-itself (`$14`, Sultan's Dungeon 3), those bands would slide against the still picture: there the view stays centred on
-the game's camera everywhere (every layer moves exactly as on the console) and the margins past the level's ends are
-mirrored and dimmed.
+span narrower than the picture is centred. That is where every layer can follow a view that stays still while the
+game's camera moves (`can_stop`): BG1, and BG2 in every level's mode - at a known speed (`$083F` modes 0-8, the parallax
+shift) or as the game scrolls it itself (`$0A-$14`: raster bands, phases, an object; section 2). (A first version
+kept the view centred in those seven levels, with the level mirrored and dimmed past their ends; before that they
+stopped with the bands sliding against the still picture.) A mode outside those would keep the view centred.
 
 The span changes only at an arena or when the level's width changes (Jafar's room). The view's offset to its new place
 then closes only as the game's camera moves (at most 4 px a frame, and no more than the camera moved): the picture
@@ -73,11 +109,15 @@ max(cam, $1A42) + 256)` (Market at Dusk's boss), an arena, the pages it may ente
 (barrier pages, bit 15). On each line, past the level (the line's own page row's pages, the level's width) BG1 and BG2
 are mirrored about the level's edge (`Ppu::wideMirror`, `wideDimLo/Hi`; black instead with *Past Level Ends: Black*).
 
-**Save states and rewind** (the app saves one every 2 frames while rewinding is possible): `save_ext` carries the view
-(span, offset, reach, whether it may stop), the sprites' recorded x - both the latched set and the one being built for
-the next OAM DMA - and how many frames ago the level loop's top ran, so a state saved in a frame the game's logic didn't
-finish in still counts as a level. `tools/re/snes_rewind.py` rewinds as the app does and compares every rewound picture
-with the straight run's: identical.
+A state made at another width (or the width switched on from 4:3) shows its first frame where the view stops already
+(the level's extent at the camera), not centred.
+
+**Save states and rewind** (the app saves one every 2 frames while rewinding is possible): `save_ext` (version 3)
+carries the view (span, offset, reach, whether it may stop), the sprites' recorded x - both the latched set and the one
+being built for the next OAM DMA - how many frames ago the level loop's top ran, so a state saved in a frame the game's
+logic didn't finish in still counts as a level, and the band routines' inputs (both snapshots, whether this logic
+frame's is taken, the ratchet's difference). `tools/re/snes_rewind.py` rewinds as the app does and compares every
+rewound picture with the straight run's: identical (also from near a level's end: its `state` argument).
 
 ## 4. Objects
 
@@ -110,15 +150,30 @@ margins and, where the view is split, moved to the picture's middle (`(extR - ex
   plays each level (invincible) with pictures every 150 frames (`tools/qa/snes/play_<ext>_<n>.png`). Checked at 46,
   106 and 140 in all 19 levels.
 - The app itself: `build/bin/AladdinCollection.exe --game snes --autotest <dir> <script>` with `aspect=1` in
-  `settings.ini` for 140 (`tools/qa/snes/app/script1.txt`).
+  `settings.ini` for 140; `tools/re/snes_apptest.py <dir> 4 <levels>` makes the states (each level's start and, from
+  `snes_end_states.py`, near its right end), the script and contact sheets.
+- `snes_motion.py <ext> all`: every level from its start; `snes_motion.py <ext> <level> 900
+  tools/states/snes_end_<level>.state` from near its right end (`hover` for the Lava Cavern). At 46, 106 and 140 the
+  seven levels whose background the game scrolls itself have no BG2 error (every band, from the registers) and no
+  "still" frame, from their starts and their ends; BG1 is off in 0-3 single frames a run, all at a fade (a level's
+  fade-in, a life lost, the exit), as with the centred view before. The twelve other levels' counts are the previous
+  module's exactly (theirs are frames of animated or flat pictures: Underground River, Inside the Lamp 3, Jafar's
+  Palace 2 most). The lava's drifting bands measure wrong from the pixels (listed only).
+- `snes_edges.py 140 <levels>`: the picture's world range against the level's in every frame from each level's start
+  and end state: nothing past the level's ends in the seven levels at 46 and 140, nor in the twelve others but
+  Jafar's room, narrower than the picture at 21:9 (pictures `tools/qa/snes/edges_<ext>_<level>.png`).
+- `snes_rewind.py 140 all` (and 106 in the seven levels, 140 from their end states): every rewound picture identical.
+  The app's own rewind (`R` held in an autotest script, achievements off) shows the same.
 
 ## Known limitations
 
 - Objects that only exist where the game's camera is (scripted events, bosses) appear as in the original; enemies
   can be seen waiting at the margins' edge before they wake (they act as on the console once in range).
-- In the levels with a background scrolled in raster bands, by an object or by itself (Agrabah Market, Agrabah
-  Rooftops, Market at Dusk, Lava Cavern, Carpet Escape, Sultan's Dungeon 3, Jafar's Palace 3) the view doesn't stop at
-  the level's ends: there the margins show the level mirrored and dimmed (black with *Past Level Ends: Black*).
+- In the levels whose background moves at half speed (modes 0, 6, 8), where the view stops at a level's start the
+  background shows a mirror image of itself before its first column (up to ext / 2 px) wherever it is seen there; the
+  levels the game scrolls itself draw that from the page table's border column (section 2).
+- The bands' lines follow the core's HDMA timing (the table's second entry at row 11): a few lines off the console's
+  if that timing is (the band's value is checked against the register at its edges).
 - Where Jafar's room grows and the camera is then held, the view keeps its place (the offset only closes while the
   camera moves), so the arena isn't centred in the picture; its unreachable sides are dimmed.
 - The dimmed sides of an arena show the level's data, not what the game draws there during the fight (Jafar's cobra

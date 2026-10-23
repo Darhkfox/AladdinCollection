@@ -280,6 +280,16 @@ API void snt_ppu_regs(void* h, int* out) {
     out[25] = p.objBase(); out[26] = p.objSizeSel();
 }
 
+// The last frame's rows (240): BG1 hofs, vofs, BG2 hofs, vofs, the hook's BG1 / BG2 hofs adjustments (6 ints a row)
+API void snt_line_regs(void* h, int* out) {
+    const Ppu& p = ((Tool*)h)->snes.ppu;
+    for (int r = 0; r < kFrameH; r++) {
+        const Ppu::LineRegs& l = p.lineRegs[r];
+        int* o = out + r * 6;
+        o[0] = l.hofs[0]; o[1] = l.vofs[0]; o[2] = l.hofs[1]; o[3] = l.vofs[1]; o[4] = l.adj[0]; o[5] = l.adj[1];
+    }
+}
+
 API void snt_set_ext(void* h, int l, int r, int no_limit) {
     Tool* t = (Tool*)h;
     t->snes.ppu.setExt(l, r);

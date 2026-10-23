@@ -91,6 +91,12 @@ public:
   };
   WideAlt wideAlt[4];
   uint8_t debugLayers = 0x1f;  // debugging: layers to draw (bit 0-3 BG1-4, bit 4 OBJ)
+  // Debugging (analysis tools): each rendered row's BG1 / BG2 scroll registers and the hook's bgHofsAdj for them.
+  struct LineRegs {
+    uint16_t hofs[2], vofs[2];
+    int16_t adj[2];
+  };
+  LineRegs lineRegs[kFrameH] = {};
   bool hideWideObj = false;
   bool maskWide = false;     // black out margins for this line
   // Margin pixels outside [wideShowLo, wideShowHi) are black on this line (a

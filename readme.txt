@@ -415,9 +415,9 @@
   More of each level really is drawn at the sides: the level, enemies and
   items appear and move across the whole width. Where a level ends, the
   extra width is blacked out (Mega Drive, Master System) or, on the SNES,
-  the view stops at the edge (in levels whose background scrolls in
-  bands, the level is shown mirrored and dimmed there instead). Boss
-  arenas keep the original camera, with the parts you can't reach dimmed.
+  the view stops at the edge, with the background still moving as on the
+  console. Boss arenas keep the original camera, with the parts you can't
+  reach dimmed.
 
   Shown in their original shape: title screens, menus, story scenes, the
   Mega Drive's bonus rounds and Rug Ride, the SNES staff roll.

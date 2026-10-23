@@ -114,6 +114,8 @@ if hasattr(_dll, 'snt_module_view_left'):
     _sig('snt_module_view_left', I, V)
 if hasattr(_dll, 'snt_edge_mirror'):
     _sig('snt_edge_mirror', None, V, I)
+if hasattr(_dll, 'snt_line_regs'):
+    _sig('snt_line_regs', None, V, C.POINTER(C.c_int))
 _sig('snt_module_info', None, V, C.POINTER(C.c_int))
 _sig('snt_module_start_level', I, V, I, I)
 _sig('snt_module_jukebox_boot', None, V)
@@ -244,6 +246,13 @@ class SNES:
     def edge_mirror(self, on):
         """Past a level's end: the level mirrored (the app's default) or black."""
         _dll.snt_edge_mirror(self.h, 1 if on else 0)
+
+    def line_regs(self):
+        """The last frame's rows (240) as rendered: (bg1 hofs, bg1 vofs, bg2 hofs, bg2 vofs, adj1, adj2) each, the
+        adjustments being what the game module added to the layers' horizontal scroll (Ppu::bgHofsAdj)."""
+        o = (C.c_int * (240 * 6))()
+        _dll.snt_line_regs(self.h, o)
+        return [tuple(o[r * 6:(r + 1) * 6]) for r in range(240)]
 
     def pixels(self):
         w, h = C.c_int(), C.c_int()

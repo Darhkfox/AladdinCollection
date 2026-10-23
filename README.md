@@ -122,11 +122,13 @@ achievements of its own: *A Whole New World* (defeat Jafar in all three versions
 
 - **Widescreen** up to 21:9 (468 px wide with CRT pixels, 536 with square ones). The sides are drawn straight from
   the level data the game keeps in RAM (the decoded tiles match video memory exactly in every level), so any width
-  works, a mid-level width change is instant and the game's own column streaming is untouched. The view stops at
-  the level's ends where every layer can follow it (the background's parallax is corrected there) and never pans
-  by itself; the Carpet Escape's wave and A Whole New World widen too. Objects appear, act and are drawn across the
-  whole width; the HUD and the PAUSE / ACTION texts are re-anchored. Boss arenas (the Market at Dusk, Jafar) keep the
-  original camera with the unreachable sides dimmed.
+  works, a mid-level width change is instant and the game's own column streaming is untouched. At every level's
+  ends the view stops, showing the level to the edges, and it never pans by itself; the background follows it line
+  by line — its parallax, and the raster bands, phases and objects the game scrolls it with in seven levels, worked
+  out as the game's own code would place them with its camera at the picture's middle — so every layer moves as on
+  the console. The Carpet Escape's wave and A Whole New World widen too. Objects appear, act and are drawn across the
+  whole width; the HUD and the PAUSE / ACTION texts are re-anchored. Boss arenas (the Market at Dusk, the end of
+  Sultan's Dungeon, Jafar) keep the original camera with the unreachable sides dimmed.
 - **Level select**: all 19 levels in the order the game plays them, A Whole New World included, started through
   GAME START with the game's own hidden stage select.
 - **Cheats**: invincibility, infinite health, lives, apples and gems, and Capcom's developer mode (10 hearts and 99
@@ -137,8 +139,10 @@ achievements of its own: *A Whole New World* (defeat Jafar in all three versions
 - **Achievements**: 17 — one per stage and for defeating Jafar's cobra, plus feats such as finishing without a
   continue, clearing a stage without losing a life, ten hearts, a hundred gems, beating Jafar without losing a
   heart, and finding the developer code.
-- Emulation fix: battery RAM is only mapped when the cartridge has some. Aladdin uses that as a copier check — with
-  it answering, the attract demo froze and Jafar's cobra had 127 hit points instead of 7.
+- Emulation fixes: battery RAM is only mapped when the cartridge has some. Aladdin uses that as a copier check — with
+  it answering, the attract demo froze and Jafar's cobra had 127 hit points instead of 7. HDMA switched on partway
+  down the screen now runs as on the console: Aladdin turns it on at line 8, and the raster bands of Agrabah's
+  skyline and the Lava Cavern's lava sea were missing (the whole background scrolled at one speed).
 
 ### Aladdin — Master System (SIMS, 1994)
 
@@ -243,10 +247,7 @@ gradlew assembleDebug
 - SNES: invincibility and infinite health don't prevent pits, crushes or being left behind by the scrolling. Infinite
   Gems keeps the counter at 99, so every gem completes a hundred (an extra heart, then an extra life). The dimmed
   sides of a boss arena show the level as stored, not what the fight paints on it (Jafar's fire floor stays in the
-  4:3 area). In the levels whose background the game scrolls in horizontal bands (Agrabah Market and Rooftops,
-  Market at Dusk, the Lava Cavern, Sultan's Dungeon 3, Jafar's Palace 3) and in the Carpet Escape the view stays
-  centred on the game's camera, so past the level's ends the sides show the level mirrored and dimmed. The staff
-  roll stays 4:3. The level select starts with new-game stats (3 lives, 3 hearts, 10 apples).
+  4:3 area). The staff roll stays 4:3. The level select starts with new-game stats (3 lives, 3 hearts, 10 apples).
 - Save states made by a newer version may not load in an older one.
 
 ## Credits and licences
