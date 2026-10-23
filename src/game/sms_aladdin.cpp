@@ -221,6 +221,12 @@ struct SectionTiles {
     }
 };
 
+// Jafar's room (stage 9) is the boss arena: a 384-px map the camera crosses 0..136, all of it within Aladdin's
+// reach. Past its ends there is no level: the widened view carries the room's pillars on there (its middle part,
+// x 128..255, repeats every 128 px; the hourglass at the right end is not repeated), dimmed (FrameInfo dim), the way
+// the Castle of Illusion port shows its arenas.
+constexpr int ARENA_STAGE = 9, ARENA_FROM = 128, ARENA_PERIOD = 128;
+
 // The camera's range: the original view shows world x [lo, hi + 256). A flat map can end before the camera's
 // limit allows (Jafar's room): the map's end counts.
 void level_bounds(const Sms& s, int& lo, int& hi) {
@@ -358,8 +364,14 @@ public:
         const int cam = (int)s.module_state[MS_CAM];
         int lo, hi;
         level_bounds(s, lo, hi);
-        info.mask_left = std::clamp(lo + E - cam, 0, E);
-        info.mask_right = std::clamp(cam + E - hi, 0, E);
+        const int left = std::clamp(lo + E - cam, 0, E), right = std::clamp(cam + E - hi, 0, E);
+        if (s.ram8(STAGE) == ARENA_STAGE) {
+            info.dim_left = left;
+            info.dim_right = right;
+        } else {
+            info.mask_left = left;
+            info.mask_right = right;
+        }
         info.mask_from = 16;     // the status bar (lines 0..15) stays whole
         info.mask_lines = 176;   // below the playfield: the text box of the stages' story moments, 256 px wide
         info.pillar_below = true;
@@ -561,7 +573,11 @@ private:
         const int hs = v.reg[8];
         const int cam = (int)s.module_state[MS_CAM];
         if (((hs + cam) & 0xFF) != 0) return -1;   // a parallax band: it repeats every 256 px
-        const int wx = cam + hs + vcol * 8;
+        int wx = cam + hs + vcol * 8;
+        if (s.ram8(STAGE) == ARENA_STAGE) {   // past the arena's ends: its pillars carry on (dimmed by post_frame)
+            const int lo = s.ram16(CAM_MIN), end = lo + s.ram16(MAP_STRIDE) * 16;
+            if (wx < lo || wx >= end) wx = lo + ARENA_FROM + (((wx - lo - ARENA_FROM) % ARENA_PERIOD) + ARENA_PERIOD) % ARENA_PERIOD;
+        }
         const int e = map_entry(s, wx, vrow - 2);
         const int tile = e & 0x1FF;
         if (e >= 0 && s.ram8(STAGE) == 7 && tile >= S7_FIRST && tile < S7_FIRST + S7_TILES) {

@@ -48,9 +48,13 @@ E px inside the level would make its first / last E px unreachable. Instead the 
 cannot show: world x outside [`$C4B9`, `$C480` + 256) (a flat map can end sooner: Jafar's room is 384 px wide):
 `mask_left = clamp(min + E - cam, 0, E)`, `mask_right = clamp(cam + E - max, 0, E)`, lines 16-175. The
 auto-scrolling stages (0 1 5 7 8) start with the left side masked until the camera has moved E px, and end with
-the right side masked; the free-scrolling ones mask while the camera is at either end. Jafar (stage 9): the
-camera can move 0..136 over a 384-px room; everything shown is reachable, the right side beyond the room is masked
-(nothing to dim).
+the right side masked; the free-scrolling ones mask while the camera is at either end.
+
+Boss arena — Jafar (stage 9): the original camera moves 0..136 over a 384-px room, all of it within Aladdin's reach;
+past the room's ends there is no level. There the extension carries the room's pillars on (its middle part, x
+128..255, repeats every 128 px: pillars at 148, 276, …; the hourglass at the right end is not repeated) and
+`post_frame` reports those columns as `dim_left` / `dim_right` instead of masks: shown dimmed, as the Castle of
+Illusion port shows its arenas.
 
 ## 3. Objects and sprites
 
