@@ -34,6 +34,7 @@ int TouchControls::control_at(float x, float y) const {
     if (!in_game) return -1;
     for (int b = 0; b < BtnCount; b++) {
         if ((b == BtnFF && !show_ff) || (b == BtnRewind && !show_rewind)) continue;
+        if (b == BtnA && system == System::MasterSystem) continue;   // (two buttons: 1 and 2)
         const Circle& c = btn_[b];
         float reach = c.r * (b <= BtnC ? 1.35f : 1.5f);   // a little forgiving around each button
         if (std::hypot(x - c.x, y - c.y) <= reach) return b;
@@ -172,10 +173,20 @@ void TouchControls::draw(Video& v, float opacity, bool ff, bool rw) const {
         float s = std::min(1.0f, c.r * 1.5f / std::max(1.0f, v.measure_text(font, label)));
         v.draw_text(font, c.x, c.y - v.line_height(font, s) * 0.52f, label, a(0.85f), Align::Center, s);
     };
-    round_button(BtnA, "A", FontId::Title);
-    round_button(BtnB, "B", FontId::Title);
-    round_button(BtnC, "C", FontId::Title);
-    round_button(BtnStart, "START", FontId::Small);
+    // the console's own buttons: the SNES's Y B A, the Master System's 1 and 2 (and its Pause)
+    if (system == System::Snes) {
+        round_button(BtnA, "Y", FontId::Title);
+        round_button(BtnB, "B", FontId::Title);
+        round_button(BtnC, "A", FontId::Title);
+    } else if (system == System::MasterSystem) {
+        round_button(BtnB, "1", FontId::Title);
+        round_button(BtnC, "2", FontId::Title);
+    } else {
+        round_button(BtnA, "A", FontId::Title);
+        round_button(BtnB, "B", FontId::Title);
+        round_button(BtnC, "C", FontId::Title);
+    }
+    round_button(BtnStart, system == System::MasterSystem ? "PAUSE" : "START", FontId::Small);
     round_button(BtnMenu, "MENU", FontId::Small);
     if (ff) round_button(BtnFF, "\xE2\x96\xB6\xE2\x96\xB6", FontId::Small);
     if (rw) round_button(BtnRewind, "\xE2\x97\x80\xE2\x97\x80", FontId::Small);
@@ -187,7 +198,7 @@ uint16_t TouchControls::buttons(System s) const {
     struct { uint16_t from; int act; } map_snes[] = {{MD_UP, 0}, {MD_DOWN, 1}, {MD_LEFT, 2}, {MD_RIGHT, 3},
                                                      {MD_A, 6}, {MD_B, 4}, {MD_C, 5}, {MD_START, 10}};
     struct { uint16_t from; int act; } map_sms[] = {{MD_UP, 0}, {MD_DOWN, 1}, {MD_LEFT, 2}, {MD_RIGHT, 3},
-                                                    {MD_A, 4}, {MD_B, 4}, {MD_C, 5}, {MD_START, 6}};
+                                                    {MD_B, 4}, {MD_C, 5}, {MD_START, 6}};
     uint16_t out = 0;
     if (s == System::Snes) {
         for (auto& m : map_snes) if (md & m.from) out |= action_bit(s, m.act);

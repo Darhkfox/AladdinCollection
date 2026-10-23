@@ -243,6 +243,7 @@ void App::frame(double dt) {
     rewind_held = rewind_held || touch_.held(TouchControls::BtnRewind);
     ff_held = ff_held || touch_.held(TouchControls::BtnFF);
     touch_.in_game = in_play;
+    touch_.system = session_ ? session_->system() : System::MegaDrive;
     touch_.show_ff = settings_.fast_forward && !settings_.achievements;
     touch_.show_rewind = settings_.rewind && !settings_.achievements;
     touch_.layout((float)video_.width(), (float)video_.height());

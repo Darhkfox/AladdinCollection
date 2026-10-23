@@ -31,6 +31,7 @@ public:
     bool visible = true;                   // shown while touch is the input in use
     bool in_game = false;                  // the on-screen pad only exists during play
     bool show_ff = true, show_rewind = true;
+    System system = System::MegaDrive;   // the running game's console: the buttons' labels (and the Master System's two)
 
 private:
     struct Finger { int64_t id = -1; int ctl = -1; float x0 = 0, y0 = 0, x = 0, y = 0, last_y = 0; bool moved = false; };
