@@ -25,7 +25,13 @@ constexpr uint32_t APPLES = 0xFFEFE0, GEMS = 0xFFEFE2;        // two ASCII digit
 constexpr uint32_t HEALTH = 0xFFEFFA, HEALTH_MAX = 0xFFEFFB;
 constexpr uint32_t SWAP_PLANES = 0xFFF165;                    // the level map is on plane B (Sultan's Dungeon)
 constexpr uint32_t SCRIPT = 0xFFF572;                         // play-order script position (ROM $4082)
-constexpr uint32_t DEV_CHEAT = 0xFF7E20, DEV_MAP_VIEW = 0xFF7273;
+constexpr uint32_t DEV_CHEAT = 0xFF7E20, DEV_MAP_VIEW = 0xFF7273, DEV_FREEZE = 0xFF7E25;   // the debug screen's options
+constexpr uint32_t SCORE = 0xFF7E29;                          // six ASCII digits
+constexpr uint32_t ALADDIN = 0xFF7E40;                        // the player object ($83 while Aladdin is in play)
+constexpr uint32_t PAUSED = 0xFFF158;                         // $FF in the pause loop
+constexpr uint32_t GENIE_TOKENS = 0xFFF003;                   // a spin of the Genie's wheel each, after the level
+constexpr uint32_t LEVEL_END = 0xFFF0E9;                      // the level is over (countdown, $FF = at once)
+constexpr uint32_t DEMO = 0xFFF57C;                           // 1 in the attract demos
 constexpr uint32_t SCRIPT_START = 0x4082;
 
 // ROM code the module watches (PC hooks)
@@ -36,8 +42,9 @@ constexpr uint32_t PC_DEATH = 0x1A8F82;       // the death screen (Aladdin, Abu 
 constexpr uint32_t PC_PIT = 0x1A902E;         // fell below the map: a life lost without the death screen
 constexpr uint32_t PC_LEVEL_INIT = 0x1AA484;  // level init (start_level waits for it)
 
-// module_state: [0] frame (+1) the gameplay loop last ran in, 0 after it was left
-enum { MS_PLAY = 0 };
+// module_state: [0] frame (+1) the gameplay loop last ran in, 0 after it was left; [1] the developer flags the cheats
+// set (bit 0 cheat mode, bit 1 map view), to clear them when they are switched off
+enum { MS_PLAY = 0, MS_DEV = 1 };
 
 enum : int { L_ROOFTOPS = 0, L_MARKET, L_ABU_AGRABAH, L_DESERT, L_DUNGEON, L_CAVE, L_ABU_CAVE, L_ESCAPE, L_RUG_RIDE,
              L_LAMP, L_PALACE, L_JAFAR_PALACE, L_JAFAR_QUARTERS };
@@ -80,6 +87,8 @@ const std::vector<RomPatch> kInfApples = {{0x1B0360, {0x0C79, 0x3030}, {0x4E75, 
 const std::vector<RomPatch> kInfGems = {{0x1B03BE, {0x0C79, 0x3030}, {0x4E75, 0x3030}}};
 // a continue used ($1B0A1C subq.b #1, $FF7E3F)
 const std::vector<RomPatch> kInfContinues = {{0x1B0A1C, {0x5339, 0x00FF, 0x7E3F}, {0x4E71, 0x4E71, 0x4E71}}};
+// the pause screen's level-skip code ($4128: pad pairs A B B A A B B A, $FF ends) cut to its first press, A
+const std::vector<RomPatch> kLevelSkip = {{0x00412A, {0x0010}, {0xFF00}}};
 
 // ---- widescreen (docs/re_md_wide.md) -------------------------------------------------------------------
 // The level map is streamed into a 512-px plane one 16-px block column at a time as the camera crosses 16 px: the
@@ -348,6 +357,7 @@ public:
     const char* rom_names() const override { return "ALADDIN"; }
     uint32_t accent_color() const override { return 0xFF5AA8F2; }
     int max_ext() const override { return 128; }
+    int preview_start() const override { return 850; }   // the title screen (after the SEGA, Disney and Virgin logos)
 
     static std::vector<RomPatch> patch_list(const GameConfig& cfg) {
         std::vector<RomPatch> p;
@@ -358,6 +368,7 @@ public:
         if (cfg.cheat("inf_apples")) add(kInfApples);
         if (cfg.cheat("inf_gems")) add(kInfGems);
         if (cfg.cheat("inf_continues")) add(kInfContinues);
+        if (cfg.cheat("level_skip")) add(kLevelSkip);
         if (cfg.ext > 0) add(wide_patches(cfg.ext));
         return p;
     }
@@ -385,11 +396,22 @@ public:
     }
 
     void pre_frame(MegaDrive& md, const GameConfig& cfg) override {
+        // The developers' debug-screen options: set while the cheat is on, cleared once when it is switched off.
+        uint32_t& dev = md.module_state[MS_DEV];
+        if (cfg.cheat("dev_cheat")) { md.set_ram8(DEV_CHEAT, 0xFF); dev |= 1; }
+        else if (dev & 1) { md.set_ram8(DEV_CHEAT, 0); dev &= ~1u; }
         if (!in_gameplay(md)) return;
+        // Map view takes Aladdin out of play every frame ($1A9C9A clears his object); switched off, he is put back
+        // where the view is.
+        if (cfg.cheat("map_view")) { md.set_ram8(DEV_MAP_VIEW, 0xFF); dev |= 2; }
+        else if (dev & 2) {
+            md.set_ram8(DEV_MAP_VIEW, 0);
+            if (md.ram8(ALADDIN) == 0) md.set_ram8(ALADDIN, 0x83);
+            dev &= ~2u;
+        }
         // Infinite apples / gems also top a low stock up (the decrement no longer runs, but 0 can't throw / buy).
         if (cfg.cheat("inf_apples") && md.ram16(APPLES) < 0x3130) md.set_ram16(APPLES, 0x3130);
         if (cfg.cheat("inf_gems") && md.ram16(GEMS) < 0x3130) md.set_ram16(GEMS, 0x3130);
-        if (cfg.cheat("dev_cheat")) md.set_ram8(DEV_CHEAT, 0xFF);
     }
 
     void post_frame(MegaDrive& md, const GameConfig& cfg, FrameInfo& info) override {
@@ -399,6 +421,118 @@ public:
         // right edge on a timer (wider, they would pop up in the middle of the right extension).
         info.gameplay = in_gameplay(md) && level != L_ABU_AGRABAH && level != L_ABU_CAVE && level != L_RUG_RIDE;
         (void)E;   // (the level-edge masks are drawn per line by line_hook, so the HUD stays over them)
+    }
+
+    std::vector<AchievementDef> achievements() const override {
+        return {
+            {"md_market", "One Jump Ahead", "Escape the guards of Agrabah Market."},
+            {"md_desert", "Half a Scarab", "Cross the Desert and find the first half of the scarab."},
+            {"md_rooftops", "Street Rat", "Clear Agrabah Rooftops."},
+            {"md_dungeon", "Jailbreak", "Escape the Sultan's Dungeon."},
+            {"md_cave", "Touch Nothing but the Lamp", "Find the lamp in the Cave of Wonders."},
+            {"md_escape", "Magic Carpet Ride", "Escape from the Cave of Wonders on the carpet."},
+            {"md_lamp", "Friend Like Me", "Find your way out of the Genie's lamp."},
+            {"md_palace", "Prince Ali", "Clear the Sultan's Palace."},
+            {"md_quarters", "Snake in the Grass", "Clear Jafar's Quarters."},
+            {"md_jafar", "Defeat Jafar", "Defeat Jafar and finish the game."},
+            {"md_abu", "Monkey Business", "Find Abu's token and play one of his bonus rounds."},
+            {"md_genie", "Phenomenal Cosmic Power", "Spin the Genie's bonus wheel."},
+            {"md_peddler", "It's a Deal", "Buy something from the peddler."},
+            {"md_apples", "Apple of My Eye", "Carry 50 apples at once.", false, 50},
+            {"md_flawless", "Not a Scratch", "Clear a level without losing any health."},
+            {"md_sword", "Sword Play", "Clear a level without throwing a single apple.", true},
+            {"md_iron", "Diamond in the Rough", "Finish the game from a new game without losing a life.", true},
+            {"md_difficult", "Street Rat Supreme", "Finish the game on Difficult from a new game."},
+        };
+    }
+
+    // ---- Achievements: RAM only (docs/re_md_game.md section 5). Indices follow achievements().
+    enum { A_MARKET, A_DESERT, A_ROOFTOPS, A_DUNGEON, A_CAVE, A_ESCAPE, A_LAMP, A_PALACE, A_QUARTERS, A_JAFAR, A_ABU,
+           A_GENIE, A_PEDDLER, A_APPLES, A_FLAWLESS, A_SWORD, A_IRON, A_DIFFICULT };
+    enum { S_FIRED, S_ATT, S_ATT_LEVEL, S_ATT_HURT, S_ATT_THROWN };
+    // run bits: a game going on since the title (Aladdin first in Agrabah Market with score 0 and full lives), on
+    // Difficult, a life lost, a developer option or the level-skip code used
+    enum : uint32_t { R_RUN = 1, R_DIFFICULT = 2, R_LIFE_LOST = 4, R_DEV = 8 };
+
+    static int digits(const RamViewBE& r, uint32_t a, int n) {   // ASCII digits as a number
+        int v = 0;
+        for (int i = 0; i < n; i++) v = v * 10 + (r.b(a + i) - '0');
+        return v;
+    }
+
+    void achievement_frame(const MegaDrive& md, AchievementCtx& c) const override {
+        if (c.prev.size() != 0x10000) return;
+        const RamViewBE s{md.ram}, p{c.prev.data()};
+        auto fire = [&](int i) {
+            if (c.scratch[S_FIRED] & (1 << i)) return;
+            c.scratch[S_FIRED] |= 1 << i;
+            c.unlocked.push_back(i);
+        };
+        if (s.b(DEMO) || p.b(DEMO)) { c.scratch[S_ATT] = 0; return; }   // the attract demos are never play
+        if (s.b(DEV_CHEAT) || s.b(DEV_MAP_VIEW) || s.b(DEV_FREEZE)) c.run_bits |= R_DEV;
+        const int level = s.b(LEVEL);
+        const bool here = s.b(ALADDIN) == 0x83, was = p.b(ALADDIN) == 0x83;
+        // (a level the port's level select started: no run, an attempt from here)
+        const bool selected = c.level_select && here;
+        if (c.level_select) { c.level_select = false; c.run_bits = 0; }
+
+        // Aladdin put into a level: a level attempt starts (also after every lost life). A new game: Agrabah Market from
+        // the script's start with score 0 and the difficulty's full lives (5 / 3 / 2) - so also a continue there.
+        if ((here && !was) || selected) {
+            c.scratch[S_ATT] = 1;
+            c.scratch[S_ATT_LEVEL] = level;
+            c.scratch[S_ATT_HURT] = c.scratch[S_ATT_THROWN] = 0;
+            const int diff = s.b(DIFFICULTY);
+            const int full = diff == 0 ? 5 : diff == 1 ? 3 : 2;
+            if (level == L_MARKET && s.l(SCRIPT) == SCRIPT_START && digits(s, SCORE, 6) == 0 && digits(s, LIVES, 1) == full)
+                c.run_bits = R_RUN | (diff == 2 ? R_DIFFICULT : 0);
+        }
+        // the play-order script moved on to one of Abu's rounds (his token was found)
+        if (s.l(SCRIPT) != p.l(SCRIPT) && (level == L_ABU_AGRABAH || level == L_ABU_CAVE)) fire(A_ABU);
+        // lives: a death takes one; the last one goes with a continue
+        if (digits(s, LIVES, 1) < digits(p, LIVES, 1) || s.b(CONTINUES) < p.b(CONTINUES)) c.run_bits |= R_LIFE_LOST;
+        // in play (Aladdin there both frames, not paused)
+        if (here && was && !s.b(PAUSED)) {
+            if (s.b(HEALTH) < p.b(HEALTH)) c.scratch[S_ATT_HURT] = 1;
+            const int apples = digits(s, APPLES, 2), papples = digits(p, APPLES, 2);
+            if (apples < papples) c.scratch[S_ATT_THROWN] = 1;
+            if (apples > papples) c.progress.push_back({A_APPLES, std::min(apples, 50)});
+            if (apples >= 50) fire(A_APPLES);
+            if (digits(s, GEMS, 2) < digits(p, GEMS, 2)) fire(A_PEDDLER);
+        }
+        // a level is over: by the game, or by the pause screen's level-skip code (never counted, and the run is over)
+        if (!s.b(LEVEL_END) || p.b(LEVEL_END)) return;
+        if (s.b(PAUSED) || p.b(PAUSED)) { c.run_bits |= R_DEV; c.scratch[S_ATT] = 0; return; }
+        switch (level) {
+        case L_MARKET: fire(A_MARKET); break;
+        case L_DESERT: fire(A_DESERT); break;
+        case L_ROOFTOPS: fire(A_ROOFTOPS); break;
+        case L_DUNGEON: fire(A_DUNGEON); break;
+        case L_CAVE: fire(A_CAVE); break;
+        case L_RUG_RIDE: fire(A_ESCAPE); break;
+        case L_LAMP: fire(A_LAMP); break;
+        case L_PALACE: fire(A_PALACE); break;
+        case L_JAFAR_QUARTERS: fire(A_QUARTERS); break;
+        default: break;
+        }
+        // the Genie's wheel turns after the level for each token (not after the Sultan's Palace, $1B16E0)
+        if (s.b(GENIE_TOKENS) && level != L_PALACE) fire(A_GENIE);
+        if (c.scratch[S_ATT] && c.scratch[S_ATT_LEVEL] == level) {
+            const bool bonus = level == L_ABU_AGRABAH || level == L_ABU_CAVE || level == L_RUG_RIDE;
+            if (!bonus && !c.scratch[S_ATT_HURT]) fire(A_FLAWLESS);
+            // (Jafar's Quarters can't be cleared without apples)
+            if (!bonus && level != L_JAFAR_QUARTERS && !c.scratch[S_ATT_THROWN]) fire(A_SWORD);
+        }
+        c.scratch[S_ATT] = 0;
+        // Jafar's Palace is the last level: the ending follows
+        if (level == L_JAFAR_PALACE) {
+            fire(A_JAFAR);
+            if (c.run_counts && (c.run_bits & R_RUN) && !(c.run_bits & R_DEV)) {
+                if (!(c.run_bits & R_LIFE_LOST)) fire(A_IRON);
+                if (c.run_bits & R_DIFFICULT) fire(A_DIFFICULT);
+            }
+            c.run_bits = 0;
+        }
     }
 
     std::vector<CheatEntry> cheats() const override {
@@ -411,6 +545,10 @@ public:
             {"inf_continues", "Infinite Continues", "Game over never uses up a continue."},
             {"dev_cheat", "Developer Cheat Mode", "The CHEAT MODE of the developers' hidden debug screen (A C A C A C A C B B B B on OPTIONS): "
                                                   "Aladdin never loses health or lives."},
+            {"map_view", "Developer Map View", "The debug screen's MAP VIEW MODE: Aladdin leaves play and the D-pad flies the view around the "
+                                               "level. Switched off, Aladdin is put back at the middle of the view (switch it off over solid ground)."},
+            {"level_skip", "Developer Level Skip", "Pause, then press A: the level is over at once. (The developers' own code, A B B A A B B A "
+                                                   "while paused, works without this cheat.)"},
         };
     }
 
