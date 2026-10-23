@@ -5,16 +5,18 @@ square). The module supports E up to 128. Screen x runs from -E to 319+E; VDP sp
 
 Scripts: `tools/re/md_wide_util.py` (map access, the plane checker), `md_wide_demo.py` (review strips of every level
 through the module, `md_out/wide_<E>.png`; `caves` disassembles the patched code), `md_shots.py` (one level, a
-script of inputs, masks applied), `md_wide_spawn.py` (where objects appear), `md_apptest.py` (the real app's
-autotest on level states: masks, HUD, pillarboxing as the player sees them).
+script of inputs), `md_wide_edges.py` (every level's start and right end, slid, with a per-frame check that the view
+stays inside the level), `md_wide_spawn.py` (where objects appear, against the slid view), `md_apptest.py` (the real
+app's autotest on level states: HUD, pillarboxing as the player sees them).
 
 **Recipe**
-1. The planes are not patched: the map plane's columns outside the 4:3 view are drawn per line from the level map in
-   RAM (`line_hook`, §2). The Rug Ride (a 512-px loop, no map) keeps the VDP's own wrap.
-2. Objects are part of the map and spawn when their block column / row is streamed: caves spawn the columns the
-   widened view reaches too, and the despawn window and the sprite clip are widened (§3).
-3. HUD sprites are moved to the screen edges (`sprite_xoff`, §4).
-4. Level edges: black per line (the VDP's edge masks, so the HUD stays visible over them, §5).
+1. The planes are not patched: the map plane's columns outside what the game keeps valid are drawn per line from the
+   level map in RAM (`line_hook`, §2). The Rug Ride (a 512-px loop, no map) keeps the VDP's own wrap.
+2. Near a level's ends the picture slides (`view_shift`) so the widened view shows only what the 4:3 game shows; the
+   game's camera is untouched. Plane B slides by what the level's own scroll routine gives for the moved camera (§5).
+3. Objects are part of the map and spawn when their block column / row is streamed: caves spawn the columns the slid
+   view reaches too, and the despawn window and the sprite clip cover ±2E (§3).
+4. HUD sprites are moved to the screen edges and kept still while the view slides (`sprite_xoff`, §4).
 5. Gameplay = the gameplay or pause loop ran in the last 4 frames (PC hooks); Abu's bonus rounds and the Rug Ride are
    shown 4:3 (§6).
 
@@ -35,17 +37,18 @@ autotest on level states: masks, HUD, pillarboxing as the player sees them).
   |d| < 16: the 4:3 view [L+16+d, L+336+d) always lies inside with at least 1 px to spare on the left, 17 on the
   right. The level start "scrolls" 23 columns right and back (`$1AA724`) to fill the plane.
 * Clamps (`$1AA8FA`): left scrolling needs L ≥ 17 (camX ≥ 0), right scrolling camX + speed < W·16 − 353. The 4:3
-  view therefore shows map x [16, W·16 − 18) at most. There is no other camera lock: the camera follows Aladdin's
-  screen position toward x `$70` / `$F0` by facing; bosses fight in normal map areas.
+  view therefore shows map x [16, W·16 − 18) at most (camX in [0, W·16 − 354]). There is no other camera lock: the
+  camera follows Aladdin's screen position toward x `$70` / `$F0` by facing; bosses fight in normal map areas.
+  Aladdin's walking limits are screen x 20..304 (`$1A9F2C` / `$1A9E4E`), so the camera itself must stay the original.
 
 ## 2. Drawing the extension from the map (`draw_map_ext`)
 
-The widened view needs up to 37 block columns (E = 128: [L/16 − 8, L/16 + 29]); the 512-px plane holds 32 and the
-game keeps only 23 valid. Rather than widening the four writers (and the level-start fill), every scanline's
-extension pixels (screen x < 0 and ≥ 320) of the map plane (plane A, or B when `$F165` swaps them in Sultan's
-Dungeon) are drawn in the VDP line hook straight from the RAM map, with this line's own scroll:
-* map x at screen x 0 = the value ≡ −hscroll (mod 512) in [L − 128, L + 384); map y = Y + ((line + vscroll − Y)
-  mod 256) — the same positions the VDP shows in the centre (`line_view`).
+The widened, slid view needs up to 37 block columns; the 512-px plane holds 32 and the game keeps only 23 valid
+([L, L+368)). Rather than widening the four writers (and the level-start fill), every scanline's pixels of the map
+plane (plane A, or B when `$F165` swaps them in Sultan's Dungeon) that lie outside [L, L+368) are drawn in the VDP
+line hook straight from the RAM map, with this line's own scroll and the frame's slide:
+* map x at screen x 0 = the value ≡ −hscroll (mod 512) in [L − 128, L + 384), plus the slide; map y = Y + ((line +
+  vscroll − Y) mod 256) — the same positions the VDP shows in the centre (`line_view`).
 * block → name-table word → `VDP::pattern_row` (VRAM tiles, so animated tiles animate), with the priority bit.
 The planes in VRAM are untouched, so nothing depends on how the view got there: width changes mid-level, loaded
 states and the level-start fill need nothing extra. The picture on plane B is a 512×256 image the game scrolls
@@ -61,38 +64,67 @@ drawing there.
   L and +`$150` for the right column, whose map x is L + 352), y likewise from `$7DB2` + `$F152`; the table entry is
   cleared (no duplicate) and restored when the object despawns. An object stored in column c
   appears at screen x 16c − (camX + 16): the 4:3 game spawns them at screen x −31..−1 (left) and 321..351 (right).
-* **Spawn caves** (k = ⌈E/16⌉): after the left writer's own spawn (`$1AB446` `bsr $1AE3FC` → `jsr $7000.w`), the
-  cave spawns column L/16 − k as well (L and the column's map pointer `$7DAC` shifted around the call; skipped when
-  the column would be < 1); after the right writer's (`$1AB554` → `jsr $7080.w`) column L/16 + 22 + k (skipped at or
-  past the map width). A row spawns blocks [L/16 − k, L/16 + 22 + k] within the map instead of 23 from L (`$1AE4A8`:
-  the loop's a0 / d6 / d4 set by `$7100`). Objects then appear the same 1-31 px outside the widened view as outside
-  the 4:3 one (`md_wide_spawn.py`: no right-edge spawns inside the view at E = 20 / 54 / 80 / 108 / 128; what remains
-  inside is what the original also spawns inside — thrown apples, projectiles, rows below / above).
-* **Despawn** (`$1ADE84`): x outside [camX − `$50`, camX + `$190`] → [camX − `$50` − 16k, camX + `$190` + 16k]
-  (`$1ADEBA`, `$1ADECC`).
-* **Sprite clip** (`$1ABA0A`): map objects' pieces need VDP X in [0, `$1BF`) — now [−o, 448 + E) with
-  o = max(0, E − 96) (`$1ABAD0` → `jsr $7180.w`: the compare runs on a biased copy on the stack, so the X written is
-  the piece's own, negative left of X 0); screen-fixed objects (+6 bit 3) [0, 448 + E) (`$1ABA8C`). For E > 64 the
-  module switches the VDP's 10-bit sprite X on during play; X 896-1023 are read as −128..−1 (`vdp.cpp`), so pieces
-  entering the 21:9 view's left edge show.
-* Caves: the `$FF` fill at `$69E0-$FFFF` is unreferenced; `$7000-$71FF` is reachable with `jsr abs.w`.
+* **Spawn caves**: `$7200` works out the reach on each side from the camera (the slide s of §5, the same sum as the
+  module's `view_slide`): kl = ⌈(E − s)/16⌉, kr = ⌈(E + s)/16⌉ block columns (0..⌈2E/16⌉). After the left writer's
+  own spawn (`$1AB446` `bsr $1AE3FC` → `jsr $7000.w`) the cave spawns column L/16 − kl as well (skipped when it would
+  be < 1), after the right writer's (`$1AB554` → `jsr $7080.w`) column L/16 + 22 + kr (skipped at or past the map
+  width): the spawner is entered past its set-up (`$1AE42C`) with its column x (`$7DB0`, scratch) and map pointer (a0)
+  moved — L itself is never touched, since a frame can end inside the call and the view is worked out from L. A row
+  spawns blocks [L/16 − kl, L/16 + 22 + kr] within the map instead of 23 from L (`$1AE4A8`: the loop's a0 / d6 / d4
+  set by `$7100`). Objects then appear the same 1-31 px outside the slid view as outside the 4:3 one
+  (`md_wide_spawn.py`, checked against the slid view; what remains inside is what the original also spawns inside —
+  thrown apples, projectiles, things placed left of their block, rows below / above). While the view slides, its far
+  edge stays put in the map and so does the spawn column.
+* **Despawn** (`$1ADE84`): x outside [camX − `$50`, camX + `$190`] → [camX − `$50` − 16k, camX + `$190` + 16k],
+  k = ⌈2E/16⌉ (`$1ADEBA`, `$1ADECC`).
+* **Sprite clip** (`$1ABA0A`): map objects' pieces need VDP X in [0, `$1BF`) — now [−o, 448 + 2E) with
+  o = max(0, 2E − 96) (`$1ABAD0` → `jsr $7180.w`: the compare runs on a biased copy on the stack, so the X written is
+  the piece's own, negative left of X 0); screen-fixed objects (+6 bit 3) [0, 448 + 2E) (`$1ABA8C` → `jsr $71C0.w`).
+  From E = 33 the module switches the VDP's 10-bit sprite X on during play; X 768-1023 are read as −256..−1
+  (`vdp.cpp`), so pieces entering the view's left edge show even fully slid.
+* The clip caves mark the entry: map objects clear bit 15 of the size / link word the builder writes (d1), screen-
+  fixed ones set it (bit 7 of the SAT entry's size byte, which the VDP ignores) — `sprite_xoff` keeps those (messages
+  such as FIND THE SCARAB, HIT STATUES, PAUSED) where the game puts them on the screen while the view slides.
+* Caves: the `$FF` fill at `$69E0-$FFFF` is unreferenced; `$7000-$72FF` is reachable with `jsr abs.w`.
 
 ## 4. HUD
 
 The status bar is sprites, written first into the RAM SAT (`$1AB7C4`): the lamp (`$E680` at VDP X `$92`), its smoke
 (`$E68C` …), Aladdin's face and lives (`$E6EA`, `$E6E0`+digit, X `$90`/`$AA`, bottom), apples (`$E6F3` X `$18E`) and
 gems (`$E6F7` X `$16A`) bottom right, the score (`$E7C0`+, X `$134`…, top right). Their tiles ($680-$6FF, $7C0-$7E7)
-are used by nothing else (checked: every SAT entry of every level over 600 frames of play). `sprite_xoff` moves HUD
-sprites left of VDP X 256 by −E and the others by +E (with `hud_anchor`; not in the 4:3 levels). `sprite_is_hud`
-keeps them over the edge masks. Messages ("WATCH OUT ABU", "FIND THE SCARAB", PAUSED) are centred objects and stay.
+are used by nothing else (checked: every SAT entry of every level over 600 frames of play). `sprite_xoff` moves the
+left group (lamp, smoke, face, lives digit) by −E and the right group (apple / gem icons and digits, score) by +E
+(with `hud_anchor`; not in the 4:3 levels), and adds the view's slide so the HUD doesn't move with it.
+`sprite_is_hud` keeps them over the edge masks. The groups go by tile, not by X: the smoke trail runs from VDP X
+`$C2` to `$C2` + 8 × health, so with 8 health its last piece is at X `$102` — splitting at X 256 sent that piece to
+the right side (a stray wisp of smoke near the top right at 21:9). Only the digits ($6E0-$6E9: lives at X `$AA`,
+apples / gems from X `$17C`) go by X.
 
-## 5. Level edges
+## 5. Level edges: the picture slides
 
-Per line, in the line hook (exact for the scroll this line is drawn with): screen columns whose map x is below 16 or
-at / past W·16 − 18 (what the 4:3 game never shows) are blacked out with the VDP's `edge_mask_l/r` — sprites too, but
-not HUD sprites (FrameInfo's masks would cover the HUD anchored there, so they stay 0). At a level's start the left
-E − camX pixels are black (camX starts at 0); the camera is not moved (Aladdin's walking limits are in screen
-coordinates, `$1A9E4E` / `$1A9F2C`, so a moved camera would change where he can go).
+The game's camera stays the original (Aladdin's walking limits are in screen coordinates). Instead, near a level's
+ends the picture slides: before each frame is drawn (`MegaDrive::on_frame_start`) the module takes the camera the
+frame was scrolled with — from the map plane's H scroll in VRAM, as the camera in RAM may already be the next frame's
+— and sets `VDP::view_shift` to s:
+* camX < E: s = E − camX (the view starts at the level's first pixel shown, map x 16, and Aladdin stands further
+  left); camX > span − E (span = W·16 − 354, the largest camera X): s = span − E − camX; else 0. A level narrower than
+  the widened view would be centred (s = span/2 − camX) with the rest black — none of the wide levels is (Jafar's
+  Quarters, 800 px, is the narrowest). |s| ≤ E.
+* While the camera moves inside those E px, s changes by the same amount the other way: the picture holds still
+  (Aladdin walks across it) and nothing jumps when s reaches 0. Stateless: save states and width changes mid-level
+  need nothing.
+* Planes and sprites (game objects) move with the view; the HUD and screen-fixed messages are compensated in
+  `sprite_xoff`.
+* **Plane B** moves at its own rate (per-row parallax in most levels: 1/2, 1/4, 1/8, 3/8 ... of the camera, plus
+  drifting cloud rows): shifted by s it would drift against its normal motion. The module runs the level's scroll
+  routine (header +`$34`, `$FF7DA4`) on a sandbox 68000 over a copy of RAM, once with the frame's camera and once with
+  camera + s; its VDP writes only fill a copy of the H scroll table. The difference, line by line, is plane B's slide
+  (`view_shift_b`): the background then shows exactly what the game would show with the camera there, and holds still
+  while the view slides (measured: plane A and plane B pictures identical between frames 20-25 px of camera apart in
+  every level with a slide; only the drifting cloud rows change). In Sultan's Dungeon the planes are swapped: plane B
+  (the map) takes s, and plane A (the picture) its own slide, re-rendered in the line hook.
+* What is left outside the level after the slide (only in a narrower level) is blacked out per line with the VDP's
+  `edge_mask_l/r` — sprites too, but not HUD sprites. There is no vertical extension, so nothing to do vertically.
 
 ## 6. Gameplay and other screens
 
@@ -114,7 +146,10 @@ coordinates, `$1A9E4E` / `$1A9F2C`, so a moved camera would change where he can 
 |---|---|---|
 | plane = map | `check_plane(md, 0)` every 6 frames, 40 steps of play per level | 0 differing cells (all but the Rug Ride; death screens clear the planes and are 4:3) |
 | ext 0 = original | module at ext 0 vs. the bare core, same state and inputs, 900 frames | RAM, VRAM and picture identical |
-| spawns | `md_wide_spawn.py 20/54/80/108/128` | no edge pop-in left from the spawn rule (§3) |
-| every level, 16:9 and 21:9 | `md_apptest.py … 2,4` (the app, masks applied) and `md_wide_demo.py 54 128` | reviewed: extension, HUD, masks, sprites at both edges |
+| spawns | `md_wide_spawn.py 20/54/80/108/128` | no edge pop-in left from the spawn rule (§3), checked against the slid view |
+| level ends | `md_wide_edges.py 54/108/128`: every wide level's start, walking away, the map's right end (map view) and back | the view never leaves [16, W·16 − 18); no black borders, no jumps, no garbage |
+| parallax while sliding | plane A / plane B rendered alone 20-25 px of camera apart inside the slide | both identical (cloud rows aside) |
+| HUD | sprite extent of the top band at E = 20…128, health 8 / 7 / 5 / 2, anchoring on / off, and while sliding | the smoke trail stays one piece at the left (or centred); still while the view slides |
+| every level, 16:9 and 21:9 | `md_apptest.py … 2,4` (the app) and `md_wide_demo.py 54 128` | reviewed: extension, HUD, slide at the level starts, sprites at both edges |
 | 16:10, 2:1, 4:3 levels | `md_apptest.py … 1,3,4 1,8,3,5` | HUD in place in the 4:3 levels, wide levels right |
 | caves | `md_wide_demo.py caves` | disassemble as intended |
