@@ -1,5 +1,6 @@
-"""68000 disassembly helpers (capstone) for the two ROMs.
+"""68000 disassembly helpers (capstone).
 
+    python m68dis.py md 0x200 40           # Aladdin (U)
     python m68dis.py coi 0x200 40          # disassemble 40 instructions at $200
     python m68dis.py qs 0x52a 30
     python m68dis.py coi xref 0xFFFF8E      # find absolute references to an address
@@ -15,6 +16,7 @@ from capstone import Cs, CS_ARCH_M68K, CS_MODE_BIG_ENDIAN, CS_MODE_M68K_000
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROMS = {
+    'md': os.path.join(ROOT, 'Aladdin (U) [!].bin'),
     'coi': os.path.join(ROOT, 'Mickey Mouse - Castle of Illusion (U) [!].bin'),
     'qs': os.path.join(ROOT, 'Quack Shot Starring Donald Duck (JUE) (REV 00) [!].bin'),
     'woi': os.path.join(ROOT, 'World of Illusion Starring Mickey Mouse and Donald Duck (U) [!].bin'),

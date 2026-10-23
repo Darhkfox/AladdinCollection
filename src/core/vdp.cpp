@@ -336,6 +336,7 @@ void VDP::render_sprites(uint8_t* dst, int ln) {
             count++;
             uint16_t attr = vram16(base + 4);
             int x = vram16(base + 6) & (sprite_x10 ? 0x3FF : 0x1FF);
+            if (sprite_x10 && x >= 0x380) x -= 0x400;   // (10-bit X from 896 up: left of X 0, for a view wider left)
             if (x == 0) { if (nonzero_seen || dot_overflow_prev) masked = true; }
             else nonzero_seen = true;
             int width = hcells * 8;
