@@ -50,17 +50,34 @@ map's 512-px repeat.
 ## 3. The view
 
 The picture is the game's 256 px plus `extL` / `extR` (`Ppu::setExt` at the first line; the PPU's `kMaxExt` is now 288
-so one side can take both extensions, 2 x 140). The view's span for the camera now (`span`):
-- the level: `[0, $1A04 + 256)`;
-- a zone's camera limits `[min(cam, $1A40), max(cam, $1A42) + 256)` (Market at Dusk's boss);
-- a camera held in x while free in y (`$1A10` set, `$1A12` clear): Jafar's arena, `[cam, cam + 256)`;
-- the pages the camera may enter in the page rows its screen covers, around its pages (barrier pages, bit 15).
+so one side can take both extensions, 2 x 140).
 
-The view is centred on the camera and stops at the span's edges; a span narrower than the picture is centred
-(Inside the Lamp 3's tower, Jafar's arena). When the span changes the view keeps its place and slides 4 px a frame.
-On each line, past the level (the line's own page row's pages, the level's width) BG1 and BG2 are mirrored about the
-level's edge and everything outside the camera's span is dimmed (`Ppu::wideMirror`, `wideDimLo/Hi`; black instead with
-*Past Level Ends: Black*).
+**Where the view stops** (`span`): at the level's ends, `[0, $1A04 + 256)`, and on an arena's screen when the camera is
+held in x while free in y (`$1A10` set, `$1A12` clear: Jafar). The view is centred on the camera and stops there; a
+span narrower than the picture is centred. Only where every layer can follow a view that stays still while the game's
+camera moves (`can_stop`): BG1, and a BG2 drawn from the level's data at a known speed (`$083F` modes 0-8, with the
+parallax shift of section 2). In the levels whose background the game scrolls in raster bands (`$0A-$10`: Agrabah
+Market, Agrabah Rooftops, Market at Dusk, Lava Cavern, Jafar's Palace 3), by an object (`$12`, the Carpet Escape) or
+itself (`$14`, Sultan's Dungeon 3), those bands would slide against the still picture: there the view stays centred on
+the game's camera everywhere (every layer moves exactly as on the console) and the margins past the level's ends are
+mirrored and dimmed.
+
+The span changes only at an arena or when the level's width changes (Jafar's room). The view's offset to its new place
+then closes only as the game's camera moves (at most 4 px a frame, and no more than the camera moved): the picture
+never pans by itself while the game's screen holds still. (A first version also stopped at the zones' camera limits and
+at pages the camera can't enter at its height and slid there by itself: in play testing layers moved where the
+console's don't. `tools/re/snes_motion.py` measures each layer's motion from the pixels and checks it.)
+
+**Dimmed** (`reach`): past where the game's camera can show now - the zone's camera limits `[min(cam, $1A40),
+max(cam, $1A42) + 256)` (Market at Dusk's boss), an arena, the pages it may enter in the page rows its screen covers
+(barrier pages, bit 15). On each line, past the level (the line's own page row's pages, the level's width) BG1 and BG2
+are mirrored about the level's edge (`Ppu::wideMirror`, `wideDimLo/Hi`; black instead with *Past Level Ends: Black*).
+
+**Save states and rewind** (the app saves one every 2 frames while rewinding is possible): `save_ext` carries the view
+(span, offset, reach, whether it may stop), the sprites' recorded x - both the latched set and the one being built for
+the next OAM DMA - and how many frames ago the level loop's top ran, so a state saved in a frame the game's logic didn't
+finish in still counts as a level. `tools/re/snes_rewind.py` rewinds as the app does and compares every rewound picture
+with the straight run's: identical.
 
 ## 4. Objects
 
@@ -99,7 +116,10 @@ margins and, where the view is split, moved to the picture's middle (`(extR - ex
 
 - Objects that only exist where the game's camera is (scripted events, bosses) appear as in the original; enemies
   can be seen waiting at the margins' edge before they wake (they act as on the console once in range).
-- In bands scrolled by HDMA (Agrabah's and the lava cavern's backgrounds), where the view stops at a level edge the
-  bands keep the game's speeds (no parallax correction).
+- In the levels with a background scrolled in raster bands, by an object or by itself (Agrabah Market, Agrabah
+  Rooftops, Market at Dusk, Lava Cavern, Carpet Escape, Sultan's Dungeon 3, Jafar's Palace 3) the view doesn't stop at
+  the level's ends: there the margins show the level mirrored and dimmed (black with *Past Level Ends: Black*).
+- Where Jafar's room grows and the camera is then held, the view keeps its place (the offset only closes while the
+  camera moves), so the arena isn't centred in the picture; its unreachable sides are dimmed.
 - The dimmed sides of an arena show the level's data, not what the game draws there during the fight (Jafar's cobra
   phase sets the floor on fire only on the game's screen).

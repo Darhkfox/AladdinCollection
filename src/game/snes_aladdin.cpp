@@ -110,7 +110,6 @@ public:
             std::memcpy(oam_set_, build_set_, sizeof(oam_set_));
             return false;
         case kLevelLoop:
-            loop_ran_ = true;
             loop_frame_ = s.frameCount();
             if (respawn_) {
                 // A width change mid-level: the spawner's edge columns move to the new margins, and the game's own
@@ -178,31 +177,42 @@ public:
         // (a frame the game's logic didn't finish in, slowdown: the main task is still running, its saved stack
         // is stale; the loop's top ran a moment ago)
         level_ = in_level(s) || s.frameCount() - loop_frame_ <= 4;
-        // The view's limits for the next frame; when they change the view keeps its place and slides.
+        // The view for the next frame. It stops at the level's ends only where every layer can follow a view that
+        // doesn't move with the game's camera: the level (BG1) and a background drawn from the level's data at a
+        // known speed (BG2 modes 0-8). A background the game scrolls in raster bands or by itself would move against
+        // the still picture: there the view stays centred on the camera, as the game's own screen moves, and the
+        // margins past the level's ends are mirrored. The span changes only at a level's start, when its width
+        // changes or an arena holds the camera; then the view's offset closes only as fast as the camera moves (it
+        // never pans by itself while the game's picture holds still).
         if (level_ && ext_ > 0) {
             const int cam = (int16_t)rd16(s, kCamX), camy = (int16_t)rd16(s, kCamY);
             int lo, hi;
-            span(s, cam, camy, lo, hi);
+            span(s, cam, lo, hi);
+            reach(s, cam, camy, reach_lo_, reach_hi_);
+            const bool stop = can_stop(s);
             const bool jump = !lim_valid_ || std::abs(cam - last_cam_) >= 64;
-            if (!jump && (lo != lim_lo_ || hi != lim_hi_) && loop_ran_) {
-                const int before = target_v(cam, lim_lo_, lim_hi_);
+            if (!jump && (lo != lim_lo_ || hi != lim_hi_ || stop != stop_)) {
+                const int before = target_v(cam, lim_lo_, lim_hi_, stop_);
                 lim_lo_ = lo;
                 lim_hi_ = hi;
-                d_off_ += before - target_v(cam, lo, hi);
+                stop_ = stop;
+                d_off_ += before - target_v(cam, lo, hi, stop);
             } else if (jump) {
                 lim_lo_ = lo;
                 lim_hi_ = hi;
+                stop_ = stop;
                 d_off_ = 0;
             }
+            const int moved = jump ? 0 : std::abs(cam - last_cam_);
             lim_valid_ = true;
             last_cam_ = cam;
             d_off_ = std::clamp(d_off_, -2 * ext_, 2 * ext_);
-            if (loop_ran_) d_off_ = d_off_ > 0 ? std::max(0, d_off_ - kSlide) : std::min(0, d_off_ + kSlide);
+            const int step = std::min(kSlide, moved);
+            d_off_ = d_off_ > 0 ? std::max(0, d_off_ - step) : std::min(0, d_off_ + step);
         } else {
             lim_valid_ = false;
             d_off_ = 0;
         }
-        loop_ran_ = false;
         if (!level_) respawn_ = false;
         info.gameplay = level_;
         info.view_left = level_ ? el_ : -1;
@@ -319,24 +329,35 @@ public:
         if (lim_valid_) {
             el = split_left(cam);
         } else {
-            // (a state just loaded, a level's first frame: the view the level's extent gives, without a slide)
+            // (a level's first frame: the view the level's extent gives)
             int lo, hi;
-            span(s, cam, (int16_t)rd16(s, kCamY), lo, hi);
-            el = std::clamp(cam - target_v(cam, lo, hi), 0, 2 * ext_);
+            span(s, cam, lo, hi);
+            el = std::clamp(cam - target_v(cam, lo, hi, can_stop(s)), 0, 2 * ext_);
         }
         er = 2 * ext_ - el;
     }
 
+    // Save states (and the app's rewind, a state every two frames) carry the view, the sprites' recorded x (the build
+    // of the frame in progress too: its OAM DMA comes after the load) and how long ago the level loop's top ran.
     std::vector<uint8_t> save_ext() const {
         std::vector<uint8_t> v;
-        v.push_back(1);   // version
-        v.push_back((uint8_t)((level_ ? 1 : 0) | (lim_valid_ ? 2 : 0)));
-        for (int x : {ext_, lim_lo_, lim_hi_, d_off_, last_cam_}) { v.push_back((uint8_t)x); v.push_back((uint8_t)(x >> 8)); }
-        for (int i = 0; i < 128; i++) {
-            v.push_back((uint8_t)oam_x_[i]);
-            v.push_back((uint8_t)(oam_x_[i] >> 8));
-            v.push_back(oam_set_[i] ? 1 : 0);
+        v.push_back(2);   // version
+        v.push_back((uint8_t)((level_ ? 1 : 0) | (lim_valid_ ? 2 : 0) | (stop_ ? 4 : 0) | (respawn_ ? 16 : 0)));
+        const uint32_t since = snes_ ? snes_->frameCount() - loop_frame_ : 255;
+        v.push_back((uint8_t)std::min<uint32_t>(since, 255));
+        for (int x : {ext_, lim_lo_, lim_hi_, d_off_, last_cam_, reach_lo_, reach_hi_}) {
+            v.push_back((uint8_t)x);
+            v.push_back((uint8_t)(x >> 8));
         }
+        auto put = [&](const int16_t* x, const bool* set) {
+            for (int i = 0; i < 128; i++) {
+                v.push_back((uint8_t)x[i]);
+                v.push_back((uint8_t)(x[i] >> 8));
+                v.push_back(set[i] ? 1 : 0);
+            }
+        };
+        put(oam_x_, oam_set_);
+        put(build_x_, build_set_);
         return v;
     }
     void load_ext(const uint8_t* d, size_t n) {
@@ -344,20 +365,35 @@ public:
         loop_frame_ = 0x80000000u;
         d_off_ = 0;
         for (bool& b : oam_set_) b = false;
-        const size_t need = 2 + 5 * 2 + 128 * 3;
-        respawn_ = true;   // (a state from before the module's data, or made at another width: the margins' objects)
-        if (n < need || d[0] != 1) return;
+        for (bool& b : build_set_) b = false;
+        respawn_ = true;   // (a state without the module's data: the margins' objects)
+        const size_t need1 = 2 + 5 * 2 + 128 * 3, need2 = 3 + 7 * 2 + 2 * 128 * 3;
+        if (n < 2 || d[0] < 1 || d[0] > 2 || (d[0] == 1 && n < need1) || (d[0] == 2 && n < need2)) return;
         level_ = (d[1] & 1) != 0;
         lim_valid_ = (d[1] & 2) != 0;
-        int v[5];
-        for (int i = 0; i < 5; i++) v[i] = (int16_t)(d[2 + i * 2] | (d[3 + i * 2] << 8));
-        lim_lo_ = v[1]; lim_hi_ = v[2]; d_off_ = v[3]; last_cam_ = v[4];
-        respawn_ = v[0] != ext_;
-        for (int i = 0; i < 128; i++) {
-            const uint8_t* q = d + 12 + i * 3;
-            oam_x_[i] = (int16_t)(q[0] | (q[1] << 8));
-            oam_set_[i] = q[2] != 0;
+        size_t o = 2;
+        stop_ = true;
+        if (d[0] >= 2) {
+            stop_ = (d[1] & 4) != 0;
+            if (snes_ && d[2] < 255) loop_frame_ = snes_->frameCount() - d[2];
+            o = 3;
         }
+        const int count = d[0] >= 2 ? 7 : 5;
+        int v[7] = {};
+        for (int i = 0; i < count; i++, o += 2) v[i] = (int16_t)(d[o] | (d[o + 1] << 8));
+        lim_lo_ = v[1]; lim_hi_ = v[2]; d_off_ = v[3]; last_cam_ = v[4];
+        reach_lo_ = d[0] >= 2 ? v[5] : lim_lo_;
+        reach_hi_ = d[0] >= 2 ? v[6] : lim_hi_;
+        // the margins' objects: spawned again for a state made at another width (or saved with that pending)
+        respawn_ = v[0] != ext_ || (d[0] >= 2 && (d[1] & 16));
+        auto get = [&](int16_t* x, bool* set) {
+            for (int i = 0; i < 128; i++, o += 3) {
+                x[i] = (int16_t)(d[o] | (d[o + 1] << 8));
+                set[i] = d[o + 2] != 0;
+            }
+        };
+        get(oam_x_, oam_set_);
+        if (d[0] >= 2) get(build_x_, build_set_);
     }
 
 private:
@@ -374,10 +410,12 @@ private:
     const Snes* snes_ = nullptr;
     GameConfig cfg_;
     int ext_ = 0, last_ext_ = -1;
-    bool level_ = false, loop_ran_ = false, respawn_ = false;
+    bool level_ = false, respawn_ = false;
     uint32_t loop_frame_ = 0x80000000u;   // the frame the level loop's top last ran in
     bool lim_valid_ = false;
-    int lim_lo_ = 0, lim_hi_ = 0, d_off_ = 0, last_cam_ = 0;
+    int lim_lo_ = 0, lim_hi_ = 0, d_off_ = 0, last_cam_ = 0;   // where the view stops; its offset still to close
+    bool stop_ = true;                    // the view may stop at the level's ends (can_stop)
+    int reach_lo_ = 0, reach_hi_ = 0;     // where the game's camera can show now (beyond: dimmed)
     int el_ = 0, er_ = 0, mid_ = 0;
     int bg2_ratio_ = 0;      // this frame: BG2's x speed against the camera (8.8), 0 = scrolled by the game itself
     bool obj_bg2_ = false;   // this line: BG2 holds an object's picture (obj_lo_ / obj_hi_: its own copy on screen)
@@ -419,19 +457,34 @@ private:
         return rom16(s, ((uint32_t)ll.bank << 16) | (uint16_t)(blk + sub));
     }
 
-    // The level's horizontal extent: [0, last camera x + 256), the zone's camera limits, and the pages the camera
-    // may enter in the rows its screen covers (bit 15: a page it may not).
-    static void span(const Snes& s, int cam, int camy, int& lo, int& hi) {
+    // Where the view stops: the level's ends, [0, last camera x + 256); an arena holding the camera, its screen.
+    // (Not the zones' limits nor the pages the camera can't enter at its height: they change as the camera goes,
+    // and the view would have to pan by itself; past them the margins are dimmed / mirrored instead.)
+    static void span(const Snes& s, int cam, int& lo, int& hi) {
         lo = 0;
-        hi = (int16_t)rd16(s, kCamMaxX) + 256;
+        hi = std::max(256, (int16_t)rd16(s, kCamMaxX) + 256);
+        if (arena(s)) {
+            lo = cam;
+            hi = cam + 256;
+        }
+    }
+    // The camera held in x while it follows in y: a fixed arena (Jafar's). (Both held: a death's fall.)
+    static bool arena(const Snes& s) { return rd16(s, kCamHoldX) && !rd16(s, kCamHoldY); }
+    // Whether every layer can follow a view stopped at a level's end (section 3 of docs/re_snes_wide.md): BG2 drawn
+    // from the level's data at a known speed (modes 0-8); not the backgrounds the game scrolls in raster bands
+    // ($0A-$10), by an object (the Carpet Escape's wave, $12) or itself ($14).
+    static bool can_stop(const Snes& s) {
+        const int mode = rd16(s, kBgMode);
+        return mode == 0 || mode == 2 || mode == 4 || mode == 6 || mode == 8;
+    }
+
+    // Where the game's camera can show now (beyond: dimmed): the level, the zone's camera limits, an arena, and the
+    // pages the camera may enter in the rows its screen covers (bit 15: a page it may not).
+    static void reach(const Snes& s, int cam, int camy, int& lo, int& hi) {
+        span(s, cam, lo, hi);
         const int lmin = (int16_t)rd16(s, kCamLimLo), lmax = (int16_t)rd16(s, kCamLimHi);
         lo = std::max(lo, std::min(cam, lmin));
         hi = std::min(hi, std::max(cam, lmax) + 256);
-        // The camera held in x while it follows in y: a fixed arena (Jafar's). (Both held: a death's fall.)
-        if (rd16(s, kCamHoldX) && !rd16(s, kCamHoldY)) {
-            lo = std::max(lo, cam);
-            hi = std::min(hi, cam + 256);
-        }
         const int r0 = camy >> 8, r1 = (camy + 255) >> 8;
         int p = std::max(0, cam >> 8);
         while (p > 0 && !barrier(s, p - 1, r0) && !barrier(s, p - 1, r1)) p--;
@@ -455,14 +508,17 @@ private:
         hi = std::min(hi, (p + 1) * 256);
     }
 
-    // The view's left edge (world x) for the camera within [lo, hi): centred on the camera, stopped at the edges; a
-    // range narrower than the picture centred.
-    int target_v(int cam, int lo, int hi) const {
+    // The view's left edge (world x) for the camera within [lo, hi): centred on the camera, stopped at the edges
+    // (where it may stop); a range narrower than the picture centred.
+    int target_v(int cam, int lo, int hi, bool stop) const {
         const int vw = 256 + 2 * ext_;
+        if (!stop) return cam - ext_;
         if (hi - lo <= vw) return lo + (hi - lo - vw) / 2;
         return std::clamp(cam - ext_, lo, hi - vw);
     }
-    int split_left(int cam) const { return std::clamp(cam - (target_v(cam, lim_lo_, lim_hi_) + d_off_), 0, 2 * ext_); }
+    int split_left(int cam) const {
+        return std::clamp(cam - (target_v(cam, lim_lo_, lim_hi_, stop_) + d_off_), 0, 2 * ext_);
+    }
 
     void frame_start(Ppu& p) {
         el_ = er_ = ext_;
@@ -476,8 +532,8 @@ private:
             el_ = split_left(cam);
             er_ = 2 * ext_ - el_;
             mid_ = (er_ - el_) / 2;
-            dim_lo_ = lim_lo_ - cam;
-            dim_hi_ = lim_hi_ - cam;
+            dim_lo_ = reach_lo_ - cam;
+            dim_hi_ = reach_hi_ - cam;
         }
         p.setExt(el_, er_);
         // BG2's speed against the camera ($083F: the level's background mode, $81:C781; HDMA-band modes scroll it

@@ -120,9 +120,9 @@ achievements of its own: *A Whole New World* (defeat Jafar in all three versions
 - **Widescreen** up to 21:9 (468 px wide with CRT pixels, 536 with square ones). The sides are drawn straight from
   the level data the game keeps in RAM (the decoded tiles match video memory exactly in every level), so any width
   works, a mid-level width change is instant and the game's own column streaming is untouched. The view stops at
-  level edges and where the camera can't go, the background's parallax is corrected where the view is split, and
-  the Carpet Escape's wave and A Whole New World widen too. Objects appear, act and are drawn across the whole
-  width; the HUD and the PAUSE / ACTION texts are re-anchored. Boss arenas (the Market at Dusk, Jafar) keep the
+  the level's ends where every layer can follow it (the background's parallax is corrected there) and never pans
+  by itself; the Carpet Escape's wave and A Whole New World widen too. Objects appear, act and are drawn across the
+  whole width; the HUD and the PAUSE / ACTION texts are re-anchored. Boss arenas (the Market at Dusk, Jafar) keep the
   original camera with the unreachable sides dimmed.
 - **Level select**: all 19 levels in the order the game plays them, A Whole New World included, started through
   GAME START with the game's own hidden stage select.
@@ -239,9 +239,10 @@ gradlew assembleDebug
 - SNES: invincibility and infinite health don't prevent pits, crushes or being left behind by the scrolling. Infinite
   Gems keeps the counter at 99, so every gem completes a hundred (an extra heart, then an extra life). The dimmed
   sides of a boss arena show the level as stored, not what the fight paints on it (Jafar's fire floor stays in the
-  4:3 area). Backgrounds scrolled in horizontal bands (Agrabah's skyline, the lava cavern) get no parallax
-  correction where the view stops at a level edge. The staff roll stays 4:3. The level select starts with
-  new-game stats (3 lives, 3 hearts, 10 apples).
+  4:3 area). In the levels whose background the game scrolls in horizontal bands (Agrabah Market and Rooftops,
+  Market at Dusk, the Lava Cavern, Sultan's Dungeon 3, Jafar's Palace 3) and in the Carpet Escape the view stays
+  centred on the game's camera, so past the level's ends the sides show the level mirrored and dimmed. The staff
+  roll stays 4:3. The level select starts with new-game stats (3 lives, 3 hearts, 10 apples).
 - Save states made by a newer version may not load in an older one.
 
 ## Credits and licences
