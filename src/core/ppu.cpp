@@ -763,6 +763,11 @@ void Ppu::renderLine(int line) {
   if (hooks) hooks->beginLine(*this, row);
   wideShowLo = std::min(0, wideShowLo);   // (the margins only: the game's own 256 px are always drawn)
   wideShowHi = std::max(256, wideShowHi);
+  for (int l = 0; l < 2; l++) {
+    lineRegs[row].hofs[l] = bg_[l].hofs;
+    lineRegs[row].vofs[l] = bg_[l].vofs;
+    lineRegs[row].adj[l] = bgHofsAdj[l];
+  }
 
   int eL = extL, eR = extR;
   int x0 = -eL, x1 = 256 + eR;

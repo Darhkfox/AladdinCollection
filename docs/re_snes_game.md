@@ -13,6 +13,22 @@ The game checks for a copier's SRAM in many places (`$83:9894` in the attract de
 none (header `$FFD8` = 0); `src/core/snes.cpp` now maps battery RAM only when the header declares some (open bus
 otherwise).
 
+## Core fix: HDMA switched on below the top of the screen
+
+In a level the NMI (`$80:8111`) clears HDMAEN, points every channel's table address ($43x8) at its table's start
+and sets its line counter ($43xA) to 1 (`$80:82AB`), and arms an IRQ at line 8 (`$80:8284`: H `$98`, V 8 - or a few
+lines after the NMI if that ran past the frame's top); the IRQ (`$80:8332`) turns the screen on and only then switches
+HDMA on (`$03B6`). The channels so start mid-frame from those registers: the table's first entry (one line) is read
+at the next HDMA point, the rest follow - the band routines build their tables for that (the first entry one line,
+the bands from camera y + 8). The core cleared every channel not enabled at the frame's top, so they never ran: no
+raster bands in Agrabah Market, Agrabah Rooftops (its sky), the Market at Dusk (BG2's scroll) and the Lava Cavern
+(BG2's scroll, the main screen's layers per line) - their whole background scrolled at the first band's speed.
+`Snes::hdmaInit` now does what bsnes models: at the top of the frame every channel's "terminated" state clears, the
+enabled ones load their first entry (and set every channel's do-transfer flag); a channel enabled later starts from
+its registers with the flag as left. Compared with the old core over the first 240 frames of all 19 levels and 6000
+frames of the attract loop, only those levels' pictures change. In this core the table's second entry reaches row 11
+(`AladdinWide::kBandRow0`).
+
 ## Engine
 
 - **Tasks.** A cooperative scheduler (`$81:BC6D`): 8 task slots at `$006F + n*$18` (`+0` state, `+1` frames to wait,

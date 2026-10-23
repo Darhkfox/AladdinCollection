@@ -415,11 +415,10 @@
   More of each level really is drawn at the sides: the level, enemies and
   items appear and move across the whole width. Near a level's ends the
   picture slides, so the extra width shows more of the level instead of
-  black; the game's own camera is untouched, so for the first stretch the
-  scenery holds still while Aladdin walks. (On the SNES, in levels whose
-  background scrolls in bands, the level is shown mirrored and dimmed past
-  its ends instead.) Boss arenas keep the original camera, with the parts
-  you can't reach dimmed.
+  black, with the background still moving as on the console; the game's
+  own camera is untouched, so for the first stretch the scenery holds
+  still while Aladdin walks. Boss arenas keep the original camera, with
+  the parts you can't reach dimmed.
 
   Shown in their original shape: title screens, menus, story scenes, the
   Mega Drive's bonus rounds and Rug Ride, the SNES staff roll. Where such

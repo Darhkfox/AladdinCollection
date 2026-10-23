@@ -1,9 +1,10 @@
-"""Rewind check: python snes_rewind.py <ext> [levels] [frames]
+"""Rewind check: python snes_rewind.py <ext> [levels] [frames] [state]
 
 As the app's rewind does: a state every 2 frames while a bot plays (invincible), then going back: each state loaded,
 one frame run (with the input that frame had), its picture. Every rewound picture must equal the straight run's
 picture of the same frame, and the module's report (gameplay, the view's split) too. Mismatches are listed and the
-first few saved side by side to tools/qa/snes/rewind_<ext>_<level>_<frame>.png."""
+first few saved side by side to tools/qa/snes/rewind_<ext>_<level>_<frame>.png. `state` (with one level: e.g.
+tools/states/snes_end_<level>.state, snes_end_states.py) replaces the level's start."""
 import os
 import random
 import sys
@@ -14,6 +15,7 @@ from snes_common import *  # noqa
 ext = int(sys.argv[1]) if len(sys.argv) > 1 else 106
 levels = [int(a) for a in sys.argv[2].split(',')] if len(sys.argv) > 2 and sys.argv[2] != 'all' else list(range(19))
 frames = int(sys.argv[3]) if len(sys.argv) > 3 else 600
+start = sys.argv[4] if len(sys.argv) > 4 else None
 MOVES = ['RIGHT', 'RIGHT+B', 'RIGHT+Y', 'RIGHT+A', 'LEFT', 'B', 'A', 'DOWN', 'UP', 'RIGHT+B+A', '']
 
 total = 0
@@ -21,7 +23,10 @@ for lv in levels:
     s = SNES()
     s.module('snes')
     s.configure(ext, True, 'invincible')
-    s.start_level(lv)
+    if start:
+        s.load_file(start)
+    else:
+        s.start_level(lv)
     rnd = random.Random(lv)
     pads, pics, info, states = [], [], [], {}
     cur, left = '', 0

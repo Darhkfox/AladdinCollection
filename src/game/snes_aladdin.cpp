@@ -8,7 +8,9 @@
 // bank $7F, each block four tile entries in ROM. The margins are drawn straight from that data (fetchWideTile), so
 // nothing of the game's own streaming changes, any width works and a width change mid-level needs no redraw. Layers
 // the game scrolls on its own (a background a raster band scrolls, a fully loaded repeating picture) keep their
-// VRAM map, which holds the whole repeating picture. Objects: the draw-list and keep-alive range tests and the
+// VRAM map, which holds the whole repeating picture. The view stops at every level's ends; the background then
+// moves line by line as the game's own code would move it with its camera at the picture's middle (its parallax,
+// raster bands, phases, an object: band_adj). Objects: the draw-list and keep-alive range tests and the
 // level-object spawner follow the wider view; sprites are placed by their true 16-bit x. The status bar (BG3, the top
 // 40 lines) is split to the picture's edges; the game's centred texts (PAUSE) stay at the picture's middle.
 #include "game.h"
@@ -35,6 +37,9 @@ constexpr uint32_t kCamLimLo = 0x1A40, kCamLimHi = 0x1A42;            // a zone'
 constexpr uint32_t kCamHoldX = 0x1A10, kCamHoldY = 0x1A12;            // nonzero: the camera doesn't follow in x / y
 constexpr uint32_t kBg1Shown = 0x19ED, kBg2Shown = 0x19F5;            // the scroll the NMI writes (+ shake $1A18)
 constexpr uint32_t kBgMode = 0x083F;                                  // the background's mode ($81:C781): its speed
+constexpr uint32_t kBgSub = 0x0841;                                   // mode $10's phase (Jafar's Palace 3)
+constexpr uint32_t kBgDrift = 0x1A30;                                 // the band routines' drift ($1A2F, 24 bits)
+constexpr uint32_t kCamPrev = 0x19E5;                                 // the camera before this frame's move
 constexpr uint32_t kSpawnCam = 0x1BEF;                                // the spawner's camera (moves by 32 px)
 constexpr uint32_t kSpawnRight = 0x1BEB, kSpawnLeft = 0x1BED;         // its next object columns (32 px) each side
 
@@ -57,8 +62,13 @@ constexpr uint32_t kDrawRanges = 0x80BA02, kKeepRanges = 0x80CE73;
 constexpr uint32_t kSpawnInit = 0x82A72C, kSpawnInitCam = 0x82A75F, kSpawnInitRight = 0x82A767;
 constexpr uint32_t kSpawnInitLeft = 0x82A772, kSpawnInitCount = 0x82A77E;
 constexpr uint32_t kSpawnFrameCam = 0x82A7AA, kSpawnRowX = 0x82A876, kSpawnRowIn = 0x82A882, kSpawnRowOut = 0x82A892;
-// The level's main loop (its top: the stack is the task's own, nothing in flight).
-constexpr uint32_t kLevelLoop = 0x8182CF;
+// The level's main loop (its top: the stack is the task's own, nothing in flight) and its frame wait (the frame's
+// logic done).
+constexpr uint32_t kLevelLoop = 0x8182CF, kLevelWait = 0x8182E6;
+// The band routines' tables ($81:C84B): by routine (0: Agrabah Rooftops, 2: Agrabah Market) the band count * 2 and the
+// offset of its bands' world-y bounds from $80:C606.
+constexpr uint32_t kBandCount = 0x80C602, kBandBounds = 0x80C606;
+constexpr uint32_t kLavaTable = 0x7EF400;                             // the Lava Cavern's HDMA table (count, word)
 
 inline uint8_t rd8(const Snes& s, uint32_t a) { return s.wram[a & 0x1FFFF]; }
 inline uint16_t rd16(const Snes& s, uint32_t a) { return (uint16_t)(s.wram[a & 0x1FFFF] | (s.wram[(a + 1) & 0x1FFFF] << 8)); }
@@ -75,15 +85,17 @@ public:
     static constexpr int kHudLines = 40;          // the status bar: BG3 rows 1-4
     static constexpr int kHudLeftEnd = 152;       // lives and hearts (up to 10) left of this, apples and gems right
     static constexpr int kSlide = 4;              // px a frame the view moves to a new place
+    static constexpr int kBandRow0 = 11;          // the first row of an HDMA table's second entry (band_adj)
 
     void configure(Snes& s, const GameConfig& cfg) {
         snes_ = &s;
         cfg_ = cfg;
         if (ext_ != cfg.ext && level_ && last_ext_ >= 0) respawn_ = true;   // objects for the new width's margins
+        if (ext_ != cfg.ext) band_next_.valid = false;   // (the virtual camera jumps with the width: no ratchet move)
         ext_ = cfg.ext;
         last_ext_ = ext_;
         s.ppu.hooks = this;
-        for (uint32_t pc : {kOamPiece, kOamPieceFlip, kOamBuild, kOamDma, kLevelLoop}) s.markExec(pc, true);
+        for (uint32_t pc : {kOamPiece, kOamPieceFlip, kOamBuild, kOamDma, kLevelLoop, kLevelWait}) s.markExec(pc, true);
         if (ext_ > 0)
             for (uint32_t pc : {kDrawTest, kKeepTest, kSpawnInitCam, kSpawnInitRight, kSpawnInitLeft, kSpawnInitCount,
                                 kSpawnFrameCam, kSpawnRowX})
@@ -109,8 +121,12 @@ public:
             std::memcpy(oam_x_, build_x_, sizeof(oam_x_));
             std::memcpy(oam_set_, build_set_, sizeof(oam_set_));
             return false;
+        case kLevelWait:
+            logic_done_ = true;
+            return false;
         case kLevelLoop:
             loop_frame_ = s.frameCount();
+            logic_done_ = band_taken_ = false;
             if (respawn_) {
                 // A width change mid-level: the spawner's edge columns move to the new margins, and the game's own
                 // level-start spawn runs again (objects already out are skipped), so the new margins get theirs.
@@ -177,13 +193,11 @@ public:
         // (a frame the game's logic didn't finish in, slowdown: the main task is still running, its saved stack
         // is stale; the loop's top ran a moment ago)
         level_ = in_level(s) || s.frameCount() - loop_frame_ <= 4;
-        // The view for the next frame. It stops at the level's ends only where every layer can follow a view that
-        // doesn't move with the game's camera: the level (BG1) and a background drawn from the level's data at a
-        // known speed (BG2 modes 0-8). A background the game scrolls in raster bands or by itself would move against
-        // the still picture: there the view stays centred on the camera, as the game's own screen moves, and the
-        // margins past the level's ends are mirrored. The span changes only at a level's start, when its width
-        // changes or an arena holds the camera; then the view's offset closes only as fast as the camera moves (it
-        // never pans by itself while the game's picture holds still).
+        // The view for the next frame. It stops at the level's ends where every layer can follow a view that doesn't
+        // move with the game's camera (can_stop): the level (BG1), and the background at its parallax speed (modes
+        // 0-8) or line by line as the game scrolls it itself (modes $0A-$14, band_adj). The span changes only at a
+        // level's start, when its width changes or an arena holds the camera; then the view's offset closes only as
+        // fast as the camera moves (it never pans by itself while the game's picture holds still).
         if (level_ && ext_ > 0) {
             const int cam = (int16_t)rd16(s, kCamX), camy = (int16_t)rd16(s, kCamY);
             int lo, hi;
@@ -209,9 +223,15 @@ public:
             d_off_ = std::clamp(d_off_, -2 * ext_, 2 * ext_);
             const int step = std::min(kSlide, moved);
             d_off_ = d_off_ > 0 ? std::max(0, d_off_ - step) : std::min(0, d_off_ + step);
+            // A background the game scrolls itself: the inputs of its scroll for the frame its logic just finished.
+            if (logic_done_ && !band_taken_) {
+                band_taken_ = true;
+                take_band(s, cam, jump);
+            }
         } else {
             lim_valid_ = false;
             d_off_ = 0;
+            band_next_.valid = band_shown_.valid = false;
         }
         if (!level_) respawn_ = false;
         info.gameplay = level_;
@@ -257,6 +277,19 @@ public:
                 }
                 ll.lo = 0;
                 ll.hi = ((((int16_t)rd16(s, kCamMaxX)) * bg2_ratio_) >> 8) + 256;
+            }
+        }
+        // A background the game scrolls itself (raster bands, an object, a phase of its own): on each line where the
+        // game's own code would scroll it with its camera at the picture's middle (band_adj), so where the view stops
+        // at a level's end it holds still with the picture and moves exactly as the game moves it.
+        if (band_on_) {
+            const int adj = band_adj(p, row);
+            if (adj != 0) {
+                p.bgHofsAdj[1] = (int16_t)adj;
+                if (line_[1].decode) {
+                    p.wideFetchAll[1] = true;
+                    line_[1].wx += adj;
+                }
             }
         }
         // A picture an object moves on BG2 (the Carpet Escape's wave: the map's first 256x256 screen, the rest empty,
@@ -341,7 +374,7 @@ public:
     // of the frame in progress too: its OAM DMA comes after the load) and how long ago the level loop's top ran.
     std::vector<uint8_t> save_ext() const {
         std::vector<uint8_t> v;
-        v.push_back(2);   // version
+        v.push_back(3);   // version
         v.push_back((uint8_t)((level_ ? 1 : 0) | (lim_valid_ ? 2 : 0) | (stop_ ? 4 : 0) | (respawn_ ? 16 : 0)));
         const uint32_t since = snes_ ? snes_->frameCount() - loop_frame_ : 255;
         v.push_back((uint8_t)std::min<uint32_t>(since, 255));
@@ -358,6 +391,14 @@ public:
         };
         put(oam_x_, oam_set_);
         put(build_x_, build_set_);
+        // (version 3) the band routines' inputs: for the frame on screen and the next, and mode $0A's ratchet
+        v.push_back((uint8_t)((logic_done_ ? 1 : 0) | (band_taken_ ? 2 : 0) | (band_next_.valid ? 4 : 0) |
+                              (band_shown_.valid ? 8 : 0)));
+        for (int x : {band_d_, band_next_.cam, band_next_.vcam, (int)band_next_.t, band_shown_.cam, band_shown_.vcam,
+                      (int)band_shown_.t}) {
+            v.push_back((uint8_t)x);
+            v.push_back((uint8_t)(x >> 8));
+        }
         return v;
     }
     void load_ext(const uint8_t* d, size_t n) {
@@ -367,8 +408,12 @@ public:
         for (bool& b : oam_set_) b = false;
         for (bool& b : build_set_) b = false;
         respawn_ = true;   // (a state without the module's data: the margins' objects)
-        const size_t need1 = 2 + 5 * 2 + 128 * 3, need2 = 3 + 7 * 2 + 2 * 128 * 3;
-        if (n < 2 || d[0] < 1 || d[0] > 2 || (d[0] == 1 && n < need1) || (d[0] == 2 && n < need2)) return;
+        logic_done_ = band_taken_ = false;
+        band_next_.valid = band_shown_.valid = false;
+        const size_t need1 = 2 + 5 * 2 + 128 * 3, need2 = 3 + 7 * 2 + 2 * 128 * 3, need3 = need2 + 1 + 7 * 2;
+        if (n < 2 || d[0] < 1 || d[0] > 3 || (d[0] == 1 && n < need1) || (d[0] == 2 && n < need2) ||
+            (d[0] == 3 && n < need3))
+            return;
         level_ = (d[1] & 1) != 0;
         lim_valid_ = (d[1] & 2) != 0;
         size_t o = 2;
@@ -394,6 +439,18 @@ public:
         };
         get(oam_x_, oam_set_);
         if (d[0] >= 2) get(build_x_, build_set_);
+        if (d[0] >= 3) {
+            const uint8_t f = d[o++];
+            int b[7];
+            for (int i = 0; i < 7; i++, o += 2) b[i] = (int16_t)(d[o] | (d[o + 1] << 8));
+            logic_done_ = (f & 1) != 0;
+            band_taken_ = (f & 2) != 0;
+            band_next_.valid = (f & 4) != 0;
+            band_shown_.valid = (f & 8) != 0;
+            band_d_ = b[0] & 0xFFF;
+            band_next_.cam = b[1]; band_next_.vcam = b[2]; band_next_.t = (uint16_t)b[3];
+            band_shown_.cam = b[4]; band_shown_.vcam = b[5]; band_shown_.t = (uint16_t)b[6];
+        }
     }
 
 private:
@@ -422,6 +479,19 @@ private:
     int obj_lo_ = 0, obj_hi_ = 0;
     int dim_lo_ = -kMaxExt, dim_hi_ = 256 + kMaxExt;
     LineLayer line_[2];
+    // A background the game scrolls itself ($083F modes $0A-$14): the inputs of its scroll the module can't read off
+    // the screen, taken when a frame's logic is done (band_next_) and used while that frame is shown (band_shown_).
+    struct BandSnap {
+        bool valid = false;
+        int cam = 0, vcam = 0;   // the game's camera and the picture's middle's (the virtual camera)
+        uint16_t t = 0;          // $1A30 + camera: the drifting (and in mode $0A ratcheting) bands' sum
+    };
+    BandSnap band_next_, band_shown_;
+    int band_d_ = 0;               // mode $0A: the ratchet's lead at the virtual camera over the game's (mod 4096)
+    bool logic_done_ = false;      // the level loop reached its frame wait since its top
+    bool band_taken_ = false;      // band_next_ is this logic frame's
+    bool band_on_ = false;         // this frame: BG2 corrected per line (band_adj)
+    int band_cam_ = 0, band_vcam_ = 0;
     int16_t build_x_[128] = {}, oam_x_[128] = {};
     bool build_set_[128] = {}, oam_set_[128] = {};
 
@@ -470,12 +540,102 @@ private:
     }
     // The camera held in x while it follows in y: a fixed arena (Jafar's). (Both held: a death's fall.)
     static bool arena(const Snes& s) { return rd16(s, kCamHoldX) && !rd16(s, kCamHoldY); }
-    // Whether every layer can follow a view stopped at a level's end (section 3 of docs/re_snes_wide.md): BG2 drawn
-    // from the level's data at a known speed (modes 0-8); not the backgrounds the game scrolls in raster bands
-    // ($0A-$10), by an object (the Carpet Escape's wave, $12) or itself ($14).
+    // Whether every layer can follow a view stopped at a level's end (section 3 of docs/re_snes_wide.md): BG2 at a
+    // known speed (modes 0-8: the parallax shift), or scrolled by the game in a way the module follows line by line
+    // (modes $0A-$14: band_adj).
     static bool can_stop(const Snes& s) {
         const int mode = rd16(s, kBgMode);
-        return mode == 0 || mode == 2 || mode == 4 || mode == 6 || mode == 8;
+        return (mode & 1) == 0 && mode <= 0x14;
+    }
+    // The modes ($81:C781) in which the game scrolls BG2 itself: raster bands from HDMA tables ($0A Agrabah Market and
+    // Market at Dusk, $0C the Lava Cavern, $0E Agrabah Rooftops), by phases ($10 Jafar's Palace 3), an object ($12 the
+    // Carpet Escape's wave), with the camera but moving in y by itself ($14 Sultan's Dungeon 3).
+    static bool band_mode(int mode) { return (mode & 1) == 0 && mode >= 0x0A && mode <= 0x14; }
+
+    // Mode $10's x: the camera, at half speed past $1000 once Jafar's Palace 3 reaches its last part ($81:CA55).
+    static int phase_x(int sub, int x) { return sub == 0 || x < 0x1000 ? x : ((x - 0x1000) >> 1) + 0x1000; }
+    static int floor_shr(int v, int k) { return v >= 0 ? v >> k : -((-v + (1 << k) - 1) >> k); }
+
+    // At the end of a frame's logic: what the band routines take from it ($81:C781, run with the camera's move).
+    // Mode $0A's routine ($81:C98C) holds its first four bands still while the camera moves right: $1A30 drops by the
+    // move, so band 0 = $1A30 + camera keeps its place (drifting 3/4 px a frame); with the camera at the picture's
+    // middle the game would drop it by that camera's moves instead (band_d_ the difference).
+    void take_band(const Snes& s, int cam, bool jump) {
+        BandSnap b;
+        b.valid = band_mode(rd16(s, kBgMode));
+        b.cam = cam;
+        b.vcam = cam - split_left(cam) + ext_;
+        b.t = (uint16_t)(rd16(s, kBgDrift) + cam);
+        if (b.valid && rd16(s, kBgMode) == 0x0A && band_next_.valid && !jump) {
+            const int dc = (int16_t)(cam - rd16(s, kCamPrev)), dv = b.vcam - band_next_.vcam;
+            band_d_ = (band_d_ + std::max(0, dc) - std::max(0, dv)) & 0xFFF;
+        }
+        band_next_ = b;
+    }
+
+    // One line of a background the game scrolls itself: the scroll its code would give with the camera at the
+    // picture's middle (v) against the one it gave (c, on screen: the PPU's register), as a shift of the line on top of
+    // the view's (v - c). The bands' values and their lines, as the band routines ($81:C84B, $81:C7E7) build the HDMA
+    // tables: Agrabah's by world y from camera y + 8 (bounds $80:C606), the lava's fixed; the channel is switched on
+    // by the IRQ at line 8 (its NMI sets the table's start and a line count of 1), so the table's second entry
+    // reaches row 11. A line whose register isn't the band's value as worked out (a frame the logic didn't finish
+    // in) takes it from the register (a sum's low bits unknown: within 1 px). A half-speed line drawn from the level's
+    // data shows a little before its first column there: the page table's border column, which these levels fill with
+    // their background's repeat (and past the end its row goes on), so nothing is mirrored.
+    int band_adj(const Ppu& p, int row) const {
+        const Snes& s = *snes_;
+        const int mode = rd16(s, kBgMode);
+        const int c = band_cam_, v = band_vcam_, h = p.bgHofs(1) & 0x3FF;
+        int dh = v - c;   // (a layer moving with the camera: no shift)
+        if (mode == 0x0A || mode == 0x0E) {
+            const uint32_t idx = mode == 0x0A ? 2 : 0;
+            const int n = rom16(s, kBandCount + idx) >> 1;
+            const uint32_t bounds = kBandBounds + rom16(s, kBandBounds + idx);
+            const int camy = unwrap10(p.bgVofs(1), (int16_t)rd16(s, kCamY));
+            const int y = camy + 8 + std::max(0, row - kBandRow0);
+            int k = 0;
+            while (k + 1 < n && y >= rom16(s, bounds + 2 * (k + 1))) k++;
+            // band k: a shift of the sum t (or of the camera), its value for the camera c
+            const bool known = band_shown_.valid && band_shown_.cam == c;
+            auto shift_of = [&](int band) { return mode == 0x0A ? (band <= 3 ? band : -1) : (band <= 1 ? band + 1 : -1); };
+            auto value = [&](int band) -> int {
+                const int sh = shift_of(band);
+                if (sh >= 0) return (band_shown_.t >> sh) & 0x3FF;
+                if (mode == 0x0A && band == 5) return (c + (c >> 2)) & 0x3FF;
+                return (c >> 1) & 0x3FF;
+            };
+            if (known && value(k) != h) {   // (a few lines off at a band's edge)
+                if (k > 0 && value(k - 1) == h) k--;
+                else if (k + 1 < n && value(k + 1) == h) k++;
+            }
+            const int sh = shift_of(k);
+            if (sh >= 0) {
+                const int low = known && value(k) == h ? band_shown_.t & ((1 << sh) - 1) : 0;
+                dh = floor_shr(low + (v - c) + (mode == 0x0A ? band_d_ : 0), sh);
+            } else if (mode == 0x0A && k == 5) {
+                dh = (v + (v >> 2)) - (c + (c >> 2));
+            } else {
+                dh = (v >> 1) - (c >> 1);
+            }
+        } else if (mode == 0x0C) {
+            // the Lava Cavern: every band drifts at its own speed but one, which moves with the camera (band 9)
+            int band = 0;
+            if (row >= kBandRow0) {
+                int start = kBandRow0;
+                for (int e = 1; e < 16; e++) {
+                    const int cnt = rd8(s, kLavaTable + 3 * e) & 0x7F;
+                    if (cnt == 0) break;
+                    band = e;
+                    if (row < start + cnt) break;
+                    start += cnt;
+                }
+            }
+            dh = band == 9 ? v - c : 0;
+        } else if (mode == 0x10) {
+            const int sub = rd16(s, kBgSub);
+            dh = phase_x(sub, v) - phase_x(sub, c);
+        }
+        return dh - (v - c);
     }
 
     // Where the game's camera can show now (beyond: dimmed): the level, the zone's camera limits, an arena, and the
@@ -525,19 +685,34 @@ private:
         mid_ = 0;
         dim_lo_ = -kMaxExt;
         dim_hi_ = 256 + kMaxExt;
-        if (level_ && ext_ > 0 && snes_ && lim_valid_) {
+        band_on_ = false;
+        if (level_ && ext_ > 0 && snes_) {
             const Snes& s = *snes_;
             // the camera on screen: BG1's scroll register, completed from the NMI's copy
             const int cam = unwrap10(p.bgHofs(0), (int16_t)rd16(s, kBg1Shown));
-            el_ = split_left(cam);
+            int rlo = reach_lo_, rhi = reach_hi_;
+            if (lim_valid_) {
+                el_ = split_left(cam);
+            } else {
+                // (a state made at another width just loaded, the width set from 4:3: where the view stops already)
+                int lo, hi;
+                span(s, cam, lo, hi);
+                el_ = std::clamp(cam - target_v(cam, lo, hi, can_stop(s)), 0, 2 * ext_);
+                reach(s, cam, (int16_t)rd16(s, kCamY), rlo, rhi);
+            }
             er_ = 2 * ext_ - el_;
             mid_ = (er_ - el_) / 2;
-            dim_lo_ = reach_lo_ - cam;
-            dim_hi_ = reach_hi_ - cam;
+            dim_lo_ = rlo - cam;
+            dim_hi_ = rhi - cam;
+            // the band routine's inputs for the frame on screen (the one its logic finished for this camera)
+            if (band_next_.valid && band_next_.cam == cam) band_shown_ = band_next_;
+            band_on_ = band_mode(rd16(s, kBgMode));
+            band_cam_ = cam;
+            band_vcam_ = cam - el_ + ext_;
         }
         p.setExt(el_, er_);
-        // BG2's speed against the camera ($083F: the level's background mode, $81:C781; HDMA-band modes scroll it
-        // themselves and keep their VRAM picture)
+        // BG2's speed against the camera ($083F: the level's background mode, $81:C781; modes $0A-$14 scroll it
+        // themselves: band_adj)
         bg2_ratio_ = 0;
         if (snes_) {
             switch (rd16(*snes_, kBgMode)) {

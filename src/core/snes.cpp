@@ -605,11 +605,16 @@ void Snes::runDma(uint8_t mask) {
   }
 }
 
+// At the top of the frame every channel's "terminated" state clears; the channels enabled now load their table's first
+// entry (and, if any is, every channel's do-transfer flag is set, as bsnes models it). A channel enabled further down
+// the frame starts from its current table address and line counter ($43x8 / $43xA) with the flag as left: Aladdin
+// switches HDMA on from an IRQ at line 8 after its NMI set those to the table's start and 1 (the skyline's raster
+// bands). Before, such a channel never ran.
 void Snes::hdmaInit() {
   for (int c = 0; c < 8; c++) {
     DmaChannel& d = dma_[c];
-    d.doTransfer = false;
-    d.terminated = true;
+    d.doTransfer = hdmaen_ != 0;
+    d.terminated = false;
     if (!(hdmaen_ & (1 << c))) continue;
     d.a2a = d.a1t;
     d.ntrl = busRead((uint32_t(d.a1b) << 16) | d.a2a++);
