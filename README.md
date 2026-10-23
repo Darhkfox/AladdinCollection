@@ -96,7 +96,28 @@ achievements of its own: *A Whole New World* (defeat Jafar in all three versions
 
 ## The games
 
-<!-- per-game feature lists: filled in from each module -->
+### Aladdin — Mega Drive / Genesis (Virgin Games, 1993)
+
+- **Widescreen** up to 21:9 (576 px wide with CRT pixels, 536 with square ones). The columns beyond the 4:3 view
+  are drawn per line straight from the level map in RAM, so the planes and the game's own camera stay untouched;
+  objects spawn just outside the wider view, and their despawn window and sprite clip are widened. The HUD (lamp,
+  lives, apples, gems) is moved to the screen edges; level edges are blacked out with the HUD staying on top.
+  Abu's bonus rounds and the Rug Ride stay 4:3 (the Rug Ride sends its obstacles in at the 4:3 edge on a timer).
+- **Level select**: all 13 entries in the game's own order (both of Abu's bonus rounds and the Rug Ride included),
+  on Practice, Normal or Difficult. Each level starts with its own story card, as after the one before.
+- **Cheats**: invincibility, infinite health, lives, apples, gems and continues, and three of the developers'
+  extras: the debug screen's Cheat Mode, its Map View (fly the view around the level) and a level skip (pause,
+  then A). The game's own codes still work too: pause + A B B A A B B A skips a level, and A C A C A C A C
+  B B B B on the OPTIONS screen opens David Perry's debug screen.
+- **Music player & sound test**: 28 tunes (10 of them unused by the game) and 76 effects under the developers' own
+  names from the game's sound test, played by the game's GEMS driver.
+- **Achievements**: 18 — one per level and for defeating Jafar, plus feats like *Not a Scratch* (clear a level
+  without losing health), *Sword Play* (no apples thrown), *Diamond in the Rough* (finish without losing a life)
+  and finishing on Difficult.
+
+<!-- snes -->
+
+<!-- sms -->
 
 ## Default controls
 
@@ -167,6 +188,12 @@ gradlew assembleDebug
 
 ## Known limitations
 
+- Mega Drive: the game's camera is kept exactly as the original (Aladdin's walking limits are in screen
+  coordinates), so at a level's edges the extension is black. After a mid-level width change, objects in the
+  newly shown columns appear when the view next scrolls over them. Invincibility covers hits only: pits, lava and
+  the Rug Ride's walls still cost a life. Developer Map View puts Aladdin back where the view is when it's
+  switched off, so switch it off over solid ground. Attract demos are recorded inputs and can play out differently
+  in widescreen.
 <!-- per-game limitations -->
 - Save states made by a newer version may not load in an older one.
 
