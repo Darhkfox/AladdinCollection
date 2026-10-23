@@ -25,19 +25,16 @@ namespace {
 constexpr uint32_t kDebug = 0x0009;        // the game's debug mode (controller-2 code on OPTIONS): title stage select
 constexpr uint32_t kDemo = 0x0331;         // 0 play, 1 recording (developer), 2 attract demo
 constexpr uint32_t kStage = 0x035C, kAct = 0x035D, kLevel = 0x035E;   // stage 0-7, act, level index ($80:B73E)
-constexpr uint32_t kLivesShown = 0x0363, kLives = 0x0364;             // lives (the bar shows lives - 1)
-constexpr uint32_t kHeartsMax = 0x0365, kHeartsShown = 0x0366, kHearts = 0x0367;
-constexpr uint32_t kApples = 0x0369, kGems = 0x036B;                  // BCD; $0368 / $036A the bar's copies
+constexpr uint32_t kLives = 0x0364;                                   // lives (the bar shows lives - 1; $0363 its copy)
+constexpr uint32_t kHeartsMax = 0x0365, kHearts = 0x0367;             // ($0366 the bar's count)
+constexpr uint32_t kGems = 0x036B;                                    // BCD ($0369 apples; $0368 / $036A the bar's copies)
 constexpr uint32_t kCamX = 0x1773, kCamY = 0x1777;                   // the camera (BG1 struct + $3B / $3F)
 constexpr uint32_t kCamCentre = 0x1A44;                               // camera + $80 (objects' range tests)
 constexpr uint32_t kCamMaxX = 0x1A04;                                 // the level's last camera x (width - 256)
 constexpr uint32_t kCamLimLo = 0x1A40, kCamLimHi = 0x1A42;            // a zone's camera limits (boss arenas)
 constexpr uint32_t kCamHoldX = 0x1A10, kCamHoldY = 0x1A12;            // nonzero: the camera doesn't follow in x / y
-constexpr uint32_t kBg1Shown = 0x19ED, kBg1ShownY = 0x19F1;           // the scroll the NMI writes (+ shake $1A18)
-constexpr uint32_t kBg2Shown = 0x19F5;
+constexpr uint32_t kBg1Shown = 0x19ED, kBg2Shown = 0x19F5;            // the scroll the NMI writes (+ shake $1A18)
 constexpr uint32_t kBgMode = 0x083F;                                  // the background's mode ($81:C781): its speed
-constexpr uint32_t kObjBase = 0x092B;                                 // 35 object slots of $50 bytes
-constexpr int kObjSize = 0x50, kObjCount = 35;
 constexpr uint32_t kSpawnCam = 0x1BEF;                                // the spawner's camera (moves by 32 px)
 constexpr uint32_t kSpawnRight = 0x1BEB, kSpawnLeft = 0x1BED;         // its next object columns (32 px) each side
 
@@ -60,13 +57,12 @@ constexpr uint32_t kDrawRanges = 0x80BA02, kKeepRanges = 0x80CE73;
 constexpr uint32_t kSpawnInit = 0x82A72C, kSpawnInitCam = 0x82A75F, kSpawnInitRight = 0x82A767;
 constexpr uint32_t kSpawnInitLeft = 0x82A772, kSpawnInitCount = 0x82A77E;
 constexpr uint32_t kSpawnFrameCam = 0x82A7AA, kSpawnRowX = 0x82A876, kSpawnRowIn = 0x82A882, kSpawnRowOut = 0x82A892;
-// The level's main loop (top) and the scene reset every screen's set-up calls.
+// The level's main loop (its top: the stack is the task's own, nothing in flight).
 constexpr uint32_t kLevelLoop = 0x8182CF;
 
 inline uint8_t rd8(const Snes& s, uint32_t a) { return s.wram[a & 0x1FFFF]; }
 inline uint16_t rd16(const Snes& s, uint32_t a) { return (uint16_t)(s.wram[a & 0x1FFFF] | (s.wram[(a + 1) & 0x1FFFF] << 8)); }
 inline void wr8(Snes& s, uint32_t a, uint8_t v) { s.wram[a & 0x1FFFF] = v; }
-inline void wr16(Snes& s, uint32_t a, uint16_t v) { s.wram[a & 0x1FFFF] = (uint8_t)v; s.wram[(a + 1) & 0x1FFFF] = (uint8_t)(v >> 8); }
 inline uint16_t rom16(const Snes& s, uint32_t a) { return s.peek16(a); }
 // A 10-bit scroll register completed to the world position nearest `near`.
 inline int unwrap10(int reg, int near) { return near + ((((reg - near) & 0x3FF) + 0x200) & 0x3FF) - 0x200; }
@@ -100,7 +96,6 @@ public:
         CpuRegs& r = s.cpu.r;
         switch (pc) {
         case kOamBuild:
-            build_count_ = 0;
             for (bool& b : build_set_) b = false;
             return false;
         case kOamPiece:
@@ -108,7 +103,6 @@ public:
             const int idx = (r.x >> 2) & 127;
             build_x_[idx] = (int16_t)r.a;
             build_set_[idx] = true;
-            build_count_ = std::max(build_count_, idx + 1);
             return false;
         }
         case kOamDma:
@@ -233,12 +227,11 @@ public:
             ll.decode = true;
             ll.wx = wx;
             ll.wy = wy + row + 1;
-            ll.base = b;
             ll.off = rd16(s, b + 0x42);
             ll.bank = rd8(s, b + 0x4C);
             ll.lo = -0x8000;
             ll.hi = 0x7FFF;
-            if (l == 1 && row >= kHudLines && bg2_ratio_ != 0x100 && bg2_ratio_ != 0) {
+            if (l == 1 && bg2_ratio_ != 0x100 && bg2_ratio_ != 0) {
                 // A background at another speed than the level (parallax): where the view stops at a level edge
                 // while the game's camera goes on, it is drawn where the game would have it with its camera at the
                 // picture's middle, so it stands still with the picture instead of sliding against it. That is
@@ -372,7 +365,6 @@ private:
         bool decode = false;
         int wx = 0, wy = 0;   // world x of the game's screen's left edge and world y on this line
         int lo = 0, hi = 0;   // the layer's extent (mirrored beyond)
-        uint32_t base = 0;
         uint16_t off = 0;
         uint8_t bank = 0;
     };
@@ -387,14 +379,13 @@ private:
     bool lim_valid_ = false;
     int lim_lo_ = 0, lim_hi_ = 0, d_off_ = 0, last_cam_ = 0;
     int el_ = 0, er_ = 0, mid_ = 0;
-    int bg2_ratio_ = 0;
+    int bg2_ratio_ = 0;      // this frame: BG2's x speed against the camera (8.8), 0 = scrolled by the game itself
     bool obj_bg2_ = false;   // this line: BG2 holds an object's picture (obj_lo_ / obj_hi_: its own copy on screen)
-    int obj_lo_ = 0, obj_hi_ = 0;   // this frame: BG2's x speed against the camera (8.8), 0 = scrolled by the game itself
+    int obj_lo_ = 0, obj_hi_ = 0;
     int dim_lo_ = -kMaxExt, dim_hi_ = 256 + kMaxExt;
     LineLayer line_[2];
     int16_t build_x_[128] = {}, oam_x_[128] = {};
     bool build_set_[128] = {}, oam_set_[128] = {};
-    int build_count_ = 0;
 
     static void write_stub(Snes& s) {
         PatchAsm a(s, kStubRespawn);
@@ -614,7 +605,7 @@ const Tune kSongs[] = {
     {0x23, "Ending: Into the Lamp", 8, 0},
     {0x24, "Ending: Free at Last", 0, 0},
     {0x26, "Staff Roll", 0, 0},
-    {0x14, "Fanfare", 3, 0},
+    {0x14, "Title Logo", 3, 0},
     {0x20, "Short Fanfare", 2, 0},
     {0x2C, "Jingle", 3, 0},
     {0x33, "Short Jingle", 3, 0},
@@ -656,6 +647,10 @@ public:
     const char* rom_names() const override { return "ALADDIN"; }
     uint32_t accent_color() const override { return 0xFFB394F7; }
     int max_ext() const override { return 140; }
+    // The title with its logo, after the flash it appears with (no input: the logos and the whole story come first).
+    int preview_start() const override { return 9390; }
+    // Its music is mixed about 8 dB quieter than Super Star Wars' on the same sound chip (RMS ~1000 against ~3000).
+    float audio_gain() const override { return 1.8f; }
 
     void configure(Snes& s, const GameConfig& cfg) override {
         apply_patches(s, {});
