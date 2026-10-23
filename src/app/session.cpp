@@ -150,6 +150,18 @@ const uint32_t* Session::frame(int& w, int& h) {
         bar_l = plain_bar(ext, ext + kEdgeStrip, +1, w, h);
         bar_r = plain_bar(w - ext - kEdgeStrip, w - ext, -1, w, h);
     }
+    // A side whose edge stops being plain for a moment (a logo or a fade's first frames crossing it) keeps its colour
+    // for a few frames instead of flickering to black.
+    uint32_t* bars[2] = {&bar_l, &bar_r};
+    for (int i = 0; i < 2; i++) {
+        if (*bars[i] != black || info_.gameplay) {
+            bar_last_[i] = *bars[i];
+            bar_hold_[i] = info_.gameplay ? 0 : kBarHold;
+        } else if (bar_hold_[i] > 0) {
+            bar_hold_[i]--;
+            *bars[i] = bar_last_[i];
+        }
+    }
     // dimmed scenery: about 40% brightness
     auto dim = [](uint32_t c) {
         return 0xFF000000u | ((((c >> 16) & 0xFF) * 102 >> 8) << 16) | ((((c >> 8) & 0xFF) * 102 >> 8) << 8) | ((c & 0xFF) * 102 >> 8);

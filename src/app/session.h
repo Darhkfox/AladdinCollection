@@ -119,6 +119,9 @@ private:
     void try_switch();
     void configure_mixer();
     static constexpr int kEdgeStrip = 8;   // columns of a pillarboxed picture's edge that decide its bars' colour
+    static constexpr int kBarHold = 12;    // frames a bar keeps its colour after its edge stops being plain
+    uint32_t bar_last_[2] = {0xFF000000u, 0xFF000000u};
+    int bar_hold_[2] = {0, 0};
     uint32_t plain_edge(int x0, int x1, int w, int h, uint32_t otherwise) const;
     uint32_t plain_bar(int x0, int x1, int inward, int w, int h);
     FrameInfo info_;

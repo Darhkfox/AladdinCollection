@@ -246,7 +246,8 @@ private:
 #endif
     void set_fullscreen(bool fs);
     void resize_window_to_scale();
-    void window_size(int& cw, int& ch);  // the windowed client size for the picture (Window Size x its shape)
+    // the windowed client size for the picture (Window Size x its shape), fitted to `work` (a monitor's work area)
+    void window_size(int& cw, int& ch, const RECT* work = nullptr);
     void move_to_monitor(int index);
     double refresh_rate();
     std::string black_frames_note();     // Video menu: the refresh rate in use, or why black frames can't be shown
@@ -262,6 +263,10 @@ private:
     std::string hotkey_text(int h) const;     // a hotkey's key and pad button, for menus ("Tab / RT")
     void bind_hotkey_key(int h, int vk);           // Controls: a hotkey's new key / pad button (an action or the other
     void bind_hotkey_pad(int h, uint32_t button);  // hotkey that had it gets the old one)
+    // A game button took hotkey h's key / pad button: h gets the button's old one if no other console's game button
+    // has it, else none (with a toast).
+    void give_hotkey_key(int h, int old_vk, int sys, int player, int act);
+    void give_hotkey_pad(int h, uint32_t old_button, int sys, int player, int act);
     void rewind_step(double dt);
 
     void frame(double dt);

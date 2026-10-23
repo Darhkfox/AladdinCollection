@@ -157,16 +157,17 @@ bool App::create_window(HINSTANCE inst, int show) {
     wc.lpszClassName = kWindowClass;
     wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
     RegisterClassExW(&wc);
+    // Open centred on the chosen display, at a size that fits it.
+    std::vector<MonitorInfo> mons = enum_monitors();
+    const MonitorInfo* mon = mons.empty() ? nullptr : &mons[find_monitor(mons, from_utf8(settings_.monitor))];
     int cw, ch;
-    window_size(cw, ch);
+    window_size(cw, ch, mon ? &mon->work : nullptr);
     if (capture_w_ > 0) { cw = capture_w_; ch = capture_h_; }
     RECT r = {0, 0, cw, ch};
     AdjustWindowRectEx(&r, WS_OVERLAPPEDWINDOW, FALSE, 0);
-    // Open centred on the chosen display.
-    std::vector<MonitorInfo> mons = enum_monitors();
     RECT pos = {CW_USEDEFAULT, CW_USEDEFAULT, 0, 0};
-    if (!mons.empty()) {
-        const MonitorInfo& m = mons[find_monitor(mons, from_utf8(settings_.monitor))];
+    if (mon) {
+        const MonitorInfo& m = *mon;
         pos = centered_rect(m.work, r.right - r.left, r.bottom - r.top);
         if (capture_w_ > 0) { pos.left = m.work.left; pos.top = m.work.top; }
     }
@@ -243,20 +244,30 @@ void App::remember_monitor() {
 }
 
 // The window holds the picture at its shape: the running game's console's lines (the launcher: the Mega Drive's
-// 224), and the width those lines' pixels make at the widescreen setting.
-void App::window_size(int& cw, int& ch) {
+// 224), and the width those lines' pixels make at the widescreen setting (Stretch: the square-pixel widths the game
+// is then shown at). The scale is Window Size, or the largest below it at which the window fits `work`.
+void App::window_size(int& cw, int& ch, const RECT* work) {
     const System sys = session_ ? session_->system() : System::MegaDrive;
     const int max_ext = session_ ? session_->module()->max_ext() : 1 << 12;
     const int ext = wide_ext(fit_wide_mode(settings_.widescreen, settings_.aspect, sys, max_ext), settings_.aspect, sys);
-    const double par = settings_.aspect == AspectMode::Stretch ? pixel_aspect(sys, AspectMode::Crt) : pixel_aspect(sys, settings_.aspect);
-    cw = (int)((base_width(sys) + ext * 2) * par * settings_.window_scale + 0.5);
-    ch = base_lines(sys) * settings_.window_scale;
+    const double par = pixel_aspect(sys, settings_.aspect);
+    RECT frame = {0, 0, 0, 0};
+    AdjustWindowRectEx(&frame, WS_OVERLAPPEDWINDOW, FALSE, 0);
+    for (int scale = std::clamp(settings_.window_scale, 1, 6); scale >= 1; scale--) {
+        cw = (int)((base_width(sys) + ext * 2) * par * scale + 0.5);
+        ch = base_lines(sys) * scale;
+        if (!work || (cw + frame.right - frame.left <= work->right - work->left &&
+                      ch + frame.bottom - frame.top <= work->bottom - work->top))
+            break;
+    }
 }
 
 void App::resize_window_to_scale() {
     if (is_fullscreen_ || capture_w_ > 0) return;
+    MONITORINFO mi = {sizeof(mi)};
+    const bool have = GetMonitorInfoW(MonitorFromWindow(hwnd_, MONITOR_DEFAULTTONEAREST), &mi) != 0;
     int cw, ch;
-    window_size(cw, ch);
+    window_size(cw, ch, have ? &mi.rcWork : nullptr);
     RECT r = {0, 0, cw, ch};
     AdjustWindowRectEx(&r, WS_OVERLAPPEDWINDOW, FALSE, 0);
     SetWindowPos(hwnd_, nullptr, 0, 0, r.right - r.left, r.bottom - r.top, SWP_NOMOVE | SWP_NOZORDER);
