@@ -41,6 +41,7 @@ void Session::apply_settings(const Settings& s) {
     const int max_ext = module_ ? module_->max_ext() : 0;
     c.ext = wide_ext(fit_wide_mode(s.widescreen, s.aspect, sys, max_ext), s.aspect, sys);
     c.hud_anchor = s.hud_anchor;
+    c.cpu_turbo = sys == System::Snes && s.no_slowdown ? kNoSlowdownTurbo : 1;
     if (module_ && !s.achievements) {   // achievements on: no cheats
         auto g = s.cheats.find(module_->id());
         if (g != s.cheats.end()) c.cheats = g->second;
@@ -61,6 +62,10 @@ void Session::switch_config() {
 
 void Session::try_switch() {
     pending_ = false;
+    if (want_.cpu_turbo != cfg_.cpu_turbo) {   // (safe at any moment)
+        cfg_.cpu_turbo = want_.cpu_turbo;
+        core_turbo(cfg_.cpu_turbo);
+    }
     if (want_.ext == cfg_.ext && want_.hud_anchor == cfg_.hud_anchor && want_.cheats == cfg_.cheats) return;
     if (!module_ || core_can_configure(want_)) switch_config();
     else pending_ = true;

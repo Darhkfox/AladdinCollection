@@ -29,6 +29,26 @@ its registers with the flag as left. Compared with the old core over the first 2
 frames of the attract loop, only those levels' pictures change. In this core the table's second entry reaches row 11
 (`AladdinWide::kBandRow0`).
 
+## Remove Slowdown
+
+The level's main loop (`$81:82CF`) does a frame's work and then waits at `$81:82E6` (`JSL $81:BD31`, the task
+scheduler's wait) for the next frame; when a frame's work doesn't fit, the next iteration starts a frame late (a lag
+frame). With the option on (`GameConfig::cpu_turbo` = 4, `Snes::cpuTurbo`) the module sets `Snes::turboActive` at the
+loop's top and clears it at the wait (the wide view's `kLevelLoop` / `kLevelWait` hooks), and the CPU's memory accesses
+and idle cycles take a quarter of their time in between, outside hardware interrupt handlers.
+
+The core first counted BRK and COP as interrupt handlers too: Aladdin's object coroutines yield with them and resume
+without a matching RTI, so the depth sat at 7 in the main loop and the speed-up never applied. Only hardware
+interrupts (NMI, IRQ) count now.
+
+`tools/re/snes_lag.py <ext> <turbo>` (a bot: Right held, jumping, throwing; invincible; 1,200 frames per level):
+lag frames 0.7% of gameplay at 4:3 and 1.5% at 21:9 (A Whole New World 12.0%), 0.6% with the option on at 21:9
+(A Whole New World 0.1%; what is left is the game's own pauses). Every level runs its main loop once per frame when
+idle (none is built for less than 60 a second), Aladdin's position over 300 frames is identical with and without the
+option in Agrabah Market, the Carpet Escape, A Whole New World and Jafar, and the level-start music is identical. The
+first attract demo follows its path for ~25 s and then lands a few pixels off in places (its recorded input meets the
+removed lag frames).
+
 ## Engine
 
 - **Tasks.** A cooperative scheduler (`$81:BC6D`): 8 task slots at `$006F + n*$18` (`+0` state, `+1` frames to wait,

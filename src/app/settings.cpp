@@ -244,6 +244,7 @@ bool Settings::load(const std::wstring& path) {
             else if (k == "fast_forward") fast_forward = iv != 0;
             else if (k == "rewind") rewind = iv != 0;
             else if (k == "achievements") achievements = iv != 0;
+            else if (k == "no_slowdown") no_slowdown = iv != 0;
         }
     }
     return true;
@@ -283,7 +284,7 @@ bool Settings::save(const std::wstring& path) const {
         for (auto& c : g.second) o << c.first << "=" << c.second << "\n";
     }
     o << "\n[general]\nlast_game=" << last_game << "\nfast_forward=" << fast_forward << "\nrewind=" << rewind
-      << "\nachievements=" << achievements << "\n";
+      << "\nachievements=" << achievements << "\nno_slowdown=" << no_slowdown << "\n";
 #ifdef __ANDROID__
     o << "\n[touch]\nmode=" << touch_mode << "\nopacity=" << touch_opacity << "\n";
 #endif

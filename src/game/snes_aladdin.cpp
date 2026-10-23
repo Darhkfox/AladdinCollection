@@ -123,8 +123,10 @@ public:
             return false;
         case kLevelWait:
             logic_done_ = true;
+            s.turboActive = false;   // (Remove Slowdown: the frame's work is done; the wait keeps the console's timing)
             return false;
         case kLevelLoop:
+            s.turboActive = s.cpuTurbo > 1;   // Remove Slowdown: the frame's work runs faster up to the frame wait
             loop_frame_ = s.frameCount();
             logic_done_ = band_taken_ = false;
             if (respawn_) {
@@ -887,6 +889,10 @@ public:
     void configure(Snes& s, const GameConfig& cfg) override {
         apply_patches(s, {});
         s.clearExecMarks();
+        // Remove Slowdown: the CPU's speed for the game's frame work (turboActive is set from the top of the level's
+        // main loop to its frame wait, in the wide view's hooks).
+        s.cpuTurbo = std::max(1, cfg.cpu_turbo);
+        if (s.cpuTurbo == 1) s.turboActive = false;
         wide_.configure(s, cfg);
         // Cheats that change code paths run as exec hooks (no ROM bytes change, so they switch at any time).
         invincible_ = cfg.cheat("invincible");

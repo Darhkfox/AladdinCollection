@@ -83,6 +83,7 @@ protected:
     virtual void core_power_on() = 0;
     virtual void core_soft_reset() = 0;
     virtual void core_headless(bool on) = 0;                 // skip drawing (headless runs)
+    virtual void core_turbo(int k) { (void)k; }              // the CPU's speed for the game's frame work (SNES)
     virtual void core_settings(const Settings& s) = 0;       // sprite limit, palette, chip options
     virtual void core_configure(const GameConfig& c) = 0;    // video width + the module's configure()
     virtual bool core_can_configure(const GameConfig& c) = 0;

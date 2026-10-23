@@ -133,7 +133,9 @@ void Cpu65816::doBranch(bool cond) {
 }
 
 void Cpu65816::doInterrupt(uint16_t nativeVec, uint16_t emuVec, bool isBrk) {
-  if (bus_->irqDepth_ < 8) bus_->irqDepth_++;   // (the turbo stays off in handlers until their RTI)
+  // (the turbo stays off in hardware interrupt handlers until their RTI; BRK / COP are the game's own code, and games
+  // such as Aladdin yield their object coroutines with them without a matching RTI)
+  if (!isBrk && bus_->irqDepth_ < 8) bus_->irqDepth_++;
   // For hardware interrupts two idle cycles replace the opcode fetch.
   if (!r.e) pushByte(r.pb);
   pushWord(r.pc);

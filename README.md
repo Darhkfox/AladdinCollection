@@ -95,6 +95,10 @@ achievements of its own: *A Whole New World* (defeat Jafar in all three versions
   console, hot-plugging.
 - 5 save-state slots per game (F5 / F9), fast forward (hold Tab or the right trigger, 4×), rewind (hold R or
   the left trigger, up to the last minute of play), screenshots (F12).
+- Remove Slowdown (Options, SNES, on by default): where the SNES version slowed down, its CPU does the game's work
+  for the frame faster, so busy scenes keep a steady 60 frames a second. Interrupts, sound and the game's own pauses
+  keep the console's timing, and nothing runs faster than the original. Off: the original's speed, slowdown
+  included.
 
 ## The games
 
@@ -249,7 +253,8 @@ gradlew assembleDebug
   enter from the left appear inside the left side of views wider than 16:10. Tiles the game animates with the
   camera (stage 0's distant building and brick wall, stage 1's railings) show their current state at the sides.
   With Remove Sprite Flicker off, sprites in the sides count towards the 8-per-line limit.
-- SNES: invincibility and infinite health don't prevent pits, crushes or being left behind by the scrolling. Infinite
+- SNES: with Remove Slowdown on, the attract demos (recorded button presses) can drift slightly from their path, as
+  the lag frames they were recorded with are gone. Invincibility and infinite health don't prevent pits, crushes or being left behind by the scrolling. Infinite
   Gems keeps the counter at 99, so every gem completes a hundred (an extra heart, then an extra life). The dimmed
   sides of a boss arena show the level as stored, not what the fight paints on it (Jafar's fire floor stays in the
   4:3 area). In the levels with a half-speed background, up to about 70 px of that background is shown mirrored at

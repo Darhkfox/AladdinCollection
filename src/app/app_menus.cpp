@@ -102,6 +102,11 @@ void App::open_options_menu(bool from_launcher) {
     rw.enabled = [this]() { return !settings_.achievements; };
     rw.value_text = [this]() { return settings_.achievements ? std::string("Off (achievements on)") : hotkey_text(HK_REWIND); };
     p.items.push_back(rw);
+    // (the SNES game only: offered in it and from the launcher)
+    if (!session_ || session_->system() == System::Snes)
+        p.items.push_back(MenuItem::toggle("Remove Slowdown", [this]() { return settings_.no_slowdown; },
+                                           [this](bool v) { settings_.no_slowdown = v; apply_settings(); },
+                                           "SNES: the console's CPU runs the game's work faster where the original slowed down. Off: the original's speed."));
     // (right under what it switches off)
     p.items.push_back(MenuItem::header("Achievements"));
     p.items.push_back(achievements_switch());

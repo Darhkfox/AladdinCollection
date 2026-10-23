@@ -489,6 +489,13 @@ API void snt_module_configure(void* h, int ext, int hud, const char* cheats) {
     for (uint32_t pc : t->bps) t->snes.markExec(pc, true);
 }
 // CPU speed for the game's frame work (GameConfig::cpu_turbo; 1 = original)
+// cpuTurbo, turboActive, the CPU's interrupt depth (Remove Slowdown checks)
+API void snt_turbo_state(void* h, int* out) {
+    Tool* t = (Tool*)h;
+    out[0] = t->snes.cpuTurbo;
+    out[1] = t->snes.turboActive ? 1 : 0;
+    out[2] = t->snes.irqDepth();
+}
 API void snt_module_turbo(void* h, int k) {
     Tool* t = (Tool*)h;
     t->cfg.cpu_turbo = k < 1 ? 1 : k;

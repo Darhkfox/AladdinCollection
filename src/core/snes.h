@@ -69,6 +69,7 @@ public:
   static constexpr int kTurboApuHold = 4 * 1364;   // four scanlines
   int cpuTurbo = 1;
   bool turboActive = false;
+  int irqDepth() const { return irqDepth_; }   // interrupt handlers the CPU is in (tools)
   void releaseNmi() {
     nmiHold = false;
     if (nmiHeld) {

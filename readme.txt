@@ -324,6 +324,10 @@
      Rewind ............ Hold R or the left trigger to step back through the
                          last minute of play. Only while achievements are
                          off.                             (default: ON)
+     Remove Slowdown ... SNES: where the original slowed down, the console's
+                         CPU does the game's work faster, so busy scenes
+                         stay at 60 frames a second. Off: the original's
+                         speed, slowdown included.       (default: ON)
 
 
 --------------------------------------------------------------------------------

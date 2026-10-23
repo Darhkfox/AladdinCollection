@@ -110,6 +110,8 @@ _sig('snt_module_configure', None, V, I, I, C.c_char_p)
 _sig('snt_module_can_configure', I, V, I, C.c_char_p)
 if hasattr(_dll, 'snt_module_turbo'):   # (not in older DLLs)
     _sig('snt_module_turbo', None, V, I)
+if hasattr(_dll, 'snt_turbo_state'):
+    _dll.snt_turbo_state.argtypes = [C.c_void_p, C.POINTER(C.c_int)]
 if hasattr(_dll, 'snt_module_view_left'):
     _sig('snt_module_view_left', I, V)
 if hasattr(_dll, 'snt_edge_mirror'):
@@ -413,6 +415,12 @@ class SNES:
         _dll.snt_module_configure(self.h, ext, 1 if hud else 0, cheats.encode())
         if os.environ.get('SNT_TURBO') and hasattr(_dll, 'snt_module_turbo'):   # (runs as the app's Remove Slowdown)
             self.turbo(int(os.environ['SNT_TURBO']))
+
+    def turbo_state(self):
+        """(cpuTurbo, turboActive, interrupt depth)"""
+        o = (C.c_int * 3)()
+        _dll.snt_turbo_state(self.h, o)
+        return tuple(o)
 
     def turbo(self, k):
         """CPU speed for the game's frame work (1 = the original's slowdown); kept across configure()."""

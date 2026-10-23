@@ -71,6 +71,8 @@ struct Settings {
     bool        rewind = true;
     // Achievements on: they can be earned, and cheats, rewind and fast forward are off
     bool        achievements = true;
+    // SNES: the CPU runs the game's frame work faster (GameConfig::cpu_turbo = kNoSlowdownTurbo): no slowdown
+    bool        no_slowdown = true;
 
     // Touch screens (Android): on-screen pad 0 = when the screen is touched, 1 = always, 2 = never; opacity %
     int         touch_mode = 0;
@@ -105,6 +107,7 @@ int wide_ext(WideMode m, AspectMode a, System s);
 WideMode fit_wide_mode(WideMode m, AspectMode a, System s, int max_ext);
 // The low-pass cutoff (Hz) of an output filter on a console (0 = none).
 double filter_cutoff(AudioFilter f, System s);
+constexpr int kNoSlowdownTurbo = 4;   // Remove Slowdown: the SNES CPU's speed for the game's frame work (Snes::cpuTurbo)
 
 const char* color_mode_name(ColorMode m);
 const char* wide_mode_name(WideMode m);

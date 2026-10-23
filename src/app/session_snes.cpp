@@ -48,6 +48,10 @@ protected:
     }
     void core_soft_reset() override { snes_->reset(false); }
     void core_headless(bool on) override { snes_->skipRender = on; }
+    void core_turbo(int k) override {
+        snes_->cpuTurbo = std::max(1, k);
+        if (snes_->cpuTurbo <= 1) snes_->turboActive = false;
+    }
     void core_settings(const Settings& s) override {
         ColorProfile p{s.color, s.brightness, s.saturation, s.gamma};
         if (p != profile_) {
@@ -59,7 +63,7 @@ protected:
     }
     void core_configure(const GameConfig& c) override {
         snes_->ppu.setExt(c.ext, c.ext);
-        snes_->cpuTurbo = c.cpu_turbo;
+        snes_->cpuTurbo = std::max(1, c.cpu_turbo);
         if (c.cpu_turbo <= 1) snes_->turboActive = false;
         if (mod()) mod()->configure(*snes_, c);
     }
