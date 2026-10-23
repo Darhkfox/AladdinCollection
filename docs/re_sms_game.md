@@ -149,7 +149,9 @@ left, which the blanked left column (reg 0 bit 5) hides. So the 32-column name t
 
 * Metatiles: 16×16 px, 8 bytes = the TL TR BL BR name-table entries, at `$C49D + 8 * n`.
 * Engines A/C (stages 0 1 5 7 8, `$2E19`): `$C48F` points at a table of page pointers, one per 256 px; a page has
-  16 metatile columns, rows `$C489` (`$10`) bytes apart.
+  16 metatile columns, rows `$C489` (`$10`) bytes apart. The table ends where the first page's data begins: stage 0
+  has 15 pages (3840 px), 1 17, 5 31, 7 32, 8 20. Stages 0, 1 and 8 end before `$C480` allows (stage 0: `$1300`,
+  its camera stops at 3584, the map's end); past the table lie other data.
 * Engine B (stages 2 3 4 6 9, `$2DEC`): one map at `$C48F`, `$C489` bytes per row, starting at world X `$C4B9`.
 * The map is read with slot 2 = `$3306[stage]` (`$30CB`).
 `tools/re/sms_map.py` implements both and checks them against VRAM: no mismatch in any stage.
@@ -157,9 +159,14 @@ left, which the blanked left column (reg 0 bit 5) hides. So the 32-column name t
 Parallax: stage 0's floor (lines 160-175) scrolls faster than the camera (`$C491`, `$C492`); stage 1's sky and city
 (lines 0-127) slower (`$C495`, `$C494`, `$C493`); stage 9 has a band from line 80. These bands repeat every 256 px.
 
-Pattern animation: stage 0 rewrites a few tiles with the camera (`$30F6`, the brick wall), stages 2/4/9 animate
-water / torches; stage 7 reloads tiles 259-374 for each of its five sections (`$31EE`, thresholds `$32A0`: camera
-X `$400`, `$B00`, `$1400`, `$1B00`, lists in bank `$1A`).
+Pattern animation: stage 0 rewrites a few tiles with the camera (`$30F6`, the brick wall), stage 1 tiles 1-34 and
+257-272 (railings, roof faces), stages 2/4/9 animate water / torches; stage 7 reloads tiles 259-374 for each of
+its five sections (`$31EE`, thresholds `$32A0`: camera X `$400`, `$B00`, `$1400`, `$1B00`, lists in bank `$1A`).
+
+Palettes: one per stage (table `$B3E4`, 32 bytes each; stage 7 `$B4D8`), loaded at the stage's start; the stages
+keep them, but for fades. Stage 7's last section (`$C6A6` = 4) changes them: the stars twinkle in background
+entries 10-13 every 4 frames (`$3950`, values from `$3979`), and when the section's list has loaded (`$323D`) the
+background half becomes `$33A7`.
 
 ## 4. Objects, sprites, collisions
 

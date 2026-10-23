@@ -473,6 +473,8 @@ public:
         s.on_frame_start = nullptr;
         v.sprite_shift = 0;
         v.line_shift = wide ? line_shift : nullptr;
+        v.alt_patterns = nullptr;   // (bg_entry points them at stage 7's copies when it uses them)
+        v.alt_cram = nullptr;
         std::memset(v.bg_shift, 0, sizeof(v.bg_shift));
         // (a width change within a stage keeps what the hooks recorded for the frames under way)
         if (!wide || !wide_ || !in_stage(s)) {
@@ -809,12 +811,14 @@ private:
     // moved them (and the camera) already: each band holds still against the view by what it moves while the
     // camera covers the rest of the slide. Stage 0 (camera 1 px a frame) moves its floor 2 and 3 px for each of the
     // camera's; stage 1 (2 px a frame) moves $C493 1 px every frame, $C494 on even frames, $C495 every fourth ($2CC7:
-    // the frame counter's phase at the camera's last move).
+    // the frame counter's phase at the camera's last move). The logic's lead is taken out without a slide too, so
+    // the bands don't jump by it where a hold ends (and keep step with the camera's band and the sprites).
     static int line_shift(void* host, int line) {
         const SmsAladdin& mod = *(const SmsAladdin*)host;
         const Sms& s = *mod.sms_;
         const int vs = s.vdp.sprite_shift;
-        if (vs == 0 || line < 16 || line >= 176) return 0;
+        const bool banded = mod.band_start_[0] < 999;   // (stages 0 and 1)
+        if ((vs == 0 && !banded) || line < 16 || line >= 176) return 0;
         const int k = mod.band_of(line), cam = shown_cam(s);
         if (k == mod.cam_band_) return vs - (band_camera(s, s.vdp.reg[8]) - cam);
         const int live = (int16_t)(s.ram16(CAM_X) - cam);    // how far the logic has moved the camera since
