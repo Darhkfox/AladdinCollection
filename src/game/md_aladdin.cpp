@@ -33,6 +33,7 @@ constexpr uint32_t PC_MAIN_LOOP = 0x1A8C16;   // top of the gameplay loop
 constexpr uint32_t PC_PAUSE_LOOP = 0x1A9230;  // the pause loop
 constexpr uint32_t PC_LEVEL_END = 0x1A8E5C;   // a level is over: next level / ending
 constexpr uint32_t PC_DEATH = 0x1A8F82;       // the death screen (Aladdin, Abu and the carpet on black)
+constexpr uint32_t PC_PIT = 0x1A902E;         // fell below the map: a life lost without the death screen
 constexpr uint32_t PC_LEVEL_INIT = 0x1AA484;  // level init (start_level waits for it)
 
 // module_state: [0] frame (+1) the gameplay loop last ran in, 0 after it was left
@@ -89,12 +90,14 @@ const std::vector<RomPatch> kInfContinues = {{0x1B0A1C, {0x5339, 0x00FF, 0x7E3F}
 constexpr uint32_t CAVE = 0x7000;   // the $FF fill at $69E0-$FFFF (no references), reachable with jsr abs.w
 constexpr uint32_t CAVE_LSPAWN = CAVE, CAVE_RSPAWN = CAVE + 0x80, CAVE_ROWSPAWN = CAVE + 0x100, CAVE_CLIP = CAVE + 0x180;
 
-int ext_left_blocks(int E) { return (E + 14) / 16; }        // block columns left of L the view can reach
-int ext_right_blocks(int E) { return (350 + E) / 16 - 22; } // block columns right of L+22
+// An object stored in block column c appears at screen x 16c - (camX + 16): the original streams column L/16 (left,
+// screen x -16-d) and L/16+22 (right, 336-d), |d| < 16, just outside its view. Spawning k = E/16 (rounded up) columns
+// further out keeps the same margin outside the widened view.
+int ext_blocks(int E) { return (E + 15) / 16; }
 int sprite_bias(int E) { return E > 96 ? 64 : 0; }          // object sprites drawn this far right in VDP X (see sprite_xoff)
 
 std::vector<RomPatch> wide_patches(int E) {
-    const uint16_t kl = (uint16_t)ext_left_blocks(E), kr = (uint16_t)ext_right_blocks(E), o = (uint16_t)sprite_bias(E);
+    const uint16_t kl = (uint16_t)ext_blocks(E), kr = kl, o = (uint16_t)sprite_bias(E);
     auto ff = [](size_t n) { return std::vector<uint16_t>(n, 0xFFFF); };
     // after the left column writer's own spawn (column L), the column L-16kl (if >= 1)
     std::vector<uint16_t> lspawn = {
@@ -278,6 +281,61 @@ void line_hook(void* host, int line, uint8_t* plane_a, uint8_t* plane_b, uint8_t
 }
 
 
+// ---- sound (docs/re_md_game.md section 4) ---------------------------------------------------------------
+// GEMS sequences (bank $1BAF6F, 114 entries): music and sound effects alike. The names are the developers' own, from the
+// OPTIONS screen's SOUND TEST ($12675E: sequence, 14 characters), with where the game plays the tune. Ten tunes the code
+// never asks for (and the sound test doesn't list) close the music list; the silent sequences (2, 23-25, ...) are left out.
+const SoundEntry kSounds[] = {
+    {26, "A Whole New World (Title & Ending)", true},
+    {84, "Storyline", true},
+    {73, "Prince Ali (Agrabah Market)", true},
+    {38, "Camel Jazz (The Desert)", true},
+    {20, "One Jump Ahead (Agrabah Rooftops)", true},
+    {85, "Drama", true},
+    {82, "Arabian Nights (Sultan's Dungeon)", true},
+    {35, "Gloomy Tune (Cave of Wonders)", true},
+    {16, "Arab Rock 2 (Escape from the Cave)", true},
+    {29, "Rug Ride", true},
+    {27, "Friend Like Me (Inside the Lamp)", true},
+    {22, "Turban Jazz (Sultan's Palace)", true},
+    {86, "Mushy One", true},
+    {50, "Boss Tune (Jafar's Quarters)", true},
+    {15, "Arab Rock 1 (Abu's Bonus, Jafar's Palace)", true},
+    {18, "Bonus Tune", true},
+    {17, "Level Complete", true},
+    {10, "Ne Naw Tune (Continue)", true},
+    {21, "Unused Tune 1", true}, {28, "Unused Tune 2", true}, {30, "Unused Tune 3", true},
+    {36, "Unused Tune 4", true}, {37, "Unused Tune 5", true}, {51, "Unused Tune 6", true},
+    {52, "Unused Tune 7", true}, {53, "Unused Tune 8", true}, {54, "Unused Tune 9", true},
+    {74, "Unused Tune 10", true},
+    {0, "High Sword", false}, {1, "Low Sword", false}, {3, "Object Throw", false}, {4, "Menu Select", false},
+    {5, "Flagpole", false}, {6, "Menu Change", false}, {7, "Head Bop", false}, {8, "Wall Hit", false},
+    {9, "Cloud Poof", false}, {11, "Apple Collect", false}, {12, "Apple Slice", false}, {13, "Gem Collect", false},
+    {14, "Jafar Laugh", false}, {19, "Scarab Wow", false}, {31, "Balloon Pop", false}, {32, "Sword Spinning", false},
+    {33, "Sword Ching", false}, {34, "Apple Splat", false}, {39, "Pole Slide", false}, {41, "Rope Launch", false},
+    {42, "Genie Fumes", false}, {43, "Guard's Pants", false}, {44, "Rope Appear", false}, {45, "Iago Squawk", false},
+    {46, "Effect 46", false}, {47, "Landing Oof", false}, {49, "Aladdin Hurt", false}, {55, "Skeleton", false},
+    {56, "Bones Tinkle", false}, {57, "Clay Pot", false}, {58, "Boxing Bell", false}, {59, "Aladdin Push", false},
+    {60, "Splash", false}, {61, "Camel Spit", false}, {62, "Guard Beckon", false}, {63, "Canopy Bounce", false},
+    {64, "Flamingo Hey!", false}, {68, "Flamingo Hey! 2", false}, {65, "Guard Hit 1", false}, {66, "Guard Hit 2", false},
+    {67, "Geyser", false}, {69, "Stone Rumble", false}, {71, "Spring Doing 1", false}, {70, "Spring Doing 2", false},
+    {72, "Cash Register", false}, {75, "Honk", false}, {76, "Fire from Coal", false}, {77, "Stones Crumble", false},
+    {78, "Wall Spikes", false}, {79, "Tiptoe", false}, {80, "Rock Bounce", false}, {81, "Outta Apples", false},
+    {83, "Earthquake", false}, {90, "Stopping", false}, {91, "Win a Bonus", false}, {92, "Starting Gun", false},
+    {93, "Abu Uh-Oh", false}, {94, "Oooh", false}, {95, "Aaah", false}, {96, "Eeeh", false}, {97, "Iiee", false},
+    {98, "Extra Health", false}, {99, "Continue Point", false}, {100, "Scarab Pickup", false},
+    {101, "Body Crunch", false}, {102, "Yeah", false}, {103, "Flute Pickup", false}, {104, "Jafar Tractor", false},
+    {105, "Wow!", false}, {106, "Gazeem Hit 1", false}, {107, "Gazeem Hit 2", false}, {108, "Jafar Snake", false},
+    {109, "Peddler Shop", false}, {110, "Abu Waving", false}, {112, "Coming Out", false}, {113, "Honkey Sound", false},
+};
+
+bool is_music(int id) {
+    for (const SoundEntry& e : kSounds) if (e.id == id) return e.music;
+    return false;
+}
+
+std::vector<SoundEntry> sound_list() { return std::vector<SoundEntry>(std::begin(kSounds), std::end(kSounds)); }
+
 class MdAladdin : public MdModule {
 public:
     const char* id() const override { return "md"; }
@@ -315,6 +373,7 @@ public:
         md.add_pc_hook(PC_PAUSE_LOOP, play);
         md.add_pc_hook(PC_LEVEL_END, leave);
         md.add_pc_hook(PC_DEATH, leave);
+        md.add_pc_hook(PC_PIT, leave);
         const bool wide = cfg.ext > 0;
         md.vdp.line_hook = wide ? line_hook : nullptr;
         md.vdp.sprite_xoff = wide ? sprite_xoff : nullptr;
@@ -336,7 +395,9 @@ public:
     void post_frame(MegaDrive& md, const GameConfig& cfg, FrameInfo& info) override {
         const int E = cfg.ext;
         const int level = md.ram8(LEVEL);
-        info.gameplay = in_gameplay(md) && level != L_ABU_AGRABAH && level != L_ABU_CAVE;
+        // Shown 4:3: Abu's bonus rounds (a 336-px room) and the Rug Ride, whose obstacles are sent in at the 4:3 view's
+        // right edge on a timer (wider, they would pop up in the middle of the right extension).
+        info.gameplay = in_gameplay(md) && level != L_ABU_AGRABAH && level != L_ABU_CAVE && level != L_RUG_RIDE;
         (void)E;   // (the level-edge masks are drawn per line by line_hook, so the HUD stays over them)
     }
 
@@ -386,6 +447,40 @@ public:
         configure(md, cfg);   // (drops the init hook)
         if (!init) return false;
         return run_until(md, [&]() { return in_gameplay(md); }, 600);
+    }
+
+    std::vector<SoundEntry> sounds() const override { return sound_list(); }
+
+    // The GEMS sound driver runs on the Z80 by itself: the 68000 only queues commands. Park the game on the SEGA logo
+    // (the driver is set up at power-on, $1AA344) and queue the commands the way the game's library does.
+    void jukebox_boot(MegaDrive& md) override {
+        md.power_on();
+        for (int i = 0; i < 40; i++) md.run_frame();
+        freeze_68k(md);
+        stop_sound(md);
+        for (int i = 0; i < 4; i++) md.run_frame();   // let the driver take the stop request
+    }
+
+    // The game stops a sequence before starting it again ($1E58B8, $1E589A); a new tune also stops the one playing.
+    void play_sound(MegaDrive& md, int id) override {
+        if (is_music(id)) gems_command(md, {0x16});
+        else gems_command(md, {0x12, (uint8_t)id});
+        gems_command(md, {0x10, (uint8_t)id});
+    }
+
+    void stop_sound(MegaDrive& md) override { gems_command(md, {0x16}); }
+
+private:
+    // The GEMS command FIFO in Z80 RAM ($1B40, 64 bytes, write index at $0036): $FF, command, arguments ($1E57F4).
+    static void gems_command(MegaDrive& md, std::initializer_list<uint8_t> bytes) {
+        uint8_t i = md.zram[0x0036];
+        md.zram[0x1B40 + i] = 0xFF;
+        i = (i + 1) & 0x3F;
+        for (uint8_t b : bytes) {
+            md.zram[0x1B40 + i] = b;
+            i = (i + 1) & 0x3F;
+        }
+        md.zram[0x0036] = i;
     }
 };
 

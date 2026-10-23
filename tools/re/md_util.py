@@ -25,7 +25,7 @@ STATES = os.path.join(TOOLS, 'states')
 os.makedirs(OUT, exist_ok=True)
 os.makedirs(STATES, exist_ok=True)
 
-_rom = open(ROM, 'rb').read()
+romb = _rom = open(ROM, "rb").read()
 
 
 def r16(a):
