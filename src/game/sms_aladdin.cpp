@@ -282,10 +282,9 @@ public:
     const char* rom_names() const override { return "9027"; }
     uint32_t accent_color() const override { return 0xFFF0705E; }
     int max_ext() const override { return 102; }
-    // The title: button 1 skips the intro story (~40 s without input); mode 0 with the title script at its menu.
-    int preview_start() const override { return 3000; }
-    uint16_t preview_pad(int frame, const uint8_t* ram) const override { (void)ram; return (frame / 4) % 2 == 0 ? SMS_1 : 0; }
-    bool preview_ready(const uint8_t* ram) const override { return ram[0x0200] == 0 && ram[0x0F01] == 0x12; }
+    // The title as the intro story leads to it (~40 s from power-on, run unseen), then the attract loop. Skipping the
+    // story with button 1 isn't kept: the title's music then ends after one pass and the attract demo never comes.
+    int preview_start() const override { return 2450; }
 
     static std::vector<RomPatch> patch_list(const GameConfig& cfg) {
         std::vector<RomPatch> p;

@@ -647,10 +647,9 @@ public:
     const char* rom_names() const override { return "ALADDIN"; }
     uint32_t accent_color() const override { return 0xFFB394F7; }
     int max_ext() const override { return 140; }
-    // The title: START through the logos and the opening story (without input they take 9390 frames).
-    int preview_start() const override { return 4000; }
-    uint16_t preview_pad(int frame, const uint8_t* ram) const override { (void)ram; return (frame / 4) % 2 == 0 ? kPadStart : 0; }
-    bool preview_ready(const uint8_t* ram) const override { return main_wait(RamViewLE{ram, 0x1FFFF}) == kTitleWaitRet; }
+    // The opening story as its music starts (after the Capcom logo), then the game's own attract loop (the title, the
+    // demo). Not the title: it is silent after its jingle until the demo, and the card would be quiet when chosen.
+    int preview_start() const override { return 760; }
     // Its music is mixed about 8 dB quieter than Super Star Wars' on the same sound chip (RMS ~1000 against ~3000).
     float audio_gain() const override { return 1.8f; }
 
