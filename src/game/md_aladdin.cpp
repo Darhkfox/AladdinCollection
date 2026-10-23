@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstring>
 #include <iterator>
+#include <memory>
 
 using namespace md_game;
 
@@ -93,77 +94,137 @@ const std::vector<RomPatch> kLevelSkip = {{0x00412A, {0x0010}, {0xFF00}}};
 
 // ---- widescreen (docs/re_md_wide.md) -------------------------------------------------------------------
 // The level map is streamed into a 512-px plane one 16-px block column at a time as the camera crosses 16 px: the
-// plane holds map x [L, L+368) (L = $FF7E06), the 4:3 view [L+16+d, L+336+d), |d| < 16. The widened view's extra
-// columns are drawn per line straight from the RAM map (line_hook), so the plane needs no patch. Objects are part of
-// the map (object blocks, $FFAE87 / $4154) and spawn when their column or row is streamed: the caves spawn the
-// columns the widened view reaches as well; the despawn window and the sprite clip are widened to match.
+// plane holds map x [L, L+368) (L = $FF7E06), the 4:3 view [L+16+d, L+336+d), |d| < 16. The widened view's other
+// columns are drawn per line straight from the RAM map (line_hook), so the plane needs no patch. Near a level's ends the
+// picture slides (VDP::view_shift, s px) instead of showing what lies outside the level: the game's camera stays the
+// original (Aladdin's walking limits are in screen coordinates), so the view covers up to [-2E, 320+2E] of the 4:3
+// screen. Objects are part of the map (object blocks, $FFAE87 / $4154) and spawn when their column or row is streamed:
+// the caves spawn the columns the slid view reaches as well; the despawn window and the sprite clip cover +-2E.
 constexpr uint32_t CAVE = 0x7000;   // the $FF fill at $69E0-$FFFF (no references), reachable with jsr abs.w
-constexpr uint32_t CAVE_LSPAWN = CAVE, CAVE_RSPAWN = CAVE + 0x80, CAVE_ROWSPAWN = CAVE + 0x100, CAVE_CLIP = CAVE + 0x180;
+constexpr uint32_t CAVE_LSPAWN = CAVE, CAVE_RSPAWN = CAVE + 0x80, CAVE_ROWSPAWN = CAVE + 0x100, CAVE_CLIP = CAVE + 0x180,
+                   CAVE_SCRCLIP = CAVE + 0x1C0, CAVE_REACH = CAVE + 0x200;
+
+// The 4:3 view only ever shows map x [16, W*16 - 18): camX in [0, W*16 - 354] (the camera's clamps, docs section 1).
+constexpr int VIEW_LEFT = 16, VIEW_RIGHT_GAP = 18, CAM_SPAN_GAP = 354;
+
+// The view's slide for camera X `camx` (the map x at screen x 0 is camx + 16) in a map W blocks wide: none in the middle
+// of a level; near an end, as far as keeps the widened view inside what the 4:3 game shows; in a level narrower than
+// the widened view, centred. CAVE_REACH does the same sum on the 68000 for the spawn caves.
+int view_slide(int camx, int W, int E) {
+    const int span = W * 16 - CAM_SPAN_GAP;   // the largest camera X
+    int s;
+    if (span < 2 * E) s = span / 2 - camx;
+    else if (camx < E) s = E - camx;
+    else if (camx > span - E) s = span - E - camx;
+    else s = 0;
+    return std::clamp(s, -E, E);
+}
 
 // An object stored in block column c appears at screen x 16c - (camX + 16): the original streams column L/16 (left,
-// screen x -16-d) and L/16+22 (right, 336-d), |d| < 16, just outside its view. Spawning k = E/16 (rounded up) columns
-// further out keeps the same margin outside the widened view.
+// screen x -16-d) and L/16+22 (right, 336-d), |d| < 16, just outside its view. Spawning ceil((E -+ s) / 16) columns
+// further out keeps that margin outside the slid view; the despawn window keeps the most that can take, 2E.
 int ext_blocks(int E) { return (E + 15) / 16; }
 // Object sprites may start this far left of VDP X 0 (as negative X, read by the VDP's 10-bit mode): a 32-px piece just
-// entering the view's left edge at screen x -E.
-int sprite_left(int E) { return std::max(0, E - 96); }
+// entering the fully slid view's left edge at screen x -2E.
+int sprite_left(int E) { return std::max(0, 2 * E - 96); }
+
+// Words with labels: branch displacements filled in once the target is known.
+struct Asm {
+    std::vector<uint16_t> w;
+    Asm& operator<<(std::initializer_list<uint16_t> v) { w.insert(w.end(), v); return *this; }
+    size_t here() const { return w.size(); }
+    size_t branch(uint16_t op) { w.push_back(op); return w.size() - 1; }   // a short branch, displacement later
+    void land(size_t at) { w[at] |= (uint16_t)(((w.size() - at - 1) * 2) & 0xFF); }
+};
 
 std::vector<RomPatch> wide_patches(int E) {
-    const uint16_t kl = (uint16_t)ext_blocks(E), kr = kl, o = (uint16_t)sprite_left(E);
+    const uint16_t e = (uint16_t)E, k2 = (uint16_t)ext_blocks(2 * E), o = (uint16_t)sprite_left(E);
     auto ff = [](size_t n) { return std::vector<uint16_t>(n, 0xFFFF); };
-    // after the left column writer's own spawn (column L), the column L-16kl (if >= 1)
-    std::vector<uint16_t> lspawn = {
-        0x4EB9, 0x001A, 0xE3FC,                    // jsr $1AE3FC (the replaced call)
-        0x3039, 0x00FF, 0x7E06,                    // move.w $FF7E06, d0
-        0x0C40, (uint16_t)(16 * (kl + 1)),         // cmpi.w #16(kl+1), d0
-        0x652A,                                    // bcs.s done
-        0x0479, (uint16_t)(16 * kl), 0x00FF, 0x7E06,   // subi.w #16kl, $FF7E06
-        0x04B9, 0x0000, (uint16_t)(2 * kl), 0x00FF, 0x7DAC,   // subi.l #2kl, $FF7DAC (the column's map pointer)
-        0x4EB9, 0x001A, 0xE3FC,                    // jsr $1AE3FC
-        0x06B9, 0x0000, (uint16_t)(2 * kl), 0x00FF, 0x7DAC,
-        0x0679, (uint16_t)(16 * kl), 0x00FF, 0x7E06,
-        0x4E75};                                   // done: rts
-    // after the right column writer's own spawn (column L+22), the column L+22+kr (if inside the map)
-    std::vector<uint16_t> rspawn = {
-        0x4EB9, 0x001A, 0xE406,                    // jsr $1AE406
-        0x3039, 0x00FF, 0x7E06,                    // move.w $FF7E06, d0
-        0xE848,                                    // lsr.w #4, d0
-        0x0640, (uint16_t)(22 + kr),               // addi.w #22+kr, d0
-        0xB079, 0x00FF, 0x7DB6,                    // cmp.w $FF7DB6, d0 (map width)
-        0x642A,                                    // bcc.s done
-        0x0679, (uint16_t)(16 * kr), 0x00FF, 0x7E06,
-        0x06B9, 0x0000, (uint16_t)(2 * kr), 0x00FF, 0x7DAC,
-        0x4EB9, 0x001A, 0xE406,
-        0x04B9, 0x0000, (uint16_t)(2 * kr), 0x00FF, 0x7DAC,
-        0x0479, (uint16_t)(16 * kr), 0x00FF, 0x7E06,
-        0x4E75};
-    // a streamed row spawns blocks [L/16-kl, L/16+22+kr] inside the map instead of [L/16, L/16+22]: the loop's
+    // d0 = left reach kl = ceil((E - s)/16), d1 = right reach kr = ceil((E + s)/16) in blocks (s: view_slide); uses d2
+    Asm reach;
+    reach << std::initializer_list<uint16_t>{0x3039, 0x00FF, 0x7DF6,   // move.w $FF7DF6, d0 (camX)
+                                             0x3239, 0x00FF, 0x7DB6,   // move.w $FF7DB6, d1 (W)
+                                             0xE949, 0x0441, (uint16_t)CAM_SPAN_GAP,   // lsl.w #4, d1; subi.w #354, d1
+                                             0x0C41, (uint16_t)(2 * E)};               // cmpi.w #2E, d1
+    const size_t to_wide = reach.branch(0x6C00);                         // bge.s wide
+    reach << std::initializer_list<uint16_t>{0xE241, 0x9240};            // asr.w #1, d1; sub.w d0, d1 (narrow: centred)
+    const size_t narrow_done = reach.branch(0x6000);                     // bra.s clamp
+    reach.land(to_wide);
+    reach << std::initializer_list<uint16_t>{0x343C, e, 0x9440};          // wide: move.w #E, d2; sub.w d0, d2
+    const size_t to_left = reach.branch(0x6A00);                         // bpl.s left (camX <= E)
+    reach << std::initializer_list<uint16_t>{0x9240, 0x0441, e};          // sub.w d0, d1; subi.w #E, d1 (span - E - camX)
+    const size_t right_done = reach.branch(0x6B00);                      // bmi.s clamp (near the right end)
+    reach << std::initializer_list<uint16_t>{0x7200};                    // moveq #0, d1
+    const size_t mid_done = reach.branch(0x6000);                        // bra.s clamp
+    reach.land(to_left);
+    reach << std::initializer_list<uint16_t>{0x3202};                    // left: move.w d2, d1
+    reach.land(narrow_done);
+    reach.land(right_done);
+    reach.land(mid_done);
+    reach << std::initializer_list<uint16_t>{0x0C41, e, 0x6F04, 0x323C, e,                         // clamp: s <= E
+                                             0x0C41, (uint16_t)-E, 0x6C04, 0x323C, (uint16_t)-E,   //        s >= -E
+                                             0x303C, (uint16_t)(E + 15), 0x9041, 0xE840,           // d0 = (E+15-s) >> 4
+                                             0x0641, (uint16_t)(E + 15), 0xE841, 0x4E75};          // d1 = (E+15+s) >> 4
+    // After the left column writer's own spawn (column L/16), column L/16 - kl too (if >= 1): the spawner entered past
+    // its set-up ($1AE42C) with the column's x ($FF7DB0, its scratch) and map pointer (a0) moved, L itself untouched (a
+    // frame can end inside, and the view is worked out from L).
+    Asm lspawn;
+    lspawn << std::initializer_list<uint16_t>{0x4EB9, 0x001A, 0xE3FC,   // jsr $1AE3FC (the replaced call)
+                                              0x4EB8, (uint16_t)CAVE_REACH, 0x4A40};   // jsr reach; tst.w d0
+    const size_t l_none = lspawn.branch(0x6700);                          // beq.s done
+    lspawn << std::initializer_list<uint16_t>{0x3439, 0x00FF, 0x7E06, 0xE84A, 0xB440};   // d2 = L/16; cmp.w d0, d2
+    const size_t l_out = lspawn.branch(0x6300);                           // bls.s done (column < 1)
+    lspawn << std::initializer_list<uint16_t>{0x3400, 0xE94A, 0x9579, 0x00FF, 0x7DB0,   // d2 = 16kl; x -= d2
+                                              0x48C0, 0xD080, 0x2079, 0x00FF, 0x7DAC,   // a0 = map pointer
+                                              0x91C0,                                   //      - 2kl
+                                              0x4EB9, 0x001A, 0xE42C};                  // jsr $1AE42C
+    lspawn.land(l_none);
+    lspawn.land(l_out);
+    lspawn << std::initializer_list<uint16_t>{0x4E75};
+    // after the right column writer's own spawn (column L/16 + 22), column L/16 + 22 + kr too (if inside the map)
+    Asm rspawn;
+    rspawn << std::initializer_list<uint16_t>{0x4EB9, 0x001A, 0xE406,   // jsr $1AE406
+                                              0x4EB8, (uint16_t)CAVE_REACH, 0x4A41};   // jsr reach; tst.w d1
+    const size_t r_none = rspawn.branch(0x6700);
+    rspawn << std::initializer_list<uint16_t>{0x3439, 0x00FF, 0x7E06, 0xE84A, 0xD441,   // d2 = L/16 + kr
+                                              0x0642, 0x0016, 0xB479, 0x00FF, 0x7DB6};  // + 22; cmp.w W, d2
+    const size_t r_out = rspawn.branch(0x6400);                           // bcc.s done
+    rspawn << std::initializer_list<uint16_t>{0x3401, 0xE94A, 0xD579, 0x00FF, 0x7DB0,   // x += 16kr
+                                              0x48C1, 0xD281, 0x2079, 0x00FF, 0x7DAC,   // a0 = map pointer
+                                              0xD1C1,                                   //      + 2kr
+                                              0x4EB9, 0x001A, 0xE42C};
+    rspawn.land(r_none);
+    rspawn.land(r_out);
+    rspawn << std::initializer_list<uint16_t>{0x4E75};
+    // a streamed row spawns blocks [L/16 - kl, L/16 + 22 + kr] inside the map instead of [L/16, L/16 + 22]: the loop's
     // a0 (map pointer), d6 (x), d4 (count - 1), a1, a2
     std::vector<uint16_t> rowspawn = {
+        0x4EB8, (uint16_t)CAVE_REACH,              // jsr reach (d0 = kl, d1 = kr)
         0x3C39, 0x00FF, 0x7E06,                    // move.w $FF7E06, d6
         0xE84E,                                    // lsr.w #4, d6
-        0x3806,                                    // move.w d6, d4
-        0x3006,                                    // move.w d6, d0
-        0x0446, kl,                                // subi.w #kl, d6
+        0x3806, 0x3A06,                            // move.w d6, d4; move.w d6, d5
+        0x9C40,                                    // sub.w d0, d6
         0x6A02, 0x7C00,                            // bpl.s +2; moveq #0, d6
-        0x0644, (uint16_t)(22 + kr),               // addi.w #22+kr, d4
+        0xD841, 0x0644, 0x0016,                    // add.w d1, d4; addi.w #22, d4
         0x3239, 0x00FF, 0x7DB6,                    // move.w $FF7DB6, d1
         0x5341,                                    // subq.w #1, d1
         0xB841, 0x6F02, 0x3801,                    // cmp.w d1, d4; ble.s +2; move.w d1, d4
         0x9846,                                    // sub.w d6, d4
         0x2079, 0x00FF, 0x7DAC,                    // movea.l $FF7DAC, a0
-        0x3206, 0x9240,                            // move.w d6, d1; sub.w d0, d1
+        0x3206, 0x9245,                            // move.w d6, d1; sub.w d5, d1
         0xD0C1, 0xD0C1,                            // adda.w d1, a0 (x2)
         0xE94E,                                    // lsl.w #4, d6
         0x43F8, 0x4154,                            // lea $4154.w, a1
         0x45F9, 0x00FF, 0xAE87,                    // lea $FFAE87, a2
         0x4E75};
-    // object sprite clip: VDP X in [-o, 448+E) instead of [0, 447) (the compare on a copy biased by o: the X written
-    // stays the piece's own, negative left of X 0)
-    std::vector<uint16_t> clip = {0x9647};         // sub.w d7, d3 (the replaced instruction)
-    if (o) clip.insert(clip.end(), {0x3F03, 0x0657, o, 0x0C5F, (uint16_t)(448 + E + o)});   // move.w d3, -(a7); addi.w #o, (a7); cmpi.w #lim, (a7)+
-    else clip.insert(clip.end(), {0x0C43, (uint16_t)(448 + E)});                           // cmpi.w #lim, d3
+    // Object sprite clip: VDP X in [-o, 448+2E) instead of [0, 447) (the compare on a copy biased by o: the X written
+    // stays the piece's own, negative left of X 0). Map objects clear bit 15 of the entry's size / link word (unused by
+    // the VDP), screen-fixed ones set it: sprite_xoff keeps those where the game put them on the slid view.
+    std::vector<uint16_t> clip = {0x0241, 0x7FFF, 0x9647};   // andi.w #$7FFF, d1; sub.w d7, d3 (the replaced one)
+    if (o) clip.insert(clip.end(), {0x3F03, 0x0657, o, 0x0C5F, (uint16_t)(448 + 2 * E + o)});   // move.w d3, -(a7);
+    else clip.insert(clip.end(), {0x0C43, (uint16_t)(448 + 2 * E)});                           // addi / cmpi (a7)+
     clip.push_back(0x4E75);
+    const std::vector<uint16_t> scrclip = {0x0443, 0x0080, 0x0041, 0x8000, 0x0C43, (uint16_t)(448 + 2 * E), 0x4E75};
     return {
         {0x1AB446, {0x6100, 0x2FB4}, {0x4EB8, (uint16_t)CAVE_LSPAWN}},
         {0x1AB554, {0x6100, 0x2EB0}, {0x4EB8, (uint16_t)CAVE_RSPAWN}},
@@ -171,16 +232,19 @@ std::vector<RomPatch> wide_patches(int E) {
                     0xAE87, 0x383C, 0x0016},
                    {0x4EB8, (uint16_t)CAVE_ROWSPAWN, 0x6018, 0x4E71, 0x4E71, 0x4E71, 0x4E71, 0x4E71, 0x4E71, 0x4E71,
                     0x4E71, 0x4E71, 0x4E71, 0x4E71, 0x4E71}},
-        {CAVE_LSPAWN, ff(lspawn.size()), lspawn},
-        {CAVE_RSPAWN, ff(rspawn.size()), rspawn},
+        {CAVE_REACH, ff(reach.w.size()), reach.w},
+        {CAVE_LSPAWN, ff(lspawn.w.size()), lspawn.w},
+        {CAVE_RSPAWN, ff(rspawn.w.size()), rspawn.w},
         {CAVE_ROWSPAWN, ff(rowspawn.size()), rowspawn},
-        // despawn window: object x in [camX - $50 - 16kl, camX + $190 + 16kr]
-        {0x1ADEBA, {0x0640, 0x0050}, {0x0640, (uint16_t)(0x50 + 16 * kl)}},
-        {0x1ADECC, {0x0640, 0x0190}, {0x0640, (uint16_t)(0x190 + 16 * kr)}},
+        // despawn window: object x in [camX - $50 - 16k2, camX + $190 + 16k2], k2 = ceil(2E/16)
+        {0x1ADEBA, {0x0640, 0x0050}, {0x0640, (uint16_t)(0x50 + 16 * k2)}},
+        {0x1ADECC, {0x0640, 0x0190}, {0x0640, (uint16_t)(0x190 + 16 * k2)}},
         // sprite clip: map objects (sub.w d7, d3; cmpi.w #$1BF, d3 -> jsr CAVE_CLIP; nop) and screen-fixed ones
+        // (subi.w #$80, d3; cmpi.w #$1BF, d3 -> jsr CAVE_SCRCLIP; nop; nop), the bcc after them unchanged
         {0x1ABAD0, {0x9647, 0x0C43, 0x01BF}, {0x4EB8, (uint16_t)CAVE_CLIP, 0x4E71}},
         {CAVE_CLIP, ff(clip.size()), clip},
-        {0x1ABA8C, {0x0443, 0x0080, 0x0C43, 0x01BF}, {0x0443, 0x0080, 0x0C43, (uint16_t)(448 + E)}},
+        {0x1ABA8C, {0x0443, 0x0080, 0x0C43, 0x01BF}, {0x4EB8, (uint16_t)CAVE_SCRCLIP, 0x4E71, 0x4E71}},
+        {CAVE_SCRCLIP, ff(scrclip.size()), scrclip},
     };
 }
 
@@ -195,35 +259,59 @@ bool wide_view(const MegaDrive& md) {
     return in_gameplay(md) && level != L_ABU_AGRABAH && level != L_ABU_CAVE && level != L_RUG_RIDE;
 }
 
-// The status bar's sprites (the lamp and its smoke, Aladdin's face and lives top-left / bottom-left; apples, gems
-// and the score on the right) use tiles $680-$6FF and $7C0-$7E7, which nothing else does (checked in every level).
-bool hud_tile(int tile) { return (tile >= 0x680 && tile < 0x700) || (tile >= 0x7C0 && tile < 0x7E8); }
+// The status bar's sprites (written first, $1AB7C4): the lamp and its smoke trail (tiles $680-$6DF, VDP X $92 up to
+// $C2 + 8 x health - the last pieces pass X $100), Aladdin's face ($6EA) and lives digit (X $AA) bottom left; the apple and
+// gem icons ($6F3 / $6F7) and their digits (X $16A up) bottom right; the score ($7C0-$7E7) top right. Nothing else uses
+// these tiles (checked in every level). -1 left group, 1 right group, 0 not the HUD.
+int hud_side(int tile, int x) {
+    if (tile >= 0x7C0 && tile < 0x7E8) return 1;
+    if (tile < 0x680 || tile >= 0x700) return 0;
+    if (tile == 0x6F3 || tile == 0x6F7) return 1;
+    if (tile >= 0x6E0 && tile < 0x6EA) return x < 0x100 ? -1 : 1;   // digits: lives left, apples / gems right
+    return -1;
+}
 
-int sprite_xoff(void* host, int index, uint16_t attr, int x, int y) {
-    (void)index; (void)y;
-    const MegaDrive& md = *(const MegaDrive*)host;
+// The sprite's "screen-fixed object" mark (CAVE_SCRCLIP): bit 7 of the SAT entry's size byte.
+bool screen_fixed(const VDP& v, int index) {
+    const uint32_t sat = (v.reg[5] & 0x7E) << 9;
+    return (v.vram[(sat + index * 8 + 2) & 0xFFFF] & 0x80) != 0;
+}
+
+// Sprites move with the slid view (the renderer subtracts view_shift), but the HUD stays anchored to the screen's
+// edges and messages ("FIND THE SCARAB", PAUSED, ...) stay where the game puts them on the screen.
+int sprite_xoff(const MegaDrive& md, int index, uint16_t attr, int x, int y) {
+    (void)y;
     if (!in_gameplay(md)) return 0;
-    const int E = md.vdp.ext;
-    if (!hud_tile(attr & 0x7FF) || !(md.vdp.hook_flags & 1) || !wide_view(md)) return 0;
-    return x < 0x100 ? -E : E;
+    const VDP& v = md.vdp;
+    const int side = hud_side(attr & 0x7FF, x);
+    if (side) return v.view_shift + ((v.hook_flags & 1) && wide_view(md) ? side * v.ext : 0);
+    return screen_fixed(v, index) ? v.view_shift : 0;
+}
+
+// HUD sprites stay visible over the level-edge masks.
+bool sprite_is_hud(const MegaDrive& md, int index) {
+    const VDP& v = md.vdp;
+    const uint32_t sat = (v.reg[5] & 0x7E) << 9;
+    return hud_side(v.vram16(sat + index * 8 + 4) & 0x7FF, v.vram16(sat + index * 8 + 6) & 0x1FF) != 0;
 }
 
 // The line's horizontal scroll for a plane (H scroll table, reg 11 mode).
+int hscroll_offset(const VDP& v, int line) {
+    switch (v.reg[11] & 3) {
+    case 0: return 0;
+    case 1: return (line & 7) * 4;
+    case 2: return (line & ~7) * 4;
+    default: return line * 4;
+    }
+}
 int line_hscroll(const VDP& v, int line, bool plane_b) {
     const uint32_t hsb = (v.reg[13] & 0x3F) << 10;
-    int off;
-    switch (v.reg[11] & 3) {
-    case 0: off = 0; break;
-    case 1: off = (line & 7) * 4; break;
-    case 2: off = (line & ~7) * 4; break;
-    default: off = line * 4; break;
-    }
-    return v.vram16(hsb + off + (plane_b ? 2 : 0)) & 0x3FF;
+    return v.vram16(hsb + hscroll_offset(v, line) + (plane_b ? 2 : 0)) & 0x3FF;
 }
 
-// The map plane's scroll on a line: the map x shown at screen x 0 and the map y of the line. The plane holds map x
-// [L, L+368) and y [Y, Y+256): the map position a screen pixel shows is the one, among those congruent mod 512 / 256
-// with its plane position, inside that range.
+// The map plane's scroll on a line: the map x shown at screen x 0 (before the slide) and the map y of the line. The
+// plane holds map x [L, L+368) and y [Y, Y+256): the map position a screen pixel shows is the one, among those
+// congruent mod 512 / 256 with its plane position, inside that range.
 struct LineView { int mx0, my; };
 LineView line_view(const MegaDrive& md, int line, bool plane_b) {
     const VDP& v = md.vdp;
@@ -237,30 +325,29 @@ LineView line_view(const MegaDrive& md, int line, bool plane_b) {
     return lv;
 }
 
-// The 4:3 view only ever shows map x [16, W*16 - 18) (the camera's clamps, docs/re_md_wide.md section 1).
-constexpr int VIEW_LEFT = 16, VIEW_RIGHT_GAP = 18;
-
-// The extension columns of the map plane, drawn from the RAM map (the plane only holds the 4:3 view's columns).
-void draw_map_ext(const MegaDrive& md, const LineView& lv, uint8_t* buf) {
+// Pixels of the map plane outside the columns the game keeps valid ([L, L+368)) drawn from the RAM map; buf index x
+// shows map x mx0 + x - E (mx0 including the slide).
+void draw_map_ext(const MegaDrive& md, int mx0, int my, uint8_t* buf) {
     const VDP& v = md.vdp;
     const int E = v.ext, TW = 320 + 2 * E;
-    const int W = md.ram16(MAP_W), H = md.ram16(MAP_H);
-    const int my = lv.my;
+    const int W = md.ram16(MAP_W), H = md.ram16(MAP_H), L = md.ram16(STREAM_X);
     if (my < 0 || my >= H * 16) return;
     const uint32_t row = md.ram32(MAP_ROWS + 64 * (my >> 4)) & 0xFFFFFF;
     const uint32_t defs = md.ram32(MAP_DEFS) & 0xFFFFFF;
     const int cell_row = ((my >> 3) & 1) * 4;
     uint8_t px[8];
+    // the screen run [a, b) that the plane holds; draw left and right of it
+    const int a = std::clamp(L - mx0 + E, 0, TW), b = std::clamp(L + 368 - mx0 + E, 0, TW);
     for (int side = 0; side < 2; side++) {
-        const int x0 = side ? E + 320 : 0, x1 = side ? TW : E;
+        const int x0 = side ? b : 0, x1 = side ? TW : a;
         int x = x0;
         while (x < x1) {
-            const int mx = lv.mx0 + x - E;
+            const int mx = mx0 + x - E;
             const int n = std::min(8 - (mx & 7), x1 - x);
             if (mx >= 0 && mx < W * 16) {
                 const uint16_t blk = md.ram16(row + 2 * (mx >> 4));
-                const uint32_t a = defs + blk + cell_row + ((mx >> 3) & 1) * 2;
-                const uint16_t tile = a >= 0xFF0000 ? md.ram16(a) : md.rom16(a);
+                const uint32_t ad = defs + blk + cell_row + ((mx >> 3) & 1) * 2;
+                const uint16_t tile = ad >= 0xFF0000 ? md.ram16(ad) : md.rom16(ad);
                 v.pattern_row(tile, my & 7, px);
                 memcpy(buf + x, px + (mx & 7), n);
             }
@@ -269,31 +356,146 @@ void draw_map_ext(const MegaDrive& md, const LineView& lv, uint8_t* buf) {
     }
 }
 
-// HUD sprites stay visible over the level-edge masks.
-bool sprite_is_hud(void* host, int index) {
-    const VDP& v = ((const MegaDrive*)host)->vdp;
-    const uint32_t sat = (v.reg[5] & 0x7E) << 9;
-    return hud_tile(v.vram16(sat + index * 8 + 4) & 0x7FF);
+// The level's scroll routine (header +$34, $FF7DA4) run on a copy of RAM with the camera moved, on a CPU of its own whose
+// VDP writes only fill a copy of the H scroll table: the values the game would write for that camera. Plane B's
+// parallax rows (and Sultan's Dungeon's picture on plane A) then slide by exactly what they would move if the camera
+// were there, so they hold still with the level while the view slides.
+class ScrollProbe {
+public:
+    static constexpr int kWords = 0x1C0;   // 224 lines x 2 words
+    uint16_t table[kWords];
+
+    ScrollProbe() {
+        cpu.ctx = this;
+        cpu.rd8 = [](void*, uint32_t) -> uint8_t { return 0; };      // (VDP status, Z80 bus: free at once)
+        cpu.rd16 = [](void*, uint32_t) -> uint16_t { return 0; };
+        cpu.wr8 = [](void*, uint32_t, uint8_t) {};
+        cpu.wr16 = [](void* c, uint32_t a, uint16_t v) { ((ScrollProbe*)c)->write(a, v); };
+        cpu.trace_fn = [](void* c, uint32_t pc) { if ((pc & 0xFFFFFF) == 0) ((M68k*)c)->end_run(); };
+        cpu.trace_ctx = &cpu;
+    }
+
+    // The table the routine writes with camera X `camx`; false if it didn't return.
+    bool run(const MegaDrive& md, int camx) {
+        memcpy(ram, md.ram, sizeof(ram));
+        ram[CAM_X & 0xFFFF] = (uint8_t)(camx >> 8);
+        ram[(CAM_X & 0xFFFF) + 1] = (uint8_t)camx;
+        base = (md.vdp.reg[13] & 0x3F) << 10;
+        for (int i = 0; i < kWords; i++) table[i] = md.vdp.vram16(base + 2 * i);
+        for (int p = 0; p < 256; p++) cpu.page_read[p] = cpu.page_write[p] = nullptr;
+        for (int p = 0; p < 0x40 && !md.rom.empty(); p++) cpu.page_read[p] = const_cast<uint8_t*>(&md.rom[((size_t)p << 16) % md.rom.size()]);
+        for (int p = 0xE0; p < 0x100; p++) cpu.page_read[p] = cpu.page_write[p] = ram;
+        inc = 2; pending = false; code = 0; addr = 0;
+        cpu.set_sr(0x2700);
+        cpu.stopped = false;
+        cpu.irq_level = 0;
+        cpu.r[15] = 0xFFEF00;
+        cpu.write32(cpu.r[15] -= 4, 0);   // returns to address 0 (trace_fn stops there)
+        cpu.pc = md.ram32(0xFF7DA4) & 0xFFFFFF;
+        for (int used = 0; (cpu.pc & 0xFFFFFF) != 0 && used < 200000;) {
+            const int n = cpu.run(2000);
+            used += n;
+            if (n == 0) break;
+        }
+        return (cpu.pc & 0xFFFFFF) == 0;
+    }
+
+private:
+    M68k cpu;
+    uint8_t ram[0x10000];
+    uint32_t base = 0xF000, addr = 0;
+    int inc = 2;
+    bool pending = false;
+    uint16_t first = 0;
+    uint8_t code = 0;
+
+    void write(uint32_t a, uint16_t v) {
+        a &= 0xFFFFFF;
+        if (a < 0xC00000 || a > 0xC00007) return;
+        if (a >= 0xC00004) {                                           // control port
+            if (!pending && (v & 0xC000) == 0x8000) { if (((v >> 8) & 0x1F) == 15) inc = v & 0xFF; return; }
+            if (!pending) { first = v; pending = true; return; }
+            pending = false;
+            addr = (first & 0x3FFF) | ((uint32_t)(v & 3) << 14);
+            code = (uint8_t)(((first >> 14) & 3) | ((v >> 2) & 0x3C));
+            return;
+        }
+        if ((code & 0x0F) == 1 && addr >= base && addr < base + 2 * kWords) table[(addr - base) >> 1] = v;   // VRAM
+        addr = (addr + inc) & 0xFFFF;
+    }
+};
+
+// Per-session widescreen state the VDP hooks work with (VDP::hook_host).
+struct Wide {
+    MegaDrive* md = nullptr;
+    ScrollProbe probe;
+    int16_t shift_a[VDP::kMaxLines] = {};   // plane A's slide per line when it isn't the view's (Sultan's Dungeon)
+    bool shift_a_on = false;
+    uint16_t t0[ScrollProbe::kWords];
+};
+
+// Before each frame is drawn (MegaDrive::on_frame_start): its slide, from the scroll values the game wrote for it (the
+// camera in RAM may already be the next frame's), and the other plane's slide line by line from the scroll probe.
+void update_view(Wide& w) {
+    MegaDrive& md = *w.md;
+    VDP& v = md.vdp;
+    v.view_shift = 0;
+    v.view_shift_b_on = false;
+    w.shift_a_on = false;
+    const int E = v.ext;
+    if (E == 0 || !wide_view(md)) return;
+    const bool swapped = md.ram8(SWAP_PLANES) != 0;
+    const int camx = line_view(md, 0, swapped).mx0 - 16;
+    const int s = view_slide(camx, md.ram16(MAP_W), E);
+    if (s == 0) return;
+    v.view_shift = s;
+    // the scroll the game writes at camx + s against at camx (anything but the camera is the same for both runs)
+    bool probed = w.probe.run(md, camx);
+    if (probed) {
+        memcpy(w.t0, w.probe.table, sizeof(w.t0));
+        probed = w.probe.run(md, camx + s);
+    }
+    auto slide = [&](int line, bool plane_b) {
+        if (!probed) return s;
+        const int k = hscroll_offset(v, line) / 2 + (plane_b ? 1 : 0);
+        int d = (w.probe.table[k] - w.t0[k]) & 0x1FF;   // the H scroll falls as the plane moves right
+        if (d >= 256) d -= 512;
+        return -d;
+    };
+    for (int ln = 0; ln < VDP::kMaxLines; ln++) {
+        v.view_shift_b[ln] = (int16_t)(swapped ? s : slide(ln, true));
+        w.shift_a[ln] = (int16_t)(swapped ? slide(ln, false) : s);
+    }
+    v.view_shift_b_on = true;
+    w.shift_a_on = swapped;
 }
+
+int sprite_xoff_hook(void* host, int index, uint16_t attr, int x, int y) {
+    return sprite_xoff(*((Wide*)host)->md, index, attr, x, y);
+}
+bool sprite_is_hud_hook(void* host, int index) { return sprite_is_hud(*((Wide*)host)->md, index); }
 
 void line_hook(void* host, int line, uint8_t* plane_a, uint8_t* plane_b, uint8_t* sprites) {
     (void)sprites;
-    MegaDrive& md = *(MegaDrive*)host;
+    Wide& w = *(Wide*)host;
+    MegaDrive& md = *w.md;
     VDP& v = md.vdp;
     v.edge_mask_l = v.edge_mask_r = 0;
     // (The Rug Ride doesn't stream: plane A is one 512-px loop of the lava cave the camera runs along, its "map" nominal.)
     if (!wide_view(md)) return;
+    const int E = v.ext, TW = 320 + 2 * E;
+    if (w.shift_a_on && w.shift_a[line] != v.view_shift)   // plane A's own slide (the renderer used the view's)
+        v.render_plane(plane_a, line, false, -E + w.shift_a[line], 320 + E + w.shift_a[line]);
     const bool swapped = md.ram8(SWAP_PLANES) != 0;
     const LineView lv = line_view(md, line, swapped);
-    draw_map_ext(md, lv, swapped ? plane_b : plane_a);
-    // Level edges: black (the HUD stays), from this line's own scroll. (The VDP's masks rather than FrameInfo's: those
-    // would cover the HUD anchored there.)
-    const int E = v.ext, TW = 320 + 2 * E;
+    const int mx0 = lv.mx0 + (swapped && v.view_shift_b_on ? v.view_shift_b[line] : v.view_shift);
+    draw_map_ext(md, mx0, lv.my, swapped ? plane_b : plane_a);
+    // What lies outside the 4:3 game's range (only in a level narrower than the widened view, centred) is black, the
+    // HUD staying over it. (The VDP's masks rather than FrameInfo's: those would cover the HUD anchored there.)
     const int right = md.ram16(MAP_W) * 16 - VIEW_RIGHT_GAP;
-    v.edge_mask_l = std::clamp(VIEW_LEFT - lv.mx0 + E, 0, E);
-    v.edge_mask_r = std::clamp(TW - (right - lv.mx0 + E), 0, E);
+    v.edge_mask_l = std::clamp(VIEW_LEFT - mx0 + E, 0, E);
+    v.edge_mask_r = std::clamp(TW - (right - mx0 + E), 0, E);
 }
-
 
 // ---- sound (docs/re_md_game.md section 4) ---------------------------------------------------------------
 // GEMS sequences (bank $1BAF6F, 114 entries): music and sound effects alike. The names are the developers' own, from the
@@ -391,13 +593,19 @@ public:
         md.add_pc_hook(PC_DEATH, leave);
         md.add_pc_hook(PC_PIT, leave);
         const bool wide = cfg.ext > 0;
+        wide_->md = &md;
         md.vdp.line_hook = wide ? line_hook : nullptr;
-        md.vdp.sprite_xoff = wide ? sprite_xoff : nullptr;
-        md.vdp.sprite_is_hud = wide ? sprite_is_hud : nullptr;
+        md.vdp.sprite_xoff = wide ? sprite_xoff_hook : nullptr;
+        md.vdp.sprite_is_hud = wide ? sprite_is_hud_hook : nullptr;
         md.vdp.edge_mask_l = md.vdp.edge_mask_r = 0;
         md.vdp.sprite_x10 = false;   // (per frame: post_frame)
-        md.vdp.hook_host = &md;
+        md.vdp.hook_host = wide_.get();
         md.vdp.hook_flags = cfg.hud_anchor ? 1 : 0;
+        Wide* w = wide_.get();
+        md.on_frame_start = wide ? std::function<void(MegaDrive&)>([w](MegaDrive&) { update_view(*w); }) : nullptr;
+        md.vdp.view_shift = 0;
+        md.vdp.view_shift_b_on = false;
+        if (wide) update_view(*w);   // (the frame about to be drawn after a width change or a loaded state)
     }
 
     void pre_frame(MegaDrive& md, const GameConfig& cfg) override {
@@ -424,7 +632,7 @@ public:
         info.gameplay = wide_view(md);
         // Sprite X read as 10 bits only in play (the other screens, shown 4:3, may leave junk in the upper bits)
         const int E = cfg.ext;
-        md.vdp.sprite_x10 = E > 0 && in_gameplay(md) && (448 + E > 512 || sprite_left(E) > 0);
+        md.vdp.sprite_x10 = E > 0 && in_gameplay(md) && (448 + 2 * E > 512 || sprite_left(E) > 0);
     }
 
     std::vector<AchievementDef> achievements() const override {
@@ -613,6 +821,8 @@ public:
     void stop_sound(MegaDrive& md) override { gems_command(md, {0x16}); }
 
 private:
+    std::unique_ptr<Wide> wide_{new Wide};
+
     // The GEMS command FIFO in Z80 RAM ($1B40, 64 bytes, write index at $0036): $FF, command, arguments ($1E57F4).
     static void gems_command(MegaDrive& md, std::initializer_list<uint8_t> bytes) {
         uint8_t i = md.zram[0x0036];

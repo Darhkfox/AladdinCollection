@@ -67,7 +67,7 @@ public:
     // scrolls slower than the camera must also be shifted less, or it drifts while the view slides.
     bool    view_shift_b_on = false;
     int16_t view_shift_b[kMaxLines] = {};
-    // Read sprite X as 10 bits (screen x up to 767; 896-1023 are -128..-1, left of X 0): lets a patched game place
+    // Read sprite X as 10 bits (screen x up to 639; 768-1023 are -256..-1, left of X 0): lets a patched game place
     // sprites past the 9-bit limit of the real chip when the view is widened and shifted.
     bool sprite_x10 = false;
     // Draw this sprite a second time, this many px further right (0 = no copy) - a game module can show a

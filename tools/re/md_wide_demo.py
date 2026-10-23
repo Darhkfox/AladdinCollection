@@ -39,14 +39,14 @@ def strip(ext, entries=None, frames=((60, ''), (90, 'RIGHT'), (90, 'RIGHT+C'), (
 if __name__ == '__main__':
     if sys.argv[1:2] == ['caves']:
         md = module(128)
-        rom = bytes(md.rom[0x7000:0x7200])
+        rom = bytes(md.rom[0x7000:0x7280])
         from capstone import Cs, CS_ARCH_M68K, CS_MODE_BIG_ENDIAN, CS_MODE_M68K_000
         cs = Cs(CS_ARCH_M68K, CS_MODE_BIG_ENDIAN | CS_MODE_M68K_000)
-        for base in (0, 0x80, 0x100, 0x180):
+        for base in (0, 0x80, 0x100, 0x180, 0x1C0, 0x200):
             print('--- %x' % (0x7000 + base))
             for i in cs.disasm(rom[base:base + 0x80], 0x7000 + base):
                 print('%06x  %-8s %s' % (i.address, i.mnemonic, i.op_str))
-                if i.mnemonic == 'rts' and i.address > 0x7000 + base + 8:
+                if i.mnemonic == 'rts' and (base != 0x200 or i.address > 0x7250):
                     break
         sys.exit()
     for a in sys.argv[1:] or ['128']:
