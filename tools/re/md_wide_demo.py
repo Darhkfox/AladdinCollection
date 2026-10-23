@@ -27,7 +27,7 @@ def strip(ext, entries=None, frames=((60, ''), (90, 'RIGHT'), (90, 'RIGHT+C'), (
     ims, lab = [], []
     for e in entries:
         md.configure(ext)
-        ok = md.start_level(e, 1)
+        ok = start_play(md, e, 1)
         for n, (f, b) in enumerate(frames):
             md.hold(b)
             md.mrun(f)
@@ -39,14 +39,14 @@ def strip(ext, entries=None, frames=((60, ''), (90, 'RIGHT'), (90, 'RIGHT+C'), (
 if __name__ == '__main__':
     if sys.argv[1:2] == ['caves']:
         md = module(128)
-        rom = bytes(md.rom[0x7000:0x7280])
+        rom = bytes(md.rom[0x7000:0x7400])
         from capstone import Cs, CS_ARCH_M68K, CS_MODE_BIG_ENDIAN, CS_MODE_M68K_000
         cs = Cs(CS_ARCH_M68K, CS_MODE_BIG_ENDIAN | CS_MODE_M68K_000)
-        for base in (0, 0x80, 0x100, 0x180, 0x1C0, 0x200):
+        for base in (0, 0x100, 0x200, 0x280, 0x2C0, 0x300, 0x380):
             print('--- %x' % (0x7000 + base))
-            for i in cs.disasm(rom[base:base + 0x80], 0x7000 + base):
+            for i in cs.disasm(rom[base:base + 0x80 if base >= 0x280 else base + 0x100], 0x7000 + base):
                 print('%06x  %-8s %s' % (i.address, i.mnemonic, i.op_str))
-                if i.mnemonic == 'rts' and (base != 0x200 or i.address > 0x7250):
+                if i.mnemonic == 'rts' and (base not in (0x300, 0x380) or i.address > 0x7000 + base + 0x2C) and base not in (0, 0x100) or (base in (0, 0x100) and i.mnemonic == 'rts' and i.address > 0x7000 + base + 0x40):
                     break
         sys.exit()
     for a in sys.argv[1:] or ['128']:

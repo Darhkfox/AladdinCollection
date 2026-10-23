@@ -3,7 +3,8 @@ screenshots with everything the app adds (edge masks, dimming, pillarboxing, HUD
 
     python tools/re/md_apptest.py <outdir> <widescreen modes, e.g. 2,4> [entries] [hold frames]
 
-States: start_level(entry) at ext 0 through mdtool, saved in the app's format (core state, module data, tag).
+States: start_play(entry) at ext 0 through mdtool (the level select, its story card skipped), saved in the app's format
+(core state, module data, tag).
 Script per entry: load the state, then for each widescreen mode a shot at once, after walking right and after
 walking back left. Shots: <outdir>/e<entry>_w<mode>_<n>.png
 """
@@ -25,7 +26,7 @@ def make_states(outdir, entries, variant=1, warm=60):
     md = ModuleMD(ROM, 'md')
     for e in entries:
         md.configure(0)
-        md.start_level(e, variant)
+        start_play(md, e, variant)
         md.mrun(warm)
         open(os.path.join(outdir, 'e%d.state' % e), 'wb').write(app_state(md))
 

@@ -18,7 +18,7 @@ def s16(v):
 def spawns(ext, entry, script=((240, 'RIGHT'), (60, 'RIGHT+C'), (240, 'RIGHT'), (300, 'LEFT'))):
     md = ModuleMD(ROM, 'md')
     md.configure(ext)
-    md.start_level(entry, 1)
+    start_play(md, entry, 1)
     out = []
     prev = [md.ram8(OBJ + i * SIZE) for i in range(N)]
     for f, b in script:

@@ -330,8 +330,10 @@ class ModuleMD(MD):
         if not _HAS_MODULES or not _dll.mdt_module_create(self.h, game_id.encode()):
             raise RuntimeError('module support not available in this DLL')
         self.info = 0
+        self.config = (0, True, ())
 
     def configure(self, ext=0, hud_anchor=True, cheats=()):
+        self.config = (ext, hud_anchor, tuple(cheats))   # (bp_clear drops the module's PC hooks: configure again)
         _dll.mdt_module_configure(self.h, ext, 1 if hud_anchor else 0, ','.join(cheats).encode())
 
     def can_configure(self, ext=0, hud_anchor=True, cheats=()):

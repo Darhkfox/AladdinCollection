@@ -18,7 +18,9 @@ RAM `$FFxxxx` is written `$xxxx` below; ROM addresses are plain.
 * Level loop: `$1A8B50` loads level `$7E26` (story/title card `$1B1486`, level init `$1AA484`), then the gameplay
   loop at `$1A8C16` runs until the level ends (`$1A8E3E`) or Aladdin dies (`$1A8F0C`). The pause loop is `$1A9230`.
   The port's module marks gameplay frames with PC hooks on `$1A8C16` / `$1A9230` and leaves gameplay at `$1A8E5C`
-  (level over), `$1A8F82` (death screen) and `$1A902E` (fell off the bottom of the map).
+  (level over), `$1A8F82` (death screen) and `$1A902E` (fell off the bottom of the map). A level's palette fade-in
+  (`$1AE1A0`, called at `$1A8BFC` when a level starts and at `$1A91B8` after a life lost, the level rebuilt at the
+  restart point) counts as gameplay too, up to the gameplay loop.
 
 ## 1. RAM map
 
@@ -91,11 +93,15 @@ Lamp, Sultan's Palace, Jafar's Quarters, Jafar's Palace, the ending ("Level Comp
 credits). Each level has a story cut-scene / title card first (`$1B0F8E`: music 84 / 85 / 86).
 
 **Level select (the port)**: power-on, 30 frames, then `$7E26` = level, `$F572` = the script position after the
-level's own entry, `$7E21` = difficulty, and START is tapped until the level init (`$1AA484`) runs: the title routine
-keeps the level (the developers' debug screen sets its START ON LEVEL the same way), the game shows that level's
-story card and starts it as after the level before it. Lives, apples and gems come from the difficulty as at a new
-game (`$1B0046`, `$1AA66E`); continues stay as power-on gave them (1). `tools/re/md_levels.py` makes a state of
-every level this way; `start_level` in the module does the same headless (about 500-750 frames).
+level's own entry, `$7E21` = difficulty, and START is tapped through the title and the new game's instructions
+screen (`$1B2E9A`) until the level loop begins (`$1A8B50`): the title routine keeps the level (the developers' debug
+screen sets its START ON LEVEL the same way). `start_level` in the module returns there (about 160-190 frames,
+START released in the hook so the held button doesn't skip anything): the game then shows that level's story
+cut-scene and title card as after the level before it — the player skips them with START or watches them run out
+(Agrabah Market's is the game's long opening story) — and starts the level. Lives, apples and gems come from the
+difficulty as at a new game (`$1B0046`, `$1AA66E`); continues stay as power-on gave them (1).
+`tools/re/md_util.start_play` (used by the md_* scripts) taps START through the card until the level init
+(`$1AA484`) and runs to the first frame of play; `tools/re/md_levels.py` makes a state of every level.
 
 ## 3. Cheats
 

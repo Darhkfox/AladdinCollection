@@ -82,9 +82,12 @@ public:
     // module can patch the plane/sprite line buffers (index = x + ext). Pixel format:
     // bit7 priority, bits5-4 palette, bits3-0 colour (0 = transparent).
     void (*line_hook)(void* host, int line, uint8_t* plane_a, uint8_t* plane_b, uint8_t* sprites) = nullptr;
+    // Optional hook: called before a line is rendered (display on), so a game module can set view_shift /
+    // view_shift_b for it from the scroll as it stands then (a scroll written while the frame is drawn).
+    void (*pre_line_hook)(void* host, int line) = nullptr;
     // Optional hook: sprites for which it returns true are HUD elements (exempt from edge masks).
     bool (*sprite_is_hud)(void* host, int index) = nullptr;
-    void* hook_host = nullptr;   // context passed to sprite_xoff / line_hook / sprite_is_hud
+    void* hook_host = nullptr;   // context passed to sprite_xoff / line_hook / pre_line_hook / sprite_is_hud
     uint32_t hook_flags = 0;     // free for the installer of the hooks
 
     void render_line(int ln);   // render scanline into framebuffer

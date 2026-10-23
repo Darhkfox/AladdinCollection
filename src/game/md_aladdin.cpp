@@ -34,6 +34,7 @@ constexpr uint32_t GENIE_TOKENS = 0xFFF003;                   // a spin of the G
 constexpr uint32_t LEVEL_END = 0xFFF0E9;                      // the level is over (countdown, $FF = at once)
 constexpr uint32_t DEMO = 0xFFF57C;                           // 1 in the attract demos
 constexpr uint32_t RUG_CRASHES = 0xFFF006;                    // Rug Ride lives lost: the third crash ends the ride
+constexpr uint32_t SHAKE_X = 0xFFF082;                        // earthquake shake (Escape from the Cave): planes and sprites
 constexpr uint32_t SCRIPT_START = 0x4082;
 
 // ROM code the module watches (PC hooks)
@@ -42,11 +43,15 @@ constexpr uint32_t PC_PAUSE_LOOP = 0x1A9230;  // the pause loop
 constexpr uint32_t PC_LEVEL_END = 0x1A8E5C;   // a level is over: next level / ending
 constexpr uint32_t PC_DEATH = 0x1A8F82;       // the death screen (Aladdin, Abu and the carpet on black)
 constexpr uint32_t PC_PIT = 0x1A902E;         // fell below the map: a life lost without the death screen
-constexpr uint32_t PC_LEVEL_INIT = 0x1AA484;  // level init (start_level waits for it)
+constexpr uint32_t PC_FADE_IN = 0x1A8BFC;     // a level set up: its palette fades in ($1AE1A0), then play
+constexpr uint32_t PC_RESPAWN_FADE = 0x1A91B8;  // the same after a life lost (the level rebuilt at the restart point)
+constexpr uint32_t PC_LEVEL_LOAD = 0x1A8B50;  // the level loop: the level's story card, then its set-up
+constexpr uint32_t PC_LEVEL_INIT = 0x1AA484;  // level init (after the story card)
 
 // module_state: [0] frame (+1) the gameplay loop last ran in, 0 after it was left; [1] the developer flags the cheats
-// set (bit 0 cheat mode, bit 1 map view), to clear them when they are switched off
-enum { MS_PLAY = 0, MS_DEV = 1 };
+// set (bit 0 cheat mode, bit 1 map view), to clear them when they are switched off; [2] a level's fade-in is running
+// (shown as play: the picture is already the level's, so it starts wide and slid instead of jumping when play begins)
+enum { MS_PLAY = 0, MS_DEV = 1, MS_FADE = 2 };
 
 enum : int { L_ROOFTOPS = 0, L_MARKET, L_ABU_AGRABAH, L_DESERT, L_DUNGEON, L_CAVE, L_ABU_CAVE, L_ESCAPE, L_RUG_RIDE,
              L_LAMP, L_PALACE, L_JAFAR_PALACE, L_JAFAR_QUARTERS };
@@ -101,8 +106,9 @@ const std::vector<RomPatch> kLevelSkip = {{0x00412A, {0x0010}, {0xFF00}}};
 // screen. Objects are part of the map (object blocks, $FFAE87 / $4154) and spawn when their column or row is streamed:
 // the caves spawn the columns the slid view reaches as well; the despawn window and the sprite clip cover +-2E.
 constexpr uint32_t CAVE = 0x7000;   // the $FF fill at $69E0-$FFFF (no references), reachable with jsr abs.w
-constexpr uint32_t CAVE_LSPAWN = CAVE, CAVE_RSPAWN = CAVE + 0x80, CAVE_ROWSPAWN = CAVE + 0x100, CAVE_CLIP = CAVE + 0x180,
-                   CAVE_SCRCLIP = CAVE + 0x1C0, CAVE_REACH = CAVE + 0x200;
+constexpr uint32_t CAVE_LSPAWN = CAVE, CAVE_RSPAWN = CAVE + 0x100, CAVE_ROWSPAWN = CAVE + 0x200, CAVE_CLIP = CAVE + 0x280,
+                   CAVE_SCRCLIP = CAVE + 0x2C0, CAVE_REACH = CAVE + 0x300, CAVE_DESPAWN = CAVE + 0x380,
+                   CAVE_EVICT = CAVE + 0x400;
 
 // The 4:3 view only ever shows map x [16, W*16 - 18): camX in [0, W*16 - 354] (the camera's clamps, docs section 1).
 constexpr int VIEW_LEFT = 16, VIEW_RIGHT_GAP = 18, CAM_SPAN_GAP = 354;
@@ -122,8 +128,7 @@ int view_slide(int camx, int W, int E) {
 
 // An object stored in block column c appears at screen x 16c - (camX + 16): the original streams column L/16 (left,
 // screen x -16-d) and L/16+22 (right, 336-d), |d| < 16, just outside its view. Spawning ceil((E -+ s) / 16) columns
-// further out keeps that margin outside the slid view; the despawn window keeps the most that can take, 2E.
-int ext_blocks(int E) { return (E + 15) / 16; }
+// further out keeps that margin outside the slid view, and the despawn window keeps the original's margin outside it.
 // Object sprites may start this far left of VDP X 0 (as negative X, read by the VDP's 10-bit mode): a 32-px piece just
 // entering the fully slid view's left edge at screen x -2E.
 int sprite_left(int E) { return std::max(0, 2 * E - 96); }
@@ -135,10 +140,11 @@ struct Asm {
     size_t here() const { return w.size(); }
     size_t branch(uint16_t op) { w.push_back(op); return w.size() - 1; }   // a short branch, displacement later
     void land(size_t at) { w[at] |= (uint16_t)(((w.size() - at - 1) * 2) & 0xFF); }
+    void back(uint16_t op, size_t to) { w.push_back((uint16_t)(op | (((int)to - (int)w.size() - 1) * 2 & 0xFF))); }
 };
 
 std::vector<RomPatch> wide_patches(int E) {
-    const uint16_t e = (uint16_t)E, k2 = (uint16_t)ext_blocks(2 * E), o = (uint16_t)sprite_left(E);
+    const uint16_t e = (uint16_t)E, o = (uint16_t)sprite_left(E);
     auto ff = [](size_t n) { return std::vector<uint16_t>(n, 0xFFFF); };
     // d0 = left reach kl = ceil((E - s)/16), d1 = right reach kr = ceil((E + s)/16) in blocks (s: view_slide); uses d2
     Asm reach;
@@ -165,37 +171,112 @@ std::vector<RomPatch> wide_patches(int E) {
                                              0x0C41, (uint16_t)-E, 0x6C04, 0x323C, (uint16_t)-E,   //        s >= -E
                                              0x303C, (uint16_t)(E + 15), 0x9041, 0xE840,           // d0 = (E+15-s) >> 4
                                              0x0641, (uint16_t)(E + 15), 0xE841, 0x4E75};          // d1 = (E+15+s) >> 4
-    // After the left column writer's own spawn (column L/16), column L/16 - kl too (if >= 1): the spawner entered past
-    // its set-up ($1AE42C) with the column's x ($FF7DB0, its scratch) and map pointer (a0) moved, L itself untouched (a
-    // frame can end inside, and the view is worked out from L).
+    // After the left column writer's own spawn (column L/16), the columns out to L/16 - kl (those >= 1): the spawner entered
+    // past its set-up ($1AE42C) with the column's x ($FF7DB0, its scratch) and map pointer (a0), L itself untouched (a
+    // frame can end inside, and the view is worked out from L). Every column of the band each time, not only the
+    // farthest: an object that couldn't get sprite tiles ($1AD3E8, a pool of $74 shared by all objects) when its column
+    // came first is tried again, instead of waiting for the 4:3 edge.
     Asm lspawn;
     lspawn << std::initializer_list<uint16_t>{0x4EB9, 0x001A, 0xE3FC,   // jsr $1AE3FC (the replaced call)
-                                              0x4EB8, (uint16_t)CAVE_REACH, 0x4A40};   // jsr reach; tst.w d0
+                                              0x4EB8, (uint16_t)CAVE_REACH,   // jsr reach
+                                              0x3600};                        // move.w d0, d3 (j = kl .. 1)
     const size_t l_none = lspawn.branch(0x6700);                          // beq.s done
-    lspawn << std::initializer_list<uint16_t>{0x3439, 0x00FF, 0x7E06, 0xE84A, 0xB440};   // d2 = L/16; cmp.w d0, d2
-    const size_t l_out = lspawn.branch(0x6300);                           // bls.s done (column < 1)
-    lspawn << std::initializer_list<uint16_t>{0x3400, 0xE94A, 0x9579, 0x00FF, 0x7DB0,   // d2 = 16kl; x -= d2
-                                              0x48C0, 0xD080, 0x2079, 0x00FF, 0x7DAC,   // a0 = map pointer
-                                              0x91C0,                                   //      - 2kl
-                                              0x4EB9, 0x001A, 0xE42C};                  // jsr $1AE42C
-    lspawn.land(l_none);
+    const size_t l_loop = lspawn.here();
+    lspawn << std::initializer_list<uint16_t>{0x3439, 0x00FF, 0x7E06, 0xE84A, 0xB443};   // d2 = L/16; cmp.w d3, d2
+    const size_t l_out = lspawn.branch(0x6300);                           // bls.s next (column < 1)
+    lspawn << std::initializer_list<uint16_t>{0x3403, 0xE94A, 0x4442,                   // d2 = -16j
+                                              0xD479, 0x00FF, 0x7E06, 0x33C2, 0x00FF, 0x7DB0,   // x = L - 16j
+                                              0x2079, 0x00FF, 0x7DAC,                   // a0 = map pointer
+                                              0x3403, 0x48C2, 0xD482, 0x91C2,           //      - 2j
+                                              0x3F03,                                   // (j kept on the stack)
+                                              0x4EB9, 0x001A, 0xE42C,                   // jsr $1AE42C
+                                              0x361F};
     lspawn.land(l_out);
+    lspawn << std::initializer_list<uint16_t>{0x5343};                    // next: subq.w #1, d3
+    lspawn.back(0x6600, l_loop);                                          // bne.s loop
+    lspawn.land(l_none);
     lspawn << std::initializer_list<uint16_t>{0x4E75};
-    // after the right column writer's own spawn (column L/16 + 22), column L/16 + 22 + kr too (if inside the map)
+    // after the right column writer's own spawn (column L/16 + 22), the columns out to L/16 + 22 + kr (inside the map)
     Asm rspawn;
     rspawn << std::initializer_list<uint16_t>{0x4EB9, 0x001A, 0xE406,   // jsr $1AE406
-                                              0x4EB8, (uint16_t)CAVE_REACH, 0x4A41};   // jsr reach; tst.w d1
+                                              0x4EB8, (uint16_t)CAVE_REACH,   // jsr reach
+                                              0x3601};                        // move.w d1, d3 (j = kr .. 1)
     const size_t r_none = rspawn.branch(0x6700);
-    rspawn << std::initializer_list<uint16_t>{0x3439, 0x00FF, 0x7E06, 0xE84A, 0xD441,   // d2 = L/16 + kr
+    const size_t r_loop = rspawn.here();
+    rspawn << std::initializer_list<uint16_t>{0x3439, 0x00FF, 0x7E06, 0xE84A, 0xD443,   // d2 = L/16 + j
                                               0x0642, 0x0016, 0xB479, 0x00FF, 0x7DB6};  // + 22; cmp.w W, d2
-    const size_t r_out = rspawn.branch(0x6400);                           // bcc.s done
-    rspawn << std::initializer_list<uint16_t>{0x3401, 0xE94A, 0xD579, 0x00FF, 0x7DB0,   // x += 16kr
-                                              0x48C1, 0xD281, 0x2079, 0x00FF, 0x7DAC,   // a0 = map pointer
-                                              0xD1C1,                                   //      + 2kr
-                                              0x4EB9, 0x001A, 0xE42C};
-    rspawn.land(r_none);
+    const size_t r_out = rspawn.branch(0x6400);                           // bcc.s next
+    rspawn << std::initializer_list<uint16_t>{0x3403, 0xE94A,                           // d2 = 16j
+                                              0xD479, 0x00FF, 0x7E06, 0x33C2, 0x00FF, 0x7DB0,   // x = L + 16j
+                                              0x2079, 0x00FF, 0x7DAC,                   // a0 = map pointer
+                                              0x3403, 0x48C2, 0xD482, 0xD1C2,           //      + 2j
+                                              0x3F03,
+                                              0x4EB9, 0x001A, 0xE42C,
+                                              0x361F};
     rspawn.land(r_out);
+    rspawn << std::initializer_list<uint16_t>{0x5343};
+    rspawn.back(0x6600, r_loop);
+    rspawn.land(r_none);
     rspawn << std::initializer_list<uint16_t>{0x4E75};
+    // Despawn ($1ADEB6): object x outside [camX - $50 - 16kl, camX + $190 + 16kr] - the original's margin outside the
+    // view as slid (more would keep objects that hold sprite tiles a new one needs). Carry set: outside.
+    Asm despawn;
+    despawn << std::initializer_list<uint16_t>{0x48E7, 0x6000,           // movem.l d1-d2, -(a7)
+                                               0x4EB8, (uint16_t)CAVE_REACH,
+                                               0xE948, 0x0640, 0x0050,  // d0 = 16kl + $50
+                                               0xD069, 0x0002,          // + x
+                                               0xB079, 0x00FF, 0x7DF6}; // cmp.w camX, d0
+    const size_t d_out1 = despawn.branch(0x6500);                         // bcs.s out
+    despawn << std::initializer_list<uint16_t>{0xE949, 0x0641, 0x0190,   // d1 = 16kr + $190
+                                               0xD279, 0x00FF, 0x7DF6,   // + camX
+                                               0xB269, 0x0002};          // cmp.w x, d1
+    const size_t d_out2 = despawn.branch(0x6500);                         // bcs.s out
+    despawn << std::initializer_list<uint16_t>{0x4CDF, 0x0006, 0x023C, 0x00FE, 0x4E75};   // keep: carry clear
+    despawn.land(d_out1);
+    despawn.land(d_out2);
+    despawn << std::initializer_list<uint16_t>{0x4CDF, 0x0006, 0x003C, 0x0001, 0x4E75};   // out: carry set
+    // An object that can't get sprite tiles ($1AD3E8: the pool of $74 slots at $FFF008, shared by every object, fails
+    // at $1AD406 and the object is dropped until its column comes again) - the widened view shows more objects than the
+    // 4:3 one, so in busy places (Sultan's Dungeon's guards at 21:9) the pool can run out where the original's never
+    // does. Then an object entirely outside the view as slid (32 px past it, not the one asking, nor one the game never
+    // despawns) is despawned the game's way ($1AE0B0: frees its tiles, its map entry back) and the allocation tried
+    // again; with none left, the original failure path.
+    Asm evict;
+    evict << std::initializer_list<uint16_t>{0x48E7, 0x38B0,               // movem.l d2-d4/a0/a2-a3, -(a7)
+                                             0x4EB8, (uint16_t)CAVE_REACH,
+                                             0xE948, 0x0640, 0x0020, 0x4440,   // d0 = camX - 16kl - 32 (left limit)
+                                             0xD079, 0x00FF, 0x7DF6,
+                                             0xE949, 0x0641, 0x0160,           // d1 = camX + 16kr + 352 (right limit)
+                                             0xD279, 0x00FF, 0x7DF6,
+                                             0x45F9, 0x00FF, 0x7E82,           // lea $FF7E82, a2 (slot 1: not Aladdin)
+                                             0x781E};                          // moveq #30, d4 (slots 1-31)
+    const size_t e_loop = evict.here();
+    evict << std::initializer_list<uint16_t>{0x4A12};                          // tst.b (a2)
+    const size_t e_n1 = evict.branch(0x6700);
+    evict << std::initializer_list<uint16_t>{0xB5C9};                          // cmpa.l a1, a2 (the one asking)
+    const size_t e_n2 = evict.branch(0x6700);
+    evict << std::initializer_list<uint16_t>{0x4AAA, 0x002A};                  // tst.l $2A(a2) (holds tiles)
+    const size_t e_n3 = evict.branch(0x6700);
+    evict << std::initializer_list<uint16_t>{0x082A, 0x0003, 0x0006};          // btst #3, 6(a2) (screen-fixed)
+    const size_t e_n4 = evict.branch(0x6600);
+    evict << std::initializer_list<uint16_t>{0x082A, 0x0001, 0x003C};          // btst #1, $3C(a2) (never despawned)
+    const size_t e_n5 = evict.branch(0x6600);
+    evict << std::initializer_list<uint16_t>{0x342A, 0x0002, 0xB440};          // d2 = x; cmp.w d0, d2
+    const size_t e_go1 = evict.branch(0x6D00);                                 // blt.s evict
+    evict << std::initializer_list<uint16_t>{0xB441};                          // cmp.w d1, d2
+    const size_t e_go2 = evict.branch(0x6E00);                                 // bgt.s evict
+    for (size_t at : {e_n1, e_n2, e_n3, e_n4, e_n5}) evict.land(at);
+    evict << std::initializer_list<uint16_t>{0xD4FC, 0x0042, 0x51CC};          // next: adda.w #$42, a2; dbra d4, loop
+    evict << std::initializer_list<uint16_t>{(uint16_t)(((int)e_loop - (int)evict.here()) * 2)};
+    evict << std::initializer_list<uint16_t>{0x4CDF, 0x0D1C,                   // none: restore,
+                                             0x4EF9, 0x001A, 0xE6DE};          //   jmp $1AE6DE (the replaced call)
+    evict.land(e_go1);
+    evict.land(e_go2);
+    evict << std::initializer_list<uint16_t>{0x2F09, 0x224A,                   // evict: move.l a1, -(a7); a1 = it
+                                             0x4EB9, 0x001A, 0xE0B0,           //   jsr $1AE0B0 (despawn)
+                                             0x225F, 0x4CDF, 0x0D1C,           //   a1 back; restore
+                                             0x588F, 0x4CDF, 0x0003,           //   drop our return; d0-d1 as saved
+                                             0x4EF9, 0x001A, 0xD3E8};          //   jmp $1AD3E8 (allocate again)
     // a streamed row spawns blocks [L/16 - kl, L/16 + 22 + kr] inside the map instead of [L/16, L/16 + 22]: the loop's
     // a0 (map pointer), d6 (x), d4 (count - 1), a1, a2
     std::vector<uint16_t> rowspawn = {
@@ -236,9 +317,15 @@ std::vector<RomPatch> wide_patches(int E) {
         {CAVE_LSPAWN, ff(lspawn.w.size()), lspawn.w},
         {CAVE_RSPAWN, ff(rspawn.w.size()), rspawn.w},
         {CAVE_ROWSPAWN, ff(rowspawn.size()), rowspawn},
-        // despawn window: object x in [camX - $50 - 16k2, camX + $190 + 16k2], k2 = ceil(2E/16)
-        {0x1ADEBA, {0x0640, 0x0050}, {0x0640, (uint16_t)(0x50 + 16 * k2)}},
-        {0x1ADECC, {0x0640, 0x0190}, {0x0640, (uint16_t)(0x190 + 16 * k2)}},
+        // despawn window (the x test of $1ADE84): jsr CAVE_DESPAWN; bcc.w keep; bra.w despawn
+        {0x1ADEB6, {0x3029, 0x0002, 0x0640, 0x0050, 0xB079, 0x00FF, 0x7DF6, 0x6510, 0x3039, 0x00FF, 0x7DF6, 0x0640,
+                    0x0190, 0xB069, 0x0002, 0x6410},
+                   {0x4EB8, (uint16_t)CAVE_DESPAWN, 0x6400, 0x002A, 0x6000, 0x0016, 0x4E71, 0x4E71, 0x4E71, 0x4E71,
+                    0x4E71, 0x4E71, 0x4E71, 0x4E71, 0x4E71, 0x4E71}},
+        {CAVE_DESPAWN, ff(despawn.w.size()), despawn.w},
+        // a sprite-tile allocation that fails ($1AD406 bsr $1AE6DE) evicts an object outside the view first
+        {0x1AD406, {0x6100, 0x12D6}, {0x4EB8, (uint16_t)CAVE_EVICT}},
+        {CAVE_EVICT, ff(evict.w.size()), evict.w},
         // sprite clip: map objects (sub.w d7, d3; cmpi.w #$1BF, d3 -> jsr CAVE_CLIP; nop) and screen-fixed ones
         // (subi.w #$80, d3; cmpi.w #$1BF, d3 -> jsr CAVE_SCRCLIP; nop; nop), the bcc after them unchanged
         {0x1ABAD0, {0x9647, 0x0C43, 0x01BF}, {0x4EB8, (uint16_t)CAVE_CLIP, 0x4E71}},
@@ -248,9 +335,13 @@ std::vector<RomPatch> wide_patches(int E) {
     };
 }
 
-bool in_gameplay(const MegaDrive& md) {
+// The gameplay loop ran lately (in play or paused).
+bool in_play(const MegaDrive& md) {
     return md.module_state[MS_PLAY] != 0 && (uint32_t)md.frame_count + 1 - md.module_state[MS_PLAY] <= 4;
 }
+
+// A level on screen: in play, or fading in (its first frames, before the gameplay loop runs).
+bool in_gameplay(const MegaDrive& md) { return md.module_state[MS_FADE] != 0 || in_play(md); }
 
 // Gameplay shown wide: all but Abu's bonus rounds (a 336-px room) and the Rug Ride, whose obstacles are sent in at the
 // 4:3 view's right edge on a timer (wider, they would pop up in the middle of the right extension). Those stay 4:3.
@@ -278,13 +369,13 @@ bool screen_fixed(const VDP& v, int index) {
 }
 
 // Sprites move with the slid view (the renderer subtracts view_shift), but the HUD stays anchored to the screen's
-// edges and messages ("FIND THE SCARAB", PAUSED, ...) stay where the game puts them on the screen.
+// edges and messages ("FIND THE SCARAB", PAUSED, ...) stay where the game puts them on the screen. (Only in a frame
+// drawn wide.)
 int sprite_xoff(const MegaDrive& md, int index, uint16_t attr, int x, int y) {
     (void)y;
-    if (!in_gameplay(md)) return 0;
     const VDP& v = md.vdp;
     const int side = hud_side(attr & 0x7FF, x);
-    if (side) return v.view_shift + ((v.hook_flags & 1) && wide_view(md) ? side * v.ext : 0);
+    if (side) return v.view_shift + ((v.hook_flags & 1) ? side * v.ext : 0);
     return screen_fixed(v, index) ? v.view_shift : 0;
 }
 
@@ -362,7 +453,7 @@ void draw_map_ext(const MegaDrive& md, int mx0, int my, uint8_t* buf) {
 // were there, so they hold still with the level while the view slides.
 class ScrollProbe {
 public:
-    static constexpr int kWords = 0x1C0;   // 224 lines x 2 words
+    static constexpr int kWords = VDP::kMaxLines * 2;   // every line the VDP can show (240) x 2 words (A, B)
     uint16_t table[kWords];
 
     ScrollProbe() {
@@ -431,26 +522,29 @@ struct Wide {
     ScrollProbe probe;
     int16_t shift_a[VDP::kMaxLines] = {};   // plane A's slide per line when it isn't the view's (Sultan's Dungeon)
     bool shift_a_on = false;
+    bool active = false;                    // this frame is drawn wide (the slide applies)
+    int cam = 0;                            // the camera the slide in force was worked out for
     uint16_t t0[ScrollProbe::kWords];
 };
 
-// Before each frame is drawn (MegaDrive::on_frame_start): its slide, from the scroll values the game wrote for it (the
-// camera in RAM may already be the next frame's), and the other plane's slide line by line from the scroll probe.
-void update_view(Wide& w) {
+// The camera a line was scrolled with: from the map plane's H scroll (the camera in RAM may already be the next
+// frame's), less the earthquake shake the Escape adds to the planes and the sprites alike ($FFF082, written with the
+// scroll): the slide follows the camera, the shake stays on screen as in the original.
+int line_camera(const MegaDrive& md, int line, bool swapped) {
+    return line_view(md, line, swapped).mx0 - 16 - (int16_t)md.ram16(SHAKE_X);
+}
+
+// The slide for camera camx from line `from` on: view_shift for plane A and the sprites, and the other plane's per line
+// from the scroll probe (the scroll the game writes at camx + s against at camx: anything but the camera is the same for
+// both runs).
+void apply_slide(Wide& w, int camx, int from) {
     MegaDrive& md = *w.md;
     VDP& v = md.vdp;
-    v.view_shift = 0;
-    v.view_shift_b_on = false;
-    w.shift_a_on = false;
-    const int E = v.ext;
-    if (E == 0 || !wide_view(md)) return;
     const bool swapped = md.ram8(SWAP_PLANES) != 0;
-    const int camx = line_view(md, 0, swapped).mx0 - 16;
-    const int s = view_slide(camx, md.ram16(MAP_W), E);
-    if (s == 0) return;
+    const int s = view_slide(camx, md.ram16(MAP_W), v.ext);
+    w.cam = camx;
     v.view_shift = s;
-    // the scroll the game writes at camx + s against at camx (anything but the camera is the same for both runs)
-    bool probed = w.probe.run(md, camx);
+    bool probed = s != 0 && w.probe.run(md, camx);
     if (probed) {
         memcpy(w.t0, w.probe.table, sizeof(w.t0));
         probed = w.probe.run(md, camx + s);
@@ -458,11 +552,12 @@ void update_view(Wide& w) {
     auto slide = [&](int line, bool plane_b) {
         if (!probed) return s;
         const int k = hscroll_offset(v, line) / 2 + (plane_b ? 1 : 0);
+        if (k < 0 || k >= ScrollProbe::kWords) return s;
         int d = (w.probe.table[k] - w.t0[k]) & 0x1FF;   // the H scroll falls as the plane moves right
         if (d >= 256) d -= 512;
         return -d;
     };
-    for (int ln = 0; ln < VDP::kMaxLines; ln++) {
+    for (int ln = from; ln < VDP::kMaxLines; ln++) {
         v.view_shift_b[ln] = (int16_t)(swapped ? s : slide(ln, true));
         w.shift_a[ln] = (int16_t)(swapped ? slide(ln, false) : s);
     }
@@ -470,8 +565,32 @@ void update_view(Wide& w) {
     w.shift_a_on = swapped;
 }
 
+// Before each frame is drawn (MegaDrive::on_frame_start): whether it is drawn wide (for the whole frame), and its slide
+// from line 0's scroll.
+void update_view(Wide& w) {
+    MegaDrive& md = *w.md;
+    VDP& v = md.vdp;
+    v.view_shift = 0;
+    v.view_shift_b_on = false;
+    w.shift_a_on = false;
+    w.active = v.ext != 0 && wide_view(md);
+    if (w.active) apply_slide(w, line_camera(md, 0, md.ram8(SWAP_PLANES) != 0), 0);
+}
+
+// Before each line is drawn: the slide follows the scroll line by line. On a lag frame the game writes the scroll (and
+// the sprite table) while the frame is drawn, and a slide worked out once at the frame's start would hold the old
+// camera against the new scroll: a one-frame jump of the picture the slide holds still.
+void pre_line_hook(void* host, int line) {
+    Wide& w = *(Wide*)host;
+    if (!w.active) return;
+    MegaDrive& md = *w.md;
+    const int c = line_camera(md, line, md.ram8(SWAP_PLANES) != 0);
+    if (c != w.cam) apply_slide(w, c, line);
+}
+
 int sprite_xoff_hook(void* host, int index, uint16_t attr, int x, int y) {
-    return sprite_xoff(*((Wide*)host)->md, index, attr, x, y);
+    const Wide& w = *(Wide*)host;
+    return w.active ? sprite_xoff(*w.md, index, attr, x, y) : 0;
 }
 bool sprite_is_hud_hook(void* host, int index) { return sprite_is_hud(*((Wide*)host)->md, index); }
 
@@ -482,7 +601,7 @@ void line_hook(void* host, int line, uint8_t* plane_a, uint8_t* plane_b, uint8_t
     VDP& v = md.vdp;
     v.edge_mask_l = v.edge_mask_r = 0;
     // (The Rug Ride doesn't stream: plane A is one 512-px loop of the lava cave the camera runs along, its "map" nominal.)
-    if (!wide_view(md)) return;
+    if (!w.active) return;
     const int E = v.ext, TW = 320 + 2 * E;
     if (w.shift_a_on && w.shift_a[line] != v.view_shift)   // plane A's own slide (the renderer used the view's)
         v.render_plane(plane_a, line, false, -E + w.shift_a[line], 320 + E + w.shift_a[line]);
@@ -585,16 +704,20 @@ public:
     void configure(MegaDrive& md, const GameConfig& cfg) override {
         apply_patches(md, patch_list(cfg));
         md.clear_pc_hooks();
-        auto play = [](MegaDrive& m) { m.module_state[MS_PLAY] = (uint32_t)m.frame_count + 1; };
-        auto leave = [](MegaDrive& m) { m.module_state[MS_PLAY] = 0; };
+        auto play = [](MegaDrive& m) { m.module_state[MS_PLAY] = (uint32_t)m.frame_count + 1; m.module_state[MS_FADE] = 0; };
+        auto leave = [](MegaDrive& m) { m.module_state[MS_PLAY] = 0; m.module_state[MS_FADE] = 0; };
         md.add_pc_hook(PC_MAIN_LOOP, play);
         md.add_pc_hook(PC_PAUSE_LOOP, play);
         md.add_pc_hook(PC_LEVEL_END, leave);
         md.add_pc_hook(PC_DEATH, leave);
         md.add_pc_hook(PC_PIT, leave);
+        auto fade = [](MegaDrive& m) { m.module_state[MS_FADE] = 1; };
+        md.add_pc_hook(PC_FADE_IN, fade);
+        md.add_pc_hook(PC_RESPAWN_FADE, fade);
         const bool wide = cfg.ext > 0;
         wide_->md = &md;
         md.vdp.line_hook = wide ? line_hook : nullptr;
+        md.vdp.pre_line_hook = wide ? pre_line_hook : nullptr;
         md.vdp.sprite_xoff = wide ? sprite_xoff_hook : nullptr;
         md.vdp.sprite_is_hud = wide ? sprite_is_hud_hook : nullptr;
         md.vdp.edge_mask_l = md.vdp.edge_mask_r = 0;
@@ -613,7 +736,7 @@ public:
         uint32_t& dev = md.module_state[MS_DEV];
         if (cfg.cheat("dev_cheat")) { md.set_ram8(DEV_CHEAT, 0xFF); dev |= 1; }
         else if (dev & 1) { md.set_ram8(DEV_CHEAT, 0); dev &= ~1u; }
-        if (!in_gameplay(md)) return;
+        if (!in_play(md)) return;
         // Map view takes Aladdin out of play every frame ($1A9C9A clears his object); switched off, he is put back
         // where the view is.
         if (cfg.cheat("map_view")) { md.set_ram8(DEV_MAP_VIEW, 0xFF); dev |= 2; }
@@ -629,7 +752,7 @@ public:
 
     void post_frame(MegaDrive& md, const GameConfig& cfg, FrameInfo& info) override {
         // (the level-edge masks are drawn per line by line_hook, so the HUD stays over them)
-        info.gameplay = wide_view(md);
+        info.gameplay = cfg.ext > 0 ? wide_->active : wide_view(md);   // (as the frame was drawn)
         // Sprite X read as 10 bits only in play (the other screens, shown 4:3, may leave junk in the upper bits)
         const int E = cfg.ext;
         md.vdp.sprite_x10 = E > 0 && in_gameplay(md) && (448 + 2 * E > 512 || sprite_left(E) > 0);
@@ -774,8 +897,10 @@ public:
 
     // Power-on -> the title (START skips the logos) -> the level. Power-on sets level 1 and the play-order script's
     // start once ($1AA41C) and the title keeps them (the developers' debug screen sets the start level the same way),
-    // so the level, its script position and the difficulty are set before START; the game then shows that level's
-    // title card and starts it as it would after the one before.
+    // so the level, its script position and the difficulty are set before START; START is tapped through the title and
+    // the new game's instructions screen ($1B2E9A) until the level loop begins ($1A8B50). It returns there, START
+    // released: the level's story card then plays as after the level before (the player skips it with START, or it
+    // runs out), and the level starts.
     bool start_level(MegaDrive& md, const GameConfig& cfg, int entry, int variant) override {
         if (entry < 0 || entry >= (int)std::size(kLevels)) return false;
         const int level = kLevels[entry].id;
@@ -785,18 +910,17 @@ public:
         md.set_ram8(LEVEL, (uint8_t)level);
         md.set_ram32(SCRIPT, script_after(md, level));
         md.set_ram8(DIFFICULTY, (uint8_t)std::clamp(variant, 0, 2));
-        bool init = false;
-        md.add_pc_hook(PC_LEVEL_INIT, [&init](MegaDrive&) { init = true; });
-        for (int t = 0; t < 200 && !init; t++) {
+        bool loop = false;
+        md.add_pc_hook(PC_LEVEL_LOAD, [&loop](MegaDrive& m) { loop = true; m.set_pad(0, 0); });
+        for (int t = 0; t < 200 && !loop; t++) {
             md.set_pad(0, MD_START);
-            for (int f = 0; f < 3; f++) md.run_frame();
+            for (int f = 0; f < 3 && !loop; f++) md.run_frame();
             md.set_pad(0, 0);
-            for (int f = 0; f < 17 && !init; f++) md.run_frame();
+            for (int f = 0; f < 17 && !loop; f++) md.run_frame();
         }
         md.set_pad(0, 0);
-        configure(md, cfg);   // (drops the init hook)
-        if (!init) return false;
-        return run_until(md, [&]() { return in_gameplay(md); }, 600);
+        configure(md, cfg);   // (drops the hook)
+        return loop;
     }
 
     std::vector<SoundEntry> sounds() const override { return sound_list(); }
