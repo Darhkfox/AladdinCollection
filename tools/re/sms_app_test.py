@@ -11,7 +11,8 @@ import os
 import subprocess
 import sms_re as R
 
-EXE = os.path.join(os.path.dirname(R.TOOLS), 'build', 'bin', 'AladdinCollection.exe')
+REPO = os.path.dirname(R.TOOLS)
+EXE = os.path.join(REPO, 'build', 'bin', 'AladdinCollection.exe')
 OUT = os.path.join(R.OUT, 'app')
 
 
@@ -47,7 +48,8 @@ def main():
     lines.append('%d quit' % (fr + 10))
     script = os.path.join(OUT, 'script.txt')
     open(script, 'w').write('\n'.join(lines) + '\n')
-    subprocess.run([EXE, '--game', 'sms', '--autotest', OUT, script, '--capture-size', '1600x900'], timeout=1200)
+    # (from the repository's root: the ROM is found there)
+    subprocess.run([EXE, '--game', 'sms', '--autotest', OUT, script, '--capture-size', '1600x900'], timeout=1200, cwd=REPO)
     print('shots in', OUT)
 
 

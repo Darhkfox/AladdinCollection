@@ -38,7 +38,7 @@ def run(ext, st, frames):
         if not (2 <= s.ram8(0xC200) <= 0x0B):
             break
         px, w, h = s.pixels()
-        cam_drawn = s.module_state(5)    # the camera the frame was drawn with
+        cam_drawn = s.module_state(5) & 0xFFFF   # the camera the frame was drawn with
         hs = s.line_hscroll()
         lo = s.ram16(0xC4B9)
         hi = s.ram16(0xC480)
@@ -50,15 +50,16 @@ def run(ext, st, frames):
             if (hs[line] + cam_drawn) & 0xFF:
                 continue   # a parallax band
             row = px[line * w:(line + 1) * w]
+            sh = s.view_shift(line)    # the view's slide near level ends: output x shows screen x + sh
             for x in range(-ext, 256 + ext):
-                wx = cam_drawn + x
+                wx = cam_drawn + x + sh
                 if wx < lo or wx >= hi + 256:
                     continue
                 c = row[x + ext]
-                if 8 <= x < 256:
+                if 8 <= x + sh < 256:
                     world.setdefault((wx, line), c)
                 else:
-                    pending.append((wx, line, c, x))
+                    pending.append((wx, line, c, x + sh))
     bad = collections.Counter()
     cols = collections.Counter()
     n = 0

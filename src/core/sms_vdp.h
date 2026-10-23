@@ -50,6 +50,14 @@ public:
     // lie beyond its left / right edge), vrow = (line + vscroll) / 8 (rows 0-27 the table, 28+ wrapped). Return
     // the 13-bit entry (pattern, flips, palette, priority) or -1 to use the hardware table (wrapping).
     int  hw_x0 = 0, hw_x1 = 256;
+    // View shift (widescreen): a module can slide the picture near a level's ends instead of showing what lies
+    // outside it. Line ln's background is sampled bg_shift[ln] px further right (screen x of the original picture:
+    // output x + shift; the bg_entry / hw_x0..hw_x1 tests use the shifted position), sprites sprite_shift px.
+    int16_t bg_shift[kMaxLines] = {};
+    int  sprite_shift = 0;
+    // When set, asked for each line's background shift as the line is drawn (bg_shift[ln] keeps the answer): the
+    // registers a line interrupt set for the line are known then.
+    int  (*line_shift)(void* host, int line) = nullptr;
     // bg_entry may set bit 15 of an entry: that cell's pattern comes from alt_patterns (32 bytes a tile, from tile
     // alt_first, alt_count of them) instead of VRAM - a module's copy of tiles the game has reloaded with other
     // graphics since (or not yet). The module may point it elsewhere from one bg_entry call to the next.

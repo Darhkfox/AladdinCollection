@@ -23,6 +23,8 @@ void SmsVdp::reset() {
     hcount_latch = 0;
     line = 0;
     extra_count = 0;
+    memset(bg_shift, 0, sizeof(bg_shift));
+    sprite_shift = 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -192,7 +194,7 @@ void SmsVdp::render_sprites(uint8_t* dst, int ln) {
                                         (((p[3] >> bit) & 1) << 3));
             if (!c) continue;
             for (int k = 0; k < step; k++) {
-                const int sx = x + px * step + k;
+                const int sx = x + px * step + k - sprite_shift;
                 if (sx < lo || sx >= hi) continue;
                 uint8_t& d = dst[sx + ext];
                 if (d) { status |= 0x20; continue; }    // the first sprite in the list stays in front
@@ -215,7 +217,8 @@ void SmsVdp::render_line(int ln) {
         return;
     }
     uint8_t bg[kMaxWidth], spr[kMaxWidth];
-    render_bg(bg, ln, -ext, 256 + ext);
+    if (line_shift) bg_shift[ln] = (int16_t)line_shift(hook_host, ln);
+    render_bg(bg, ln, -ext + bg_shift[ln], 256 + ext + bg_shift[ln]);
     memset(spr, 0, W);
     render_sprites(spr, ln);
     if (!(debug_layers & 1)) memset(bg, 0, W);

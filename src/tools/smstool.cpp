@@ -159,6 +159,11 @@ API int smst_vdp_extra(void* h, int* out, int max) {
     }
     return v.extra_count;
 }
+// The view shift of the frame being drawn: sprites, and the background of line `line` (SmsVdp::bg_shift).
+API int smst_view_shift(void* h, int line) {
+    const SmsVdp& v = ((Tool*)h)->sms.vdp;
+    return line < 0 ? v.sprite_shift : v.bg_shift[line % SmsVdp::kMaxLines];
+}
 API uint32_t smst_module_state(void* h, int i) { return ((Tool*)h)->sms.module_state[i & 7]; }
 API uint8_t* smst_line_hscroll(void* h) { return ((Tool*)h)->sms.vdp.line_hscroll; }
 API void smst_debug_layers(void* h, int mask) { ((Tool*)h)->sms.vdp.debug_layers = (uint8_t)mask; }
