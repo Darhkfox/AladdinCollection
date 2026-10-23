@@ -35,6 +35,9 @@ bool Snes::loadRom(const std::vector<uint8_t>& data) {
       for (size_t i = real; i < sz; i++) rom[i] = rom[base + (i - base) % rest];
   }
   romSize_ = real;
+  // Battery RAM only where the header has some ($FFD8: 1 KB << n): cartridges without it leave $70-$7D:$0000-$7FFF
+  // unmapped, and some games check (Aladdin hangs in its attract demo if a write there reads back).
+  hasSram_ = rom.size() > 0x7fd8 && rom[0x7fd8] != 0 && rom[0x7fd8] <= 8;
   romPristine = rom;
   romMask_ = sz - 1;
   patchRom.assign(0x80000, 0xff);
@@ -300,7 +303,7 @@ uint8_t Snes::busRead(uint32_t adr) {
     if (b7 >= 0x60 && b7 < 0x70) return patchRom[((b7 - 0x60) << 15) | (a & 0x7fff)];
     return rom[(((size_t)b7 << 15) | (a & 0x7fff)) & romMask_];
   }
-  if (b7 >= 0x70 && b7 < 0x7e) return sram[a & 0x1fff];
+  if (b7 >= 0x70 && b7 < 0x7e) return hasSram_ ? sram[a & 0x1fff] : openBus_;
   return rom[(((size_t)b7 << 15) | (a & 0x7fff)) & romMask_];
 }
 
@@ -323,7 +326,7 @@ void Snes::busWrite(uint32_t adr, uint8_t v) {
     return;
   }
   uint8_t b7 = bank & 0x7f;
-  if (a < 0x8000 && b7 >= 0x70 && b7 < 0x7e) {
+  if (a < 0x8000 && b7 >= 0x70 && b7 < 0x7e && hasSram_) {
     if (sram[a & 0x1fff] != v) sramDirty = true;
     sram[a & 0x1fff] = v;
   }
