@@ -90,10 +90,12 @@ std::vector<RomPatch> wide_patches(int E) {
     const std::vector<uint8_t> load = {0xE5, 0xDD, 0x7E, 0x20, 0xB7, 0x28, 0x10, 0xDD, 0x6E, 0x02, 0xDD, 0x66, 0x03,
                                        0x11, e, 0x00, 0x19, 0xDD, 0x75, 0x02, 0xDD, 0x74, 0x03, 0xE1, 0xC3, 0xB3, 0x41};
     // The sprite slot allocators ($3D74 / $3D5E) put an object that no longer fits in the 64 entries to sleep, but
-    // the draw call after them still writes its pieces past the table (over the palette buffer at $C3C0). Rare in the
-    // 256-px view, common with more objects awake: the draw is skipped.
-    const std::vector<uint8_t> full_a = {0xDD, 0x36, 0x1D, 0x00, 0xE1, 0xC3, 0x39, 0x3D};
-    const std::vector<uint8_t> full_b = {0xDD, 0x36, 0x1D, 0x00, 0xE1, 0xC3, 0xE4, 0x3C};
+    // the draw call after them still writes its pieces past the table (over the palette buffer at $C3C0), and a
+    // sleeping object of stages 0/1/5/7/8 stops following the camera ($3DC8) for that frame. Rare in the 256-px view,
+    // common with more objects awake: the object stays awake, and the module has the VDP draw it after the table's
+    // 64 sprites (extra_sprites).
+    const std::vector<uint8_t> full_a = {0xE1, 0xC3, 0x39, 0x3D};
+    const std::vector<uint8_t> full_b = {0xE1, 0xC3, 0xE4, 0x3C};
     const uint16_t keep = (uint16_t)(0x40 + E), win = (uint16_t)(0x170 + 2 * E), gone = (uint16_t)(0x20 + E);
     return {
         {0x3E50, {0x2A, 0x82, 0xC4}, {0xCD, lo(CAVE_WAKE), hi(CAVE_WAKE)}},
@@ -149,8 +151,34 @@ void level_bounds(const Sms& s, int& lo, int& hi) {
 }
 
 // module_state: [0..3] each sprite table entry's 256-px page as displayed (2 bits each, see sprite_x), [4] the
-// camera X at the last VBlank (the view of the next frame), [5] the camera X of the frame being drawn.
-constexpr int MS_CAM_NEXT = 4, MS_CAM = 5;
+// camera X at the last VBlank (the view of the next frame), [5] the camera X of the frame being drawn, [6] the
+// objects ($CA00 table) the slot allocator had no room for this frame (bit per object).
+constexpr int MS_CAM_NEXT = 4, MS_CAM = 5, MS_UNDRAWN = 6;
+constexpr uint16_t OBJECTS = 0xCA00;     // 7 (stages 0/1/5/7/8) or up to 16 objects, $40 bytes each
+constexpr int OBJ_SIZE = 0x40, MAX_OBJECTS = 16;
+
+// The pieces of an object the sprite table had no room for, drawn by the VDP after the table's 64 (as $0C45 would
+// have: frame data in bank $12 at +$0F, count then dy / dx / tile per piece; the 16-bit Y / X at +$00 / +$02).
+void extra_sprites(Sms& s) {
+    SmsVdp& v = s.vdp;
+    v.extra_count = 0;
+    const uint32_t undrawn = s.module_state[MS_UNDRAWN];
+    s.module_state[MS_UNDRAWN] = 0;
+    const int E = v.ext;
+    for (int i = 0; i < MAX_OBJECTS && undrawn; i++) {
+        if (!(undrawn & (1u << i))) continue;
+        const uint16_t o = (uint16_t)(OBJECTS + i * OBJ_SIZE);
+        const int oy = (int16_t)s.ram16(o), ox = (int16_t)s.ram16((uint16_t)(o + 2));
+        const uint16_t fp = s.ram16((uint16_t)(o + 0x0F));
+        const int n = bank_rd8(s, 0x12, fp);
+        for (int k = 0; k < n && v.extra_count < SmsVdp::kMaxExtra; k++) {
+            const uint16_t p = (uint16_t)(fp + 1 + 3 * k);
+            const int y = oy + (int8_t)bank_rd8(s, 0x12, p), x = ox + (int8_t)bank_rd8(s, 0x12, (uint16_t)(p + 1));
+            if (y < 0 || y >= 0xD0 || x <= -8 - E || x >= 256 + E) continue;
+            v.extra[v.extra_count++] = {(int16_t)x, (uint8_t)(y - 1), bank_rd8(s, 0x12, (uint16_t)(p + 2))};
+        }
+    }
+}
 enum : uint8_t { PAGE_0 = 0, PAGE_RIGHT = 1, PAGE_LEFT = 2, PAGE_HIDDEN = 3 };
 
 class SmsAladdin : public SmsModule {
@@ -194,6 +222,7 @@ public:
         v.line_hook = wide ? line_hook : nullptr;
         s.on_vblank = nullptr;
         s.on_frame_start = nullptr;
+        v.extra_count = 0;
         std::memset(page_, 0, sizeof(page_));
         if (!wide) return;
         // the camera the VBlank shows next (the scroll registers are written from it right after line $C1) and the
@@ -208,12 +237,21 @@ public:
             const uint16_t at = (uint16_t)(m.peek(m.z80.sp) | (m.peek((uint16_t)(m.z80.sp + 1)) << 8));
             piece_x(m, (at - SAT_XT) >> 1);
         });
+        // an object the slot allocator has no room for (the caves of wide_patches): drawn as extra sprites
+        auto undrawn = [](Sms& m) {
+            const int i = (m.z80.ix - OBJECTS) / OBJ_SIZE;
+            if (i >= 0 && i < MAX_OBJECTS) m.module_state[MS_UNDRAWN] |= 1u << i;
+        };
+        s.add_pc_hook(CAVE_FULL_A, undrawn);
+        s.add_pc_hook(CAVE_FULL_B, undrawn);
         // the VBlank's sprite table upload ($02D9): in reverse order on odd frames (the game's flicker)
         s.add_pc_hook(0x02D9, [this](Sms& m) {
             const bool rev = m.ram8(FRAMES) & 1;
             for (int w = 0; w < 4; w++) m.module_state[w] = 0;
             for (int i = 0; i < 64; i++)
                 m.module_state[i >> 4] |= (uint32_t)page_[rev ? 63 - i : i] << ((i & 15) * 2);
+            if (in_stage(m)) extra_sprites(m);
+            else m.vdp.extra_count = 0;
         });
     }
 
@@ -260,13 +298,21 @@ public:
         if (!press_until(s, SMS_1, [&]() { return mode() == 0 && s.ram8(TITLE_STATE) == 0x12; }, 2, 10, 120)) return false;
         if (!press_until(s, SMS_DOWN, [&]() { return (s.ram8(TITLE_CURSOR) & 1) != 0; }, 2, 4, 10)) return false;
         if (!press_until(s, SMS_1, [&]() { return mode() == M_PASSWORD; }, 2, 4, 20)) return false;
-        run_frames(s, 10);
-        // the password screen checks the four letters when button 1 is pressed ($744D)
+        // the title fades out and the password screen sets up (~170 frames) before its loop reads the pad: the four
+        // letters are written and button 1 pressed until the game takes them ($744D checks them, sets the stage and
+        // its mode)
         const char* pw = kStages[entry].password;
-        for (int i = 0; i < 4; i++) s.set_ram8((uint16_t)(PASSWORD + i), (uint8_t)(pw[i] - 'A'));
         const int want = entry + 2;
-        if (!press_until(s, SMS_1, [&]() { return mode() == want; }, 2, 4, 10)) return false;
-        return run_until(s, [&]() { return mode() == want && s.ram8(STAGE_INIT) == 0; }, 600);
+        bool taken = false;
+        for (int t = 0; t < 80 && !taken; t++) {
+            for (int i = 0; i < 4; i++) s.set_ram8((uint16_t)(PASSWORD + i), (uint8_t)(pw[i] - 'A'));
+            run_frames(s, 2, SMS_1);
+            for (int f = 0; f < 4 && !taken; f++) { s.run_frame(); taken = mode() == want; }
+        }
+        if (!taken) return false;
+        // the stage's handler starts after the fade-out (rst $28) and loads the stage ($C912 set meanwhile)
+        if (!run_until(s, [&]() { return s.ram8(STAGE_INIT) != 0; }, 300)) return false;
+        return run_until(s, [&]() { return s.ram8(STAGE_INIT) == 0; }, 300);
     }
 
 private:

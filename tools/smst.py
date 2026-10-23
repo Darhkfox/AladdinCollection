@@ -44,6 +44,7 @@ for _n in ['smst_ram', 'smst_vram', 'smst_cram', 'smst_vdp_regs', 'smst_rom', 's
 _dll.smst_rom_size.argtypes = [C.c_void_p]
 _dll.smst_peek.argtypes = [C.c_void_p, C.c_int]
 _dll.smst_set_ext.argtypes = [C.c_void_p, C.c_int, C.c_int]
+_dll.smst_vdp_extra.argtypes = [C.c_void_p, C.POINTER(C.c_int), C.c_int]
 _dll.smst_debug_layers.argtypes = [C.c_void_p, C.c_int]
 _dll.smst_get_cpu.argtypes = [C.c_void_p, C.POINTER(C.c_uint32)]
 _dll.smst_set_cpu.argtypes = [C.c_void_p, C.c_int, C.c_uint32]
@@ -195,6 +196,12 @@ class SMS:
     # ---- video ----
     def set_ext(self, ext, sprite_limit=None):
         _dll.smst_set_ext(self.h, ext, (1 if ext == 0 else 0) if sprite_limit is None else int(sprite_limit))
+
+    def extra_sprites(self):
+        """the module's extra sprites for the next frame: [(x, y, pattern)]"""
+        buf = (C.c_int * 192)()
+        n = _dll.smst_vdp_extra(self.h, buf, 64)
+        return [tuple(buf[i * 3:i * 3 + 3]) for i in range(n)]
 
     def layers(self, mask):
         _dll.smst_debug_layers(self.h, mask)

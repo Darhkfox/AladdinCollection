@@ -54,6 +54,13 @@ public:
     // A sprite's screen X (default: its table X, less 8 when reg 0 bit 3 shifts sprites): lets a module place a
     // sprite in the extension, beyond the 8-bit X of the hardware. index = SAT index; x, y, pattern from the table.
     int  (*sprite_x)(void* host, int index, int x, int y, int pattern) = nullptr;
+    // Sprites a module adds after the table's 64 (widescreen: pieces of objects a game could not fit in its table).
+    // Same meaning as the table's entries (y = the line above the sprite's first, pattern before reg 6 bit 2), with
+    // the true screen X; drawn behind the table's sprites. Not kept in save states (the module sets them every frame).
+    struct ExtraSprite { int16_t x; uint8_t y, pattern; };
+    static constexpr int kMaxExtra = 64;
+    ExtraSprite extra[kMaxExtra];
+    int  extra_count = 0;
     // Called after a line's layers are rendered, before composition: a module can rewrite the line buffers
     // (index = screen x + ext). Format: bit 7 priority (background) / opaque (sprites), bit 4 palette (sprites
     // use the upper 16 colours), bits 3-0 colour index (0 = transparent).

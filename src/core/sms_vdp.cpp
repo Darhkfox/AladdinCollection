@@ -22,6 +22,7 @@ void SmsVdp::reset() {
     read_buffer = 0;
     hcount_latch = 0;
     line = 0;
+    extra_count = 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -153,21 +154,33 @@ void SmsVdp::render_sprites(uint8_t* dst, int ln) {
     const int h = (tall ? 16 : 8) * (zoom ? 2 : 1);
     const int lo = -ext, hi = 256 + ext;
     int count = 0;
-    for (int i = 0; i < 64; i++) {
-        const int y = vram[(sat + i) & 0x3FFF];
-        if (y == 0xD0) break;                           // end of the list (192-line mode)
+    // the table's 64 entries (up to a $D0 Y), then the module's extra ones
+    const int n_table = 64;
+    for (int i = 0; i < n_table + extra_count; i++) {
+        int y, x, pat;
+        if (i < n_table) {
+            y = vram[(sat + i) & 0x3FFF];
+            if (y == 0xD0) { i = n_table - 1; continue; }   // end of the list (192-line mode)
+            x = vram[(sat + 0x80 + i * 2) & 0x3FFF];
+            pat = vram[(sat + 0x81 + i * 2) & 0x3FFF];
+        } else {
+            const ExtraSprite& e = extra[i - n_table];
+            y = e.y;
+            x = e.x;
+            pat = e.pattern;
+        }
         const int dy = (ln - (y + 1)) & 0xFF;
         if (dy >= h) continue;
         if (++count > 8) {
             status |= 0x40;
             if (sprite_limit) break;
         }
-        int x = vram[(sat + 0x80 + i * 2) & 0x3FFF];
-        int pat = vram[(sat + 0x81 + i * 2) & 0x3FFF];
         if (reg[6] & 0x04) pat |= 0x100;
         if (tall) pat &= ~1;
-        if (reg[0] & 0x08) x -= 8;
-        if (sprite_x) x = sprite_x(hook_host, i, x, y, pat);
+        if (i < n_table) {
+            if (reg[0] & 0x08) x -= 8;
+            if (sprite_x) x = sprite_x(hook_host, i, x, y, pat);
+        }
         const int row = zoom ? dy >> 1 : dy;
         const uint8_t* p = &vram[((pat + (row >> 3)) * 32 + (row & 7) * 4) & 0x3FFF];
         const int step = zoom ? 2 : 1;
@@ -264,5 +277,6 @@ void SmsVdp::load_state(const uint8_t* src) {
     addr = s.addr;
     line = s.line;
     memcpy(vram, src + sizeof(s), sizeof(vram));
+    extra_count = 0;
     update_irq();
 }

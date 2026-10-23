@@ -151,6 +151,14 @@ API void smst_set_ext(void* h, int ext, int sprite_limit) {
     s.vdp.sprite_limit = sprite_limit != 0;
     s.vdp.ignore_left_blank = ext > 0;
 }
+// The module's extra sprites for the next frame (SmsVdp::extra): count, and (x, y, pattern) triples in out.
+API int smst_vdp_extra(void* h, int* out, int max) {
+    const SmsVdp& v = ((Tool*)h)->sms.vdp;
+    for (int i = 0; i < v.extra_count && i < max && out; i++) {
+        out[i * 3] = v.extra[i].x; out[i * 3 + 1] = v.extra[i].y; out[i * 3 + 2] = v.extra[i].pattern;
+    }
+    return v.extra_count;
+}
 API void smst_debug_layers(void* h, int mask) { ((Tool*)h)->sms.vdp.debug_layers = (uint8_t)mask; }
 API void smst_get_cpu(void* h, uint32_t* out) {   // af bc de hl ix iy sp pc af' bc' de' hl' iff1 im
     const Z80& z = ((Tool*)h)->sms.z80;
