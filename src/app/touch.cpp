@@ -19,10 +19,14 @@ void TouchControls::layout(float W, float H) {
     btn_[BtnA] = {bx - u * 1.5f, by + u * 0.42f, br};
     btn_[BtnB] = {bx, by, br};
     btn_[BtnC] = {bx + u * 1.5f, by - u * 0.42f, br};
-    btn_[BtnStart] = {W * 0.5f, u * 0.6f, u * 0.42f};   // top centre: the games' status bars are at the bottom
-    btn_[BtnMenu] = {u * 0.75f, u * 0.6f, u * 0.42f};
-    btn_[BtnFF] = {W - u * 0.75f, u * 0.6f, u * 0.42f};
-    btn_[BtnRewind] = {W - u * 1.85f, u * 0.6f, u * 0.42f};
+    // A row at the bottom centre, between the pad and the buttons: the three games keep their status bars along the
+    // top (the Mega Drive's lives and apples in the bottom corners, under the pad and the buttons; the Master System's
+    // playfield ends above a blank border there).
+    const float ry = H - u * 0.55f, rr = u * 0.42f;
+    btn_[BtnMenu] = {W * 0.5f - u * 1.65f, ry, rr};
+    btn_[BtnStart] = {W * 0.5f - u * 0.55f, ry, rr};
+    btn_[BtnRewind] = {W * 0.5f + u * 0.55f, ry, rr};
+    btn_[BtnFF] = {W * 0.5f + u * 1.65f, ry, rr};
 }
 
 TouchControls::Finger* TouchControls::find(int64_t id) {

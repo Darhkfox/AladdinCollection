@@ -39,6 +39,7 @@ void AchievementStore::load(const std::wstring& path) {
     progress_.clear();
     std::string text;
     if (!read_text(path, text)) return;
+    if (text.compare(0, 3, "\xEF\xBB\xBF") == 0) text.erase(0, 3);   // (a UTF-8 byte order mark)
     std::istringstream f(text);
     std::string line, section;
     while (std::getline(f, line)) {

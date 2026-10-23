@@ -330,7 +330,7 @@ MenuPage App::controls_page(System sys, int player) {
                 for (int b = 0; b < kMaxActions; b++)
                     if (settings_.keys[si][q][b] == vk && (q != player || b != a)) settings_.keys[si][q][b] = settings_.keys[si][player][a];
             for (int h = 0; h < HK_COUNT; h++)
-                if (settings_.hotkey_keys[h] == vk) settings_.hotkey_keys[h] = settings_.keys[si][player][a];
+                if (settings_.hotkey_keys[h] == vk) give_hotkey_key(h, settings_.keys[si][player][a], si, player, a);
             settings_.keys[si][player][a] = vk;
         };
         it.hint = "Press Enter, then the new key (a key already in use swaps). Esc cancels.";
@@ -379,7 +379,7 @@ MenuPage App::controls_page(System sys, int player) {
             for (int c = 0; c < kMaxActions; c++)   // swap with the action (or hotkey) that had this button
                 if (settings_.pad_buttons[si][player][c] == b && c != a) settings_.pad_buttons[si][player][c] = settings_.pad_buttons[si][player][a];
             for (int h = 0; h < HK_COUNT; h++)
-                if (settings_.hotkey_pads[h] == b) settings_.hotkey_pads[h] = settings_.pad_buttons[si][player][a];
+                if (settings_.hotkey_pads[h] == b) give_hotkey_pad(h, settings_.pad_buttons[si][player][a], si, player, a);
             settings_.pad_buttons[si][player][a] = b;
         };
         it.hint = "Press Enter / (A), then the new pad button. Esc cancels.";
@@ -477,6 +477,31 @@ MenuPage App::level_page() {
         p.items.push_back(it);
     }
     return p;
+}
+
+// A game button took a hotkey's key or pad button: the hotkey gets the button's old one, as a swap - unless another
+// console's game button has that one (the hotkey would stop working in that console's game): then the hotkey is left
+// without one, and the player is told.
+static const char* const kHotkeyLabels[HK_COUNT] = {"Fast Forward", "Rewind", "Menu", "Quick Save", "Quick Load", "Screenshot"};
+
+void App::give_hotkey_key(int h, int old_vk, int sys, int player, int act) {
+    bool used = false;
+    for (int s = 0; s < kSystemCount; s++)
+        for (int p = 0; p < 2; p++)
+            for (int a = 0; a < action_count((System)s); a++)
+                if (settings_.keys[s][p][a] == old_vk && !(s == sys && p == player && a == act)) used = true;
+    settings_.hotkey_keys[h] = used ? 0 : old_vk;
+    if (used) menu_.toast(std::string(kHotkeyLabels[h]) + " has no key now: choose one under Controls", 4.0f);
+}
+
+void App::give_hotkey_pad(int h, uint32_t old_button, int sys, int player, int act) {
+    bool used = false;
+    for (int s = 0; s < kSystemCount; s++)
+        for (int p = 0; p < 2; p++)
+            for (int a = 0; a < action_count((System)s); a++)
+                if (settings_.pad_buttons[s][p][a] == old_button && !(s == sys && p == player && a == act)) used = true;
+    settings_.hotkey_pads[h] = used ? 0 : old_button;
+    if (used) menu_.toast(std::string(kHotkeyLabels[h]) + " has no pad button now: choose one under Controls", 4.0f);
 }
 
 void App::open_jukebox(int game, bool sfx) {

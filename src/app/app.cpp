@@ -376,7 +376,9 @@ void App::frame(double dt) {
     }
     menu_.accent = accent();
     if (!jukebox_.active()) menu_.draw(video_, (float)time_);   // the menu reappears when the player closes
-    menu_.draw_toasts(video_, (float)dt, jukebox_.active() || mode_ != Mode::Playing || menu_.active());
+    // (bottom-centre also in play: the three games keep their status bars in the corners, the SNES one's counters
+    // where a top-right toast would cover them)
+    menu_.draw_toasts(video_, (float)dt, true);
     draw_ach_banners((float)dt);
     if (mode_ == Mode::Playing && session_ && !menu_.active() && !jukebox_.active() && (rewinding_ || fast_forward_))
         video_.draw_text(FontId::Small, H * 0.02f, H * 0.01f, rewinding_ ? "\xE2\x97\x80\xE2\x97\x80" : "\xE2\x96\xB6\xE2\x96\xB6",
@@ -701,6 +703,29 @@ void App::screenshot() {
     if (!s) return;
     int w, h;
     const uint32_t* px = s->frame(w, h);
+    // At the shape the picture is shown at: with CRT pixels the console's pixels aren't square, so the width is
+    // resampled to w x the pixel aspect (linear between neighbouring pixels).
+    const double par = pixel_aspect(s->system(), settings_.aspect);
+    std::vector<uint32_t> shaped;
+    if (std::fabs(par - 1.0) > 0.01) {
+        const int sw = std::max(1, (int)std::lround(w * par));
+        shaped.resize((size_t)sw * h);
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < sw; x++) {
+                const double fx = std::max(0.0, (x + 0.5) / par - 0.5);
+                const int x0 = std::min((int)fx, w - 1), x1 = std::min(x0 + 1, w - 1);
+                const double f = fx - x0;
+                const uint32_t a = px[(size_t)y * w + x0], b = px[(size_t)y * w + x1];
+                uint32_t c = 0xFF000000u;
+                for (int sh = 0; sh < 24; sh += 8) {
+                    const double v = ((a >> sh) & 0xFF) * (1.0 - f) + ((b >> sh) & 0xFF) * f;
+                    c |= (uint32_t)(v + 0.5) << sh;
+                }
+                shaped[(size_t)y * sw + x] = c;
+            }
+        px = shaped.data();
+        w = sw;
+    }
     std::wstring dir = path_join(data_dir(), L"screenshots");
     make_dir(dir);
     time_t t = time(nullptr);
@@ -710,7 +735,15 @@ void App::screenshot() {
 #else
     localtime_r(&t, &lt);
 #endif
-    char name[64];
-    snprintf(name, sizeof(name), "%04d%02d%02d_%02d%02d%02d.png", lt.tm_year + 1900, lt.tm_mon + 1, lt.tm_mday, lt.tm_hour, lt.tm_min, lt.tm_sec);
-    menu_.toast(write_png(path_join(dir, from_utf8(name)), px, w, h) ? "Screenshot saved" : "Could not write screenshot");
+    char stamp[32];
+    snprintf(stamp, sizeof(stamp), "%04d%02d%02d_%02d%02d%02d", lt.tm_year + 1900, lt.tm_mon + 1, lt.tm_mday, lt.tm_hour, lt.tm_min, lt.tm_sec);
+    // (several in the same second: _2, _3, ... rather than overwriting)
+    std::wstring path = path_join(dir, from_utf8(std::string(stamp) + ".png"));
+    for (int n = 2; n < 1000; n++) {
+        FILE* f = open_file(path, "rb");
+        if (!f) break;
+        fclose(f);
+        path = path_join(dir, from_utf8(std::string(stamp) + "_" + std::to_string(n) + ".png"));
+    }
+    menu_.toast(write_png(path, px, w, h) ? "Screenshot saved" : "Could not write screenshot");
 }

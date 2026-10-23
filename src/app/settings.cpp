@@ -183,6 +183,7 @@ int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 bool Settings::load(const std::wstring& path) {
     std::string text;
     if (!read_text(path, text)) return false;
+    if (text.compare(0, 3, "\xEF\xBB\xBF") == 0) text.erase(0, 3);   // (a UTF-8 byte order mark, e.g. from Notepad)
     std::istringstream f(text);
     std::string line, section;
     while (std::getline(f, line)) {
@@ -196,7 +197,7 @@ bool Settings::load(const std::wstring& path) {
         if (section == "video") {
             if (k == "fullscreen") fullscreen = iv != 0;
             else if (k == "monitor") monitor = v;
-            else if (k == "window_scale") window_scale = clampi(iv, 1, 8);
+            else if (k == "window_scale") window_scale = clampi(iv, 1, 6);
             else if (k == "vsync") vsync = iv != 0;
             else if (k == "filter") filter = clampi(iv, 0, 4);
             else if (k == "widescreen") widescreen = (WideMode)clampi(iv, 0, (int)WideMode::Count - 1);

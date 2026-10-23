@@ -101,14 +101,22 @@ std::vector<std::string> header_names(const std::vector<uint8_t>& r, System sys)
         return {header_name(r, 0x120), header_name(r, 0x150)};
     }
     case System::Snes: {
+        // (without a header whose checksum adds up - a damaged dump - the titles where one would be, if they read as
+        // text, so a modified copy is still told from no ROM)
         const long at = snes_header_at(r);
-        if (at < 0) return {};
-        std::string s;
-        for (long i = at; i < at + 21; i++) {
-            char c = (char)toupper(r[i]);
-            if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) s += c;
+        std::vector<std::string> names;
+        for (long h : {0x7FC0L, 0xFFC0L}) {
+            if ((at >= 0 && h != at) || (size_t)h + 21 > r.size()) continue;
+            std::string s;
+            bool text = true;
+            for (long i = h; i < h + 21; i++) {
+                if (r[i] < 0x20 || r[i] > 0x7E) text = false;
+                char c = (char)toupper(r[i]);
+                if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) s += c;
+            }
+            if (text && !s.empty()) names.push_back(s);
         }
-        return {s};
+        return names;
     }
     case System::MasterSystem: {
         const long at = sms_header_at(r);
