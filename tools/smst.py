@@ -46,6 +46,8 @@ _dll.smst_peek.argtypes = [C.c_void_p, C.c_int]
 _dll.smst_set_ext.argtypes = [C.c_void_p, C.c_int, C.c_int]
 _dll.smst_debug_layers.argtypes = [C.c_void_p, C.c_int]
 _dll.smst_get_cpu.argtypes = [C.c_void_p, C.POINTER(C.c_uint32)]
+_dll.smst_set_cpu.argtypes = [C.c_void_p, C.c_int, C.c_uint32]
+_dll.smst_write.argtypes = [C.c_void_p, C.c_int, C.c_int]
 _dll.smst_frame.argtypes = [C.c_void_p, C.POINTER(C.c_uint32), C.POINTER(C.c_int), C.POINTER(C.c_int)]
 _dll.smst_save_png.argtypes = [C.c_void_p, C.c_char_p, C.c_int]
 _dll.smst_write_png.argtypes = [C.c_char_p, C.POINTER(C.c_uint32), C.c_int, C.c_int, C.c_int]
@@ -58,6 +60,8 @@ _dll.smst_bp_clear.argtypes = [C.c_void_p]
 _dll.smst_bp_log.argtypes = [C.c_void_p, C.POINTER(C.c_uint32), C.c_int]
 _dll.smst_watch.argtypes = [C.c_void_p, C.c_uint32, C.c_uint32]
 _dll.smst_watch_log.argtypes = [C.c_void_p, C.POINTER(C.c_uint32), C.c_int]
+_dll.smst_vdp_watch.argtypes = [C.c_void_p, C.c_uint32, C.c_uint32]
+_dll.smst_vdp_log.argtypes = [C.c_void_p, C.POINTER(C.c_uint32), C.c_int]
 _dll.smst_state_size.argtypes = [C.c_void_p]
 _dll.smst_save_state.argtypes = [C.c_void_p, C.POINTER(C.c_uint8), C.c_int]
 _dll.smst_load_state.argtypes = [C.c_void_p, C.POINTER(C.c_uint8), C.c_int]
@@ -175,6 +179,19 @@ class SMS:
         _dll.smst_get_cpu(self.h, out)
         return dict(zip(CPU_NAMES, out))
 
+    def set_cpu(self, name, v):
+        """sets a register ('pc', 'sp', 'af', ... or 'iff1')"""
+        _dll.smst_set_cpu(self.h, CPU_NAMES.index(name), v)
+
+    def write(self, a, v):
+        """a bus write (RAM, mapper registers at $FFFC-$FFFF)"""
+        _dll.smst_write(self.h, a, v)
+
+    def goto_mode(self, mode):
+        """Aladdin: restarts the main loop (rst $28) in game mode `mode` ($C200)"""
+        self.set8(0xC200, mode)
+        self.set_cpu('pc', 0x0028)
+
     # ---- video ----
     def set_ext(self, ext, sprite_limit=None):
         _dll.smst_set_ext(self.h, ext, (1 if ext == 0 else 0) if sprite_limit is None else int(sprite_limit))
@@ -233,6 +250,25 @@ class SMS:
         buf = (C.c_uint32 * (4 * 4096))()
         while True:
             n = _dll.smst_watch_log(self.h, buf, 4096)
+            for i in range(n):
+                f, pc, a, v = buf[i * 4:(i + 1) * 4]
+                out.append((f, pc, a & 0xFFFF, a >> 16, v))
+            if n < 4096:
+                return out
+
+    def vdp_watch(self, lo, hi=None):
+        """logs VRAM writes in [lo, hi] (CRAM writes as $8000 | index)"""
+        _dll.smst_vdp_watch(self.h, lo, lo if hi is None else hi)
+
+    def vdp_watch_off(self):
+        _dll.smst_vdp_watch(self.h, 1, 0)
+
+    def vdp_log(self):
+        """[(frame, pc, addr, line, value)]"""
+        out = []
+        buf = (C.c_uint32 * (4 * 4096))()
+        while True:
+            n = _dll.smst_vdp_log(self.h, buf, 4096)
             for i in range(n):
                 f, pc, a, v = buf[i * 4:(i + 1) * 4]
                 out.append((f, pc, a & 0xFFFF, a >> 16, v))

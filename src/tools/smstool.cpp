@@ -27,6 +27,8 @@ struct Tool {
     std::vector<BpHit> bp_log;
     std::vector<WatchHit> watch_log;
     uint16_t watch_lo = 0, watch_hi = 0;
+    std::vector<WatchHit> vdp_log;       // VRAM writes in [vdp_lo, vdp_hi] (addr | line << 16; bit 15 of addr = CRAM)
+    uint16_t vdp_lo = 0, vdp_hi = 0;
     size_t   log_limit = 200000;
     std::unique_ptr<GameModule> module;  // optional game module under test
     GameConfig cfg;
@@ -155,6 +157,16 @@ API void smst_get_cpu(void* h, uint32_t* out) {   // af bc de hl ix iy sp pc af'
     const uint32_t v[14] = {z.af, z.bc, z.de, z.hl, z.ix, z.iy, z.sp, z.pc, z.af2, z.bc2, z.de2, z.hl2, (uint32_t)z.iff1, z.im};
     memcpy(out, v, sizeof(v));
 }
+// Sets a register by the index of smst_get_cpu (af bc de hl ix iy sp pc af' bc' de' hl' iff1 im); the pc also
+// clears a halt.
+API void smst_set_cpu(void* h, int index, uint32_t v) {
+    Z80& z = ((Tool*)h)->sms.z80;
+    uint16_t* r[12] = {&z.af, &z.bc, &z.de, &z.hl, &z.ix, &z.iy, &z.sp, &z.pc, &z.af2, &z.bc2, &z.de2, &z.hl2};
+    if (index >= 0 && index < 12) *r[index] = (uint16_t)v;
+    if (index == 7) z.halted = false;
+    if (index == 12) z.iff1 = z.iff2 = v != 0;
+}
+API void smst_write(void* h, int addr, int v) { ((Tool*)h)->sms.write((uint16_t)addr, (uint8_t)v); }
 API int smst_frame(void* h, uint32_t* out, int* w, int* hgt) {
     const SmsVdp& v = ((Tool*)h)->sms.vdp;
     *w = v.fb_width;
@@ -227,6 +239,27 @@ API int smst_watch_log(void* h, uint32_t* out, int max) {   // 4 words per hit: 
     int n = std::min<int>(max, (int)t->watch_log.size());
     if (out) memcpy(out, t->watch_log.data(), (size_t)n * sizeof(WatchHit));
     t->watch_log.erase(t->watch_log.begin(), t->watch_log.begin() + n);
+    return n;
+}
+
+// ---- VRAM / CRAM write watch ----
+API void smst_vdp_watch(void* h, uint32_t lo, uint32_t hi) {
+    Tool* t = (Tool*)h;
+    t->vdp_lo = (uint16_t)lo;
+    t->vdp_hi = (uint16_t)hi;
+    t->vdp_log.clear();
+    if (hi < lo) { t->sms.on_vdp_write = nullptr; return; }
+    t->sms.on_vdp_write = [t](Sms& s, uint16_t a, uint8_t v, bool cram) {
+        const uint16_t k = cram ? (uint16_t)(0x8000 | (a & 0x1F)) : a;
+        if (k < t->vdp_lo || k > t->vdp_hi || t->vdp_log.size() >= t->log_limit) return;
+        t->vdp_log.push_back({(uint32_t)s.frame_count, s.z80.pc, k | ((uint32_t)s.vdp.line << 16), v});
+    };
+}
+API int smst_vdp_log(void* h, uint32_t* out, int max) {   // 4 words per hit, as smst_watch_log
+    Tool* t = (Tool*)h;
+    int n = std::min<int>(max, (int)t->vdp_log.size());
+    if (out) memcpy(out, t->vdp_log.data(), (size_t)n * sizeof(WatchHit));
+    t->vdp_log.erase(t->vdp_log.begin(), t->vdp_log.begin() + n);
     return n;
 }
 

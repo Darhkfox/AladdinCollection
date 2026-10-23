@@ -138,7 +138,10 @@ void Sms::port_out(uint8_t p, uint8_t v) {
         break;
     }
     case 0x40: case 0x41: sync_audio(cycles_ + z80.executed()); psg.write(v); break;
-    case 0x80: vdp.write_data(v); break;
+    case 0x80:
+        if (on_vdp_write) on_vdp_write(*this, vdp.addr & 0x3FFF, v, vdp.code == 3);
+        vdp.write_data(v);
+        break;
     case 0x81: vdp.write_ctrl(v); break;
     default: break;
     }
