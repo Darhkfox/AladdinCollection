@@ -236,7 +236,7 @@ LineView line_view(const MegaDrive& md, int line, bool plane_b) {
     return lv;
 }
 
-// The 4:3 view only ever shows map x [16, W*16 - 18) (the camera's clamps, docs/re_md_wide.md section 4).
+// The 4:3 view only ever shows map x [16, W*16 - 18) (the camera's clamps, docs/re_md_wide.md section 1).
 constexpr int VIEW_LEFT = 16, VIEW_RIGHT_GAP = 18;
 
 // The extension columns of the map plane, drawn from the RAM map (the plane only holds the 4:3 view's columns).
