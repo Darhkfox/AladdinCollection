@@ -40,18 +40,18 @@ banks 0/1 is also its ROM offset, other banks are written as ROM offsets (`$4B64
 
 The ten stages (`$C105`, mode = stage + 2):
 
-| stage | name (port) | mode | engine | music | password | after it |
+| stage | TEST MODE / port name | mode | engine | music | password | after it |
 |---|---|---|---|---|---|---|
-| 0 | Agrabah Market | 2 | A | `$83` | AJGJ | scene 1 |
-| 1 | Rooftop Chase | 3 | A | `$83` | LAEA | scenes 2-8 |
-| 2 | The Cave of Wonders | 4 | B | `$84` | ASNF | scene 9 |
-| 3 | The Treasure Room | 5 | B | `$84` | DMIA | stage 4 directly |
-| 4 | The Lamp | 6 | B | `$84` | DIER | scenes $A-$B |
-| 5 | Escape from the Cave | 7 | C | `$85` | INSI | scenes $C-$F |
-| 6 | Prince Ali | 8 | B | `$86` | NEUA | scenes $10-$11 |
-| 7 | A Whole New World | 9 | C | `$87` | AALG | scenes $12-$18 |
-| 8 | Jafar's Palace | $A | A | `$88` | BLTO | scenes $19-$1C |
-| 9 | Jafar | $B | boss | `$89` | UIAN | scenes $20-$23, then mode $12 |
+| 0 | 1-1 The Market | 2 | A | `$83` | AJGJ | scene 1 |
+| 1 | 1-2 The Rooftops | 3 | A | `$83` | LAEA | scenes 2-8 |
+| 2 | 2-1 The Caverns | 4 | B | `$84` | ASNF | scene 9 |
+| 3 | 2-2 The Treasure Room | 5 | B | `$84` | DMIA | stage 4 directly |
+| 4 | 2-3 The Lamp | 6 | B | `$84` | DIER | scenes $A-$B |
+| 5 | 3 Escape from the Cave | 7 | C | `$85` | INSI | scenes $C-$F |
+| 6 | 4 The Sultan's Palace | 8 | B | `$86` | NEUA | scenes $10-$11 |
+| 7 | 5 A Whole New World | 9 | C | `$87` | AALG | scenes $12-$18 |
+| 8 | 6 Jafar's Palace | $A | A | `$88` | BLTO | scenes $19-$1C |
+| 9 | 7 The Final Battle | $B | boss | `$89` | UIAN | scenes $20-$23, then mode $12 |
 
 Flow: power-on → mode 0 (intro, title) → GAME START: mode $13 scene 0 → stage 0 → … A stage is left through
 `$35B8` (stage + 1, scene `$381E[stage]`, mode `$3829[stage]`) or `$1504` (the same, from the exits). Jafar is beaten
@@ -195,10 +195,10 @@ cleared.
 
 | cheat | patch |
 |---|---|
-| Invincibility | the three `$C467` tests read `$FF`: `$3F5F` (hits), `$38A9` (carpet crashes), `$4B64C` (the boss) |
-| Infinite health | no decrement: `$3F88`, `$3F76`, `$4A6F4` (`sub 2` → `sub 0`) |
+| Invincibility | the three `$C467` tests read `$FF`: `$3F5F` (hits; `$3F5D`: also the type 5 ones that skip it), `$38A9` (carpet crashes), `$4B64C` (the boss) |
+| Infinite health | no decrement: `$3F88`, `$3F76` (`dec a` → `or a`: the zero test after it must see the health), `$4A6F4` (`sub 2` → `sub 0`) |
 | Infinite stones | `$2156` `dec (hl)` → `nop` |
-| Developer menu | `$4BC4` `ld c,$0F` → `ld c,$01`: the title's PASSWORD opens mode 1 (stage select, sound test, the viewers, the scene select) |
+| Developer menu | `$4BC4` `ld c,$0F` → `ld c,$01`: the title's PASSWORD opens mode 1, TEST MODE (CHARACTER viewer, STAGE SELECT 1-1..7, SOUND TEST, INPUT TEST, VISUAL TEST = the story scenes) |
 
 ## 7. Level select (module)
 

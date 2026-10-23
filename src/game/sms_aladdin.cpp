@@ -38,17 +38,17 @@ bool in_stage(const Sms& s) { return stage_mode(s.ram8(MODE)) && s.ram8(STAGE) <
 
 // ---- levels: the ten stages, entered through the password screen like a player would -------------------
 struct Stage { const char* group; const char* name; const char* password; };
-const Stage kStages[] = {
-    {"Agrabah", "Agrabah Market", "AJGJ"},
-    {"Agrabah", "Rooftop Chase", "LAEA"},
-    {"The Cave of Wonders", "The Cave of Wonders", "ASNF"},
-    {"The Cave of Wonders", "The Treasure Room", "DMIA"},
-    {"The Cave of Wonders", "The Lamp", "DIER"},
-    {"The Cave of Wonders", "Escape from the Cave", "INSI"},
-    {"The Palace", "Prince Ali", "NEUA"},
-    {"The Palace", "A Whole New World", "AALG"},
-    {"The Palace", "Jafar's Palace", "BLTO"},
-    {"The Palace", "Jafar", "UIAN"},
+const Stage kStages[] = {   // (numbered as the developers' TEST MODE numbers them)
+    {"Agrabah", "Stage 1-1 - The Market", "AJGJ"},
+    {"Agrabah", "Stage 1-2 - The Rooftops", "LAEA"},
+    {"The Cave of Wonders", "Stage 2-1 - The Caverns", "ASNF"},
+    {"The Cave of Wonders", "Stage 2-2 - The Treasure Room", "DMIA"},
+    {"The Cave of Wonders", "Stage 2-3 - The Lamp", "DIER"},
+    {"The Cave of Wonders", "Stage 3 - Escape from the Cave", "INSI"},
+    {"Prince Ali", "Stage 4 - The Sultan's Palace", "NEUA"},
+    {"Prince Ali", "Stage 5 - A Whole New World", "AALG"},
+    {"Jafar", "Stage 6 - Jafar's Palace", "BLTO"},
+    {"Jafar", "Stage 7 - The Final Battle", "UIAN"},
 };
 
 // ---- sounds: the driver's commands (docs/re_sms_game.md section 5). Music names follow where the game plays them.
@@ -92,17 +92,19 @@ const SoundEntry kSounds[] = {
 
 // ---- cheats (docs/re_sms_game.md section 4) --------------------------------------------------------------
 // Invincibility makes the game's own after-hit invulnerability test ($C467 != 0) always pass: hits by enemies
-// ($3F5F; the type 5 hazards that ignore it still hurt), the carpet's crashes ($38A9) and the boss's touch
-// ($4B64C) are ignored. Falling into a pit or the lava still ends the stage.
+// ($3F5F, also by the type 5 ones that ignore it in the original: $3F5D), the carpet's crashes ($38A9) and the
+// boss's touch ($4B64C) are ignored. Falling into a pit or the lava still ends the stage.
 const std::vector<RomPatch> kInvincible = {
+    {0x3F5D, {0x28, 0x05}, {0x00, 0x00}},
     {0x3F5F, {0x3A, 0x67, 0xC4, 0xB7, 0xC0}, {0x3E, 0xFF, 0xB7, 0xC0, 0x00}},
     {0x38A9, {0x3A, 0x67, 0xC4, 0xB7, 0x20}, {0x3E, 0xFF, 0x00, 0xB7, 0x20}},
     {0x4B64C, {0x3A, 0x67, 0xC4, 0xB7, 0xC0}, {0x3E, 0xFF, 0xB7, 0xC0, 0x00}},
 };
-// The three ways a hit takes health: one half gem ($3F88), one but never the last ($3F76), two ($4A6F4).
+// The three ways a hit takes health: one half gem ($3F88), one but never the last ($3F76), two ($4A6F4). The
+// `dec a`s become `or a`: the test after them ("none left?") must see the health, not stale flags.
 const std::vector<RomPatch> kInfHealth = {
-    {0x3F88, {0x3D, 0x32, 0x16, 0xC1}, {0x00, 0x32, 0x16, 0xC1}},
-    {0x3F76, {0x3D, 0x20, 0x02}, {0x00, 0x20, 0x02}},
+    {0x3F88, {0x3D, 0x32, 0x16, 0xC1}, {0xB7, 0x32, 0x16, 0xC1}},
+    {0x3F76, {0x3D, 0x20, 0x02}, {0xB7, 0x20, 0x02}},
     {0x4A6F4, {0xD6, 0x02}, {0xD6, 0x00}},
 };
 const std::vector<RomPatch> kInfRocks = {{0x2156, {0x35, 0x3E, 0x11}, {0x00, 0x3E, 0x11}}};
@@ -368,8 +370,9 @@ public:
                                             "invulnerability, as the developers' password AIQY gives it). Pits and lava still end the stage."},
             {"inf_health", "Infinite Health", "Hits never take a gem away."},
             {"inf_rocks", "Infinite Stones", "Throwing a stone never uses one up."},
-            {"dev_menu", "Developer Menu", "The title's PASSWORD opens the developers' menu instead: stage select, sound test, "
-                                           "sprite viewers and the story scene select (Left / Right change, button 1 starts)."},
+            {"dev_menu", "Developer Menu", "The title's PASSWORD opens the developers' TEST MODE instead: character viewer, stage "
+                                           "select, sound test, input test and VISUAL TEST (the story scenes). Up / Down choose, "
+                                           "Left / Right change, button 1 starts."},
         };
     }
 
