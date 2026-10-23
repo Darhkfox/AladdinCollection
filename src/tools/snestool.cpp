@@ -545,6 +545,7 @@ API int snt_module_ach(void* h, int* out, int max) {
     for (int i : ctx.unlocked) if (n < max) out[n++] = i;
     for (auto& p : ctx.marked) if (n < max) out[n++] = 1000 + p.first * 32 + p.second;
     for (int i : ctx.counted) if (n < max) out[n++] = 5000 + i;
+    for (auto& p : ctx.progress) if (n < max) out[n++] = 100000 + p.first * 1000 + p.second;   // (index, count)
     ctx.unlocked.clear(); ctx.marked.clear(); ctx.counted.clear(); ctx.progress.clear();
     return n;
 }

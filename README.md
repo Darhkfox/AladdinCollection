@@ -138,9 +138,10 @@ achievements of its own: *A Whole New World* (defeat Jafar in all three versions
 - **Level select**: all 19 levels in the order the game plays them, A Whole New World included, started through
   GAME START with the game's own hidden stage select.
 - **Cheats**: invincibility, infinite health, lives, apples and gems, and Capcom's developer mode (10 hearts and 99
-  apples at the start, a stage select on the title). The developer code works on its own too: on the OPTIONS
+  apples at the start, a stage select on the title: hold L or R, then up / down for the stage, left / right for the
+  act). The developer code works on its own too: on the OPTIONS
   screen press L, R, START, SELECT, X, Y, A, B on controller 2.
-- **Music player & sound test**: 39 songs and 80 effects, played by the game's own driver (songs written to follow
+- **Music player & sound test**: 39 songs and 76 effects, played by the game's own driver (songs written to follow
   another one are preceded by it, so every one is heard as in the game).
 - **Achievements**: 17 — one per stage and for defeating Jafar's cobra, plus feats such as finishing without a
   continue, clearing a stage without losing a life, ten hearts, a hundred gems, beating Jafar without losing a

@@ -34,8 +34,15 @@ frames of the attract loop, only those levels' pictures change. In this core the
 The level's main loop (`$81:82CF`) does a frame's work and then waits at `$81:82E6` (`JSL $81:BD31`, the task
 scheduler's wait) for the next frame; when a frame's work doesn't fit, the next iteration starts a frame late (a lag
 frame). With the option on (`GameConfig::cpu_turbo` = 4, `Snes::cpuTurbo`) the module sets `Snes::turboActive` at the
-loop's top and clears it at the wait (the wide view's `kLevelLoop` / `kLevelWait` hooks), and the CPU's memory accesses
-and idle cycles take a quarter of their time in between, outside hardware interrupt handlers.
+loop's top and clears it wherever the task gives the CPU back to the scheduler (`$81:BD28`, the way back from its wait
+`$81:BD31`, a restart `$81:BCF6` or an end: the wide view's `kLevelLoop` / `kTaskYield` hooks), and the CPU's memory
+accesses and idle cycles take a quarter of their time in between, outside hardware interrupt handlers. A first version
+cleared it only at the level loop's wait, which the iteration that ends a level (an exit, a life lost) never reaches:
+the bonus wheel, STAGE CLEAR, the story scenes, the next level's start and the ending then ran with the turbo on and
+finished early (`tools/qa` round 1, F2). Now they keep their timing to the frame: from the same exit the wheel lasts
+1897 frames either way, STAGE CLEAR and its story match, the ending runs 11002 frames to the staff roll either way;
+what changes is only the level's own lag (Agrabah Market's exit: 355 loop iterations in 418 frames without the
+option, in 356 with it).
 
 The core first counted BRK and COP as interrupt handlers too: Aladdin's object coroutines yield with them and resume
 without a matching RTI, so the depth sat at 7 in the main loop and the speed-up never applied. Only hardware
@@ -43,11 +50,12 @@ interrupts (NMI, IRQ) count now.
 
 `tools/re/snes_lag.py <ext> <turbo>` (a bot: Right held, jumping, throwing; invincible; 1,200 frames per level):
 lag frames 0.7% of gameplay at 4:3 and 1.5% at 21:9 (A Whole New World 12.0%), 0.6% with the option on at 21:9
-(A Whole New World 0.1%; what is left is the game's own pauses). Every level runs its main loop once per frame when
-idle (none is built for less than 60 a second), Aladdin's position over 300 frames is identical with and without the
-option in Agrabah Market, the Carpet Escape, A Whole New World and Jafar, and the level-start music is identical. The
-first attract demo follows its path for ~25 s and then lands a few pixels off in places (its recorded input meets the
-removed lag frames).
+(A Whole New World 0.1%; what is left is the game's own pauses). (With the turbo ending at any yield: 1,800 frames
+per level at 21:9, 1.7% -> 0.6%, A Whole New World 10.2% -> 0.1%, Jafar 7.6% -> 0.4%.) Every level runs its main loop
+once per frame when idle (none is built for less than 60 a second), Aladdin's position over 300 frames is identical
+with and without the option in Agrabah Market, the Carpet Escape, A Whole New World and Jafar, and the level-start
+music is identical. The first attract demo follows its path for ~25 s and then lands a few pixels off in places (its
+recorded input meets the removed lag frames).
 
 ## Engine
 
@@ -121,9 +129,10 @@ developer stage select on the title does (`$80:A05C`, `$80:9FC3`). The level the
 apples 10). About 1100 frames, half a second headless. `tools/re/snes_levels.py` starts all 19.
 
 **Developer mode** (`$0009`): entered on OPTIONS with controller 2: L, R, START, SELECT, X, Y, A, B, each within 32
-frames (`$83:8A74`, table `$80:CE63`; sound `$28`). The title then shows a stage-act number and left / right / up / down
-change it (`$80:A05C`); a game started then has 10 hearts and 99 apples (`$81:80ED`, `$84:AEFD`). Exposed as the cheat
-*Debug Mode*.
+frames (`$83:8A74`, table `$80:CE63`; sound `$28`). The title then shows a stage-act number; while L or R is held
+(`$0377` & `$30`) up / down change the stage (0-6) and left / right the act (`$80:A05C`; without them the pad moves the
+menu's cursor); a game started then has 10 hearts and 99 apples (`$81:80ED`, `$84:AEFD`). Exposed as the cheat *Debug
+Mode*.
 
 ## Cheats
 
@@ -145,13 +154,17 @@ change it (`$80:A05C`); a game started then has 10 hearts and 99 apples (`$81:80
 - Commands: a 32-byte ring at `$03BF` (write index `$03BD`, read `$03BB`); the NMI (`$80:8323` -> `$80:B463`) sends one
   a frame when the driver has acknowledged the last (`$0002` against port 2). `$F5` / `$F6` take a parameter byte (port
   3). `JSL $81:FA00` queues A (a sound effect `$01-$50`, or a command); `$81:F9D4` queues `$F6, A` (a fade), `$81:F9F7`
-  `$F2` (stop; `$F0` and `$F3` stop too).
+  `$F2`, which stops the music only; `$F1` stops the effects only, `$F0` both (songs and effects played after either
+  sound as before); `$F9` silences the driver for good. Effects `$2A`, `$33` and `$3F` loop until stopped: in the game
+  by effect `$17` (`$2A`, `$33`) and `$0D` (`$3F`), which only key those voices off; `$19` and `$29` sound nothing on
+  their own either. Those four are left out of the sound test (76 effects).
 - Songs: `JSL $81:FA23` with A = the upload index: command `$FA`, then the song's sequence data (all to ARAM `$0D20`,
   table `$85:8000` entries `$10-$36`); the song starts when the upload ends. OPTIONS' B.G.M. test plays `$10 + n`. Level
   music by level index: `$80:B8EF`.
 - Some songs leave the driver's volume settings to the song before them and are silent after the boot alone (`$1C`,
   `$1F` follow `$10`; the story scenes `$11`, `$1E`, `$1D`, `$35` follow `$27`; `$30` follows `$16`): the music player
-  plays that song first.
+  plays that song first and waits 4 frames before replacing it (uploaded at once, it only took effect when the request
+  came within a frame of the boot: in the app, after a few idle frames, those six songs were silent when played first).
 - Contexts (`tools/re/snes_song_log.py`, `snes_song_play.py`, `snes_interludes.py`, `snes_sound_calls.py`): `$10`
   Capcom logo, `$1C` / `$1F` opening story, `$14` title logo flash, `$12` / `$13` title, `$15-$1B` the stages, `$2E`
   Jafar's room, `$22` Jafar, `$21` bosses, `$25` / `$30` / `$2F` level events, `$31` an event in the Cave of Wonders,
@@ -159,8 +172,9 @@ change it (`$80:A05C`); a game started then has 10 hearts and 99 apples (`$81:80
   `$1E` / `$11` (after stage 1), `$35` (2), `$1D` (3, 4), `$1E` (5), `$1F` / `$1C` (A Whole New World), ending `$36`
   (cobra beaten), `$32`, `$34`, `$23`, `$24`, `$13`, staff roll `$26`.
 - Music player (`jukebox_boot`): the CPU is parked right after the boot's uploads (`$81:8025`, before the logos) in a
-  stub in the patch ROM (`$60:8100`) that waits for a frame and runs `$81:FA23` / `$81:FA00` / `$81:F9F7` for a request
-  in a RAM mailbox (`$1FF8` command, `$1FF9` id, `$1FFA` the song to play ahead). The NMI keeps sending the queue.
+  stub in the patch ROM (`$60:8100`) that waits for a frame and runs `$81:FA23` (a song) / `$81:FA00` (an effect, or
+  `$F0` to stop: music and looping effects) for a request in a RAM mailbox (`$1FF8` command, `$1FF9` id, `$1FFA` the
+  song to play ahead). The NMI keeps sending the queue.
   Loudness: about 8 dB below Super Star Wars on the same core (`audio_gain` 1.8; `tools/re/snes_sound.py survey`).
 
 ## Achievements
@@ -175,8 +189,8 @@ RAM only (`achievement_frame`), checked while the screen and the level index cha
 | `snes_stage_clean` | a stage from its first act (entered from another stage or a new game, not after a game over) to STAGE CLEAR with `$0364` never falling |
 | `snes_untouched` | a level from its start to its end (next act, STAGE CLEAR, bonus wheel, ending) with `$0367` never falling |
 | `snes_wheel` | the bonus wheel screen (`$2F`) |
-| `snes_hearts` | `$0365` reaches 10 |
-| `snes_gems` | the gem counter goes from `$9x` to `$0x` (a hundred) |
+| `snes_hearts` | `$0365` reaches 10 (progress: `$0365`, target 10) |
+| `snes_gems` | the gem counter goes from `$9x` to `$0x` (a hundred; progress: the counter, target 100) |
 | `snes_lives` | `$0364` reaches 10 (nine spare) |
 | `snes_jafar_flawless` | level `$11` to the ending without a heart lost |
 | `snes_debug` | `$0009` set on the OPTIONS screen |
