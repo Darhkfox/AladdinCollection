@@ -49,6 +49,7 @@ RAM `$FFxxxx` is written `$xxxx` below; ROM addresses are plain.
 | `$F57D` / `$F57F` | b | sound effects / music on (OPTIONS) |
 | `$F165` | b | planes swapped: the level map is on plane B (Sultan's Dungeon) |
 | `$F173` | b | Rug Ride mode |
+| `$F006` | b | Rug Ride crashes: the first two cost a life, the third ends the ride (`$1A8F5A`, the game's mercy) |
 | `$7E20` / `$7273` / `$7E25` | b | debug screen options: CHEAT MODE, MAP VIEW MODE, FREEZEABILITY (§3.2) |
 | `$7E28` | b | frame counter of the gameplay loop |
 | `$7276` | l | position in the current button code (`$4128` pause code, `$413A` OPTIONS code) |
@@ -160,4 +161,5 @@ QuackShot in the same core (music RMS about 2600-3000 vs. 2400-3600), so `audio_
 * Abu's round: the script position changes onto level 2 or 6. The Genie's wheel: a level over with `$F003` > 0
   (not the Sultan's Palace). The peddler: gems falling while Aladdin is in play (a continue resets them off play).
   The attract demos (`$F57C`) are skipped.
+* Magic Carpet Ride: the end of the Rug Ride, not by the mercy after a third crash (`$F006` ≥ 3).
 * `md_jafar`: the end of Jafar's Palace, the last level (the ending follows).

@@ -32,6 +32,7 @@ constexpr uint32_t PAUSED = 0xFFF158;                         // $FF in the paus
 constexpr uint32_t GENIE_TOKENS = 0xFFF003;                   // a spin of the Genie's wheel each, after the level
 constexpr uint32_t LEVEL_END = 0xFFF0E9;                      // the level is over (countdown, $FF = at once)
 constexpr uint32_t DEMO = 0xFFF57C;                           // 1 in the attract demos
+constexpr uint32_t RUG_CRASHES = 0xFFF006;                    // Rug Ride lives lost: the third crash ends the ride
 constexpr uint32_t SCRIPT_START = 0x4082;
 
 // ROM code the module watches (PC hooks)
@@ -512,7 +513,7 @@ public:
         case L_ROOFTOPS: fire(A_ROOFTOPS); break;
         case L_DUNGEON: fire(A_DUNGEON); break;
         case L_CAVE: fire(A_CAVE); break;
-        case L_RUG_RIDE: fire(A_ESCAPE); break;
+        case L_RUG_RIDE: if (s.b(RUG_CRASHES) < 3) fire(A_ESCAPE); break;   // (not the game's mercy after 3 crashes)
         case L_LAMP: fire(A_LAMP); break;
         case L_PALACE: fire(A_PALACE); break;
         case L_JAFAR_QUARTERS: fire(A_QUARTERS); break;
