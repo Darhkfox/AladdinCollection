@@ -190,16 +190,19 @@ const uint32_t* Session::frame(int& w, int& h) {
 }
 
 // A pillarboxed picture's bar colour from its edge strip [x0, x1): the strip's plain colour, or black. `inward` is +1 for
-// the left edge (the picture lies to the right) and -1 for the right edge. A plain edge strip in another colour than a
-// plain strip beside it, further in, is a blanked border column (the Master System blanks its leftmost 8 pixels to its
-// border colour): the colour inside is taken and the column painted with it too, so it doesn't stand as a stripe.
+// the left edge (the picture lies to the right) and -1 for the right edge. The strip beside it, further in, must be
+// plain too: a plain edge strip next to a picture that isn't is a border or a blanked column, and the screen isn't
+// plain. A plain edge strip in another colour than a plain strip beside it is a blanked border column (the Master
+// System blanks its leftmost 8 pixels to its border colour): the colour inside is taken and the column painted with it
+// too, so it doesn't stand as a stripe.
 uint32_t Session::plain_bar(int x0, int x1, int inward, int w, int h) {
     const uint32_t black = 0xFF000000u, none = 0;
     const uint32_t outer = plain_edge(x0, x1, w, h, none);
     if (outer == none) return black;
     const int n = x1 - x0;
     const uint32_t in = inward > 0 ? plain_edge(x1, x1 + n, w, h, none) : plain_edge(x0 - n, x0, w, h, none);
-    if (in == none || in == outer) return outer;
+    if (in == none) return black;
+    if (in == outer) return outer;
     for (int y = 0; y < h; y++)
         for (int x = std::max(0, x0); x < std::min(w, x1); x++) {
             const size_t i = (size_t)y * w + x;

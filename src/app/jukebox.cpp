@@ -121,6 +121,7 @@ void Jukebox::start(int i) {
     playing_ = i;
     elapsed_ = 0;
     silent_frames_ = 0;
+    heard_ = false;
 }
 
 void Jukebox::stop_playing() {
@@ -208,11 +209,13 @@ void Jukebox::step() {
         peak_[i] = std::max(vu_[i], peak_[i] - 0.012f);
     }
     cd_level_[0] = cd_level_[1] = 0;
-    // Music can open with seconds of silence, so only effects end on silence.
-    if (playing_ >= 0 && !list_[playing_].music) {
-        bool quiet = std::all_of(std::begin(vu_), std::end(vu_), [](float l) { return l < 0.02f; });
+    // An effect ends on a moment of silence. Music can open with seconds of silence, so a tune ends only once it has
+    // been heard and then stays silent for three seconds (the jingles and tunes that play once).
+    if (playing_ >= 0 && !cd_) {
+        const bool quiet = std::all_of(std::begin(vu_), std::end(vu_), [](float l) { return l < 0.02f; });
+        if (!quiet) heard_ = true;
         silent_frames_ = quiet ? silent_frames_ + 1 : 0;
-        if (silent_frames_ > 20) playing_ = -1;
+        if (!list_[playing_].music ? silent_frames_ > 20 : heard_ && silent_frames_ > 180) playing_ = -1;
     }
 }
 

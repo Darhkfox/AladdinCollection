@@ -73,6 +73,7 @@ private:
     int sel_ = 0;
     int playing_ = -1;
     int silent_frames_ = 0;   // a sound effect counts as finished after a moment of silence
+    bool heard_ = false;      // the playing entry has made a sound (a tune that plays once ends on silence after it)
     double elapsed_ = 0;
     float scroll_ = 0;
     static constexpr int kMaxMeters = 10;
