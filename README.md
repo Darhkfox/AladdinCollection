@@ -115,7 +115,27 @@ achievements of its own: *A Whole New World* (defeat Jafar in all three versions
   without losing health), *Sword Play* (no apples thrown), *Diamond in the Rough* (finish without losing a life)
   and finishing on Difficult.
 
-<!-- snes -->
+### Aladdin — Super Nintendo (Capcom, 1993)
+
+- **Widescreen** up to 21:9 (468 px wide with CRT pixels, 536 with square ones). The sides are drawn straight from
+  the level data the game keeps in RAM (the decoded tiles match video memory exactly in every level), so any width
+  works, a mid-level width change is instant and the game's own column streaming is untouched. The view stops at
+  level edges and where the camera can't go, the background's parallax is corrected where the view is split, and
+  the Carpet Escape's wave and A Whole New World widen too. Objects appear, act and are drawn across the whole
+  width; the HUD and the PAUSE / ACTION texts are re-anchored. Boss arenas (the Market at Dusk, Jafar) keep the
+  original camera with the unreachable sides dimmed.
+- **Level select**: all 19 levels in the order the game plays them, A Whole New World included, started through
+  GAME START with the game's own hidden stage select.
+- **Cheats**: invincibility, infinite health, lives, apples and gems, and Capcom's developer mode (10 hearts and 99
+  apples at the start, a stage select on the title). The developer code works on its own too: on the OPTIONS
+  screen press L, R, START, SELECT, X, Y, A, B on controller 2.
+- **Music player & sound test**: 39 songs and 80 effects, played by the game's own driver (songs written to follow
+  another one are preceded by it, so every one is heard as in the game).
+- **Achievements**: 17 — one per stage and for defeating Jafar's cobra, plus feats such as finishing without a
+  continue, clearing a stage without losing a life, ten hearts, a hundred gems, beating Jafar without losing a
+  heart, and finding the developer code.
+- Emulation fix: battery RAM is only mapped when the cartridge has some. Aladdin uses that as a copier check — with
+  it answering, the attract demo froze and Jafar's cobra had 127 hit points instead of 7.
 
 ### Aladdin — Master System (SIMS, 1994)
 
@@ -216,7 +236,12 @@ gradlew assembleDebug
   coordinate), so level edges are masked. Objects start acting a little earlier than in the original, so the
   attract demos drift. In stage 7 a few companion sprites that fly in from the left appear inside the left side of
   views wider than 16:10. Animated tiles at the sides show their current frame.
-<!-- per-game limitations -->
+- SNES: invincibility and infinite health don't prevent pits, crushes or being left behind by the scrolling. Infinite
+  Gems keeps the counter at 99, so every gem completes a hundred (an extra heart, then an extra life). The dimmed
+  sides of a boss arena show the level as stored, not what the fight paints on it (Jafar's fire floor stays in the
+  4:3 area). Backgrounds scrolled in horizontal bands (Agrabah's skyline, the lava cavern) get no parallax
+  correction where the view stops at a level edge. The staff roll stays 4:3. The level select starts with
+  new-game stats (3 lives, 3 hearts, 10 apples).
 - Save states made by a newer version may not load in an older one.
 
 ## Credits and licences
