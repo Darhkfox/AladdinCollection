@@ -58,8 +58,10 @@ Bluetooth / USB controller.
   streamed, spawned, moved and drawn across the whole width, instead of popping in at the edges of the original
   screen. Where the console's own background memory can't hold the wider view, the extra columns are drawn
   straight from the level map.
-- The view stays inside the level; level edges are masked. The HUD is re-anchored to the screen edges (can be
-  switched off). Title screens, menus and cut-scenes keep their original shape automatically.
+- The view stays inside the level: near a level's ends the picture slides, so the extra width shows more of the
+  level instead of black (the game's own camera, and so how Aladdin moves, is untouched). The HUD is re-anchored to
+  the screen edges (can be switched off). Title screens, menus and cut-scenes keep their original shape
+  automatically; where such a screen's background is one plain colour, it fills the width in that colour.
 - The width (and cheats) can be changed at any time, also mid-level; save states remember the width they were
   made at.
 
@@ -146,8 +148,9 @@ achievements of its own: *A Whole New World* (defeat Jafar in all three versions
   is only 256 pixels wide, so everything beyond it is drawn from the level map (the parallax bands too), and
   stage 7's reloaded tile graphics come from the ROM. Objects wake, stay awake and are drawn across the whole
   width at their true positions past the hardware's 256-pixel sprite limit; objects that no longer fit in the
-  console's 64-entry sprite table are drawn as extra sprites. Level edges are masked, Jafar's room carries its
-  pillars on past its ends (dimmed), the stone counter moves to the right edge. Title, menus, story scenes, game
+  console's 64-entry sprite table are drawn as extra sprites. Near a stage's ends the picture slides instead of
+  showing black, with the parallax bands holding still with the level; Jafar's room carries its pillars on past
+  its ends (dimmed); the stone counter moves to the right edge. Title, menus, story scenes, game
   over and the ending stay in their original shape.
 - **Level select**: all 10 stages, numbered as the developers' TEST MODE numbers them (1-1 to 7), entered through
   the password screen as a player would.
@@ -236,10 +239,12 @@ gradlew assembleDebug
   the Rug Ride's walls still cost a life. Developer Map View puts Aladdin back where the view is when it's
   switched off, so switch it off over solid ground. Attract demos are recorded inputs and can play out differently
   in widescreen.
-- Master System: with widescreen on the camera is the original's (Aladdin's position is an 8-bit screen
-  coordinate), so level edges are masked. Objects start acting a little earlier than in the original, so the
-  attract demos drift. In stage 7 a few companion sprites that fly in from the left appear inside the left side of
-  views wider than 16:10. Animated tiles at the sides show their current frame.
+- Master System: the game's own camera is kept (Aladdin's position is an 8-bit screen coordinate), so near a
+  stage's ends the scenery holds still while Aladdin walks for the first stretch of camera travel. Objects run up
+  to twice the extra width earlier than in the original, so the attract demos drift. In stage 7 a few flyers that
+  enter from the left appear inside the left side of views wider than 16:10. Tiles the game animates with the
+  camera (stage 0's distant building and brick wall, stage 1's railings) show their current state at the sides.
+  With Remove Sprite Flicker off, sprites in the sides count towards the 8-per-line limit.
 - SNES: invincibility and infinite health don't prevent pits, crushes or being left behind by the scrolling. Infinite
   Gems keeps the counter at 99, so every gem completes a hundred (an extra heart, then an extra life). The dimmed
   sides of a boss arena show the level as stored, not what the fight paints on it (Jafar's fire floor stays in the
