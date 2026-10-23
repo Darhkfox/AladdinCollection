@@ -4,7 +4,9 @@
 #include <cstring>
 #include <string>
 
-constexpr int kMaxExt = 224;                  // max extra pixels on each side
+// Max extra pixels on each side: a game module may split up to twice its widest extension to one side (the view
+// stopped at a level's edge: Aladdin's 140 at 21:9 square pixels gives 280).
+constexpr int kMaxExt = 288;
 constexpr int kLineW = 256 + 2 * kMaxExt;     // framebuffer line width
 constexpr int kFrameH = 240;
 

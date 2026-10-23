@@ -225,6 +225,7 @@ private:
 
   size_t romMask_ = 0;
   size_t romSize_ = 0;
+  bool hasSram_ = false;   // the header says the cartridge has battery RAM ($70-$7D:$0000-$7FFF)
 
   void tick(int mc);
   void buildLineEvents();
