@@ -136,6 +136,15 @@ const uint32_t* Session::frame(int& w, int& h) {
     frame_h_ = h;
     const int ext = std::min(cfg_.ext, w / 2);
     const int ml = std::min((int)(mask_l_ + 0.5f), ext), mr = std::min((int)(mask_r_ + 0.5f), ext);
+    // A screen that isn't widened (title, menus, a story or in-between screen) is pillarboxed. Where its picture's own
+    // edge is one plain colour, the bar on that side takes it, so the screen fills the width instead of sitting
+    // between black bars; pictures that run to the edge keep the black.
+    const uint32_t black = 0xFF000000u;
+    uint32_t bar_l = black, bar_r = black;
+    if (!info_.gameplay && ext > 0) {
+        bar_l = plain_bar(ext, ext + kEdgeStrip, +1, w, h);
+        bar_r = plain_bar(w - ext - kEdgeStrip, w - ext, -1, w, h);
+    }
     // dimmed scenery: about 40% brightness
     auto dim = [](uint32_t c) {
         return 0xFF000000u | ((((c >> 16) & 0xFF) * 102 >> 8) << 16) | ((((c >> 8) & 0xFF) * 102 >> 8) << 8) | ((c & 0xFF) * 102 >> 8);
@@ -157,10 +166,59 @@ const uint32_t* Session::frame(int& w, int& h) {
             continue;
         }
         if (y < mask_from_) continue;
-        for (int x = 0; x < ml; x++) dst[x] = 0xFF000000u;
-        for (int x = std::max(0, w - mr); x < w; x++) dst[x] = 0xFF000000u;
+        for (int x = 0; x < ml; x++) dst[x] = bar_l;
+        for (int x = std::max(0, w - mr); x < w; x++) dst[x] = bar_r;
     }
     return pixels_.data();
+}
+
+// A pillarboxed picture's bar colour from its edge strip [x0, x1): the strip's plain colour, or black. `inward` is +1 for
+// the left edge (the picture lies to the right) and -1 for the right edge. A plain edge strip in another colour than a
+// plain strip beside it, further in, is a blanked border column (the Master System blanks its leftmost 8 pixels to its
+// border colour): the colour inside is taken and the column painted with it too, so it doesn't stand as a stripe.
+uint32_t Session::plain_bar(int x0, int x1, int inward, int w, int h) {
+    const uint32_t black = 0xFF000000u, none = 0;
+    const uint32_t outer = plain_edge(x0, x1, w, h, none);
+    if (outer == none) return black;
+    const int n = x1 - x0;
+    const uint32_t in = inward > 0 ? plain_edge(x1, x1 + n, w, h, none) : plain_edge(x0 - n, x0, w, h, none);
+    if (in == none || in == outer) return outer;
+    for (int y = 0; y < h; y++)
+        for (int x = std::max(0, x0); x < std::min(w, x1); x++) {
+            const size_t i = (size_t)y * w + x;
+            if (pixels_[i] == outer && !(sprite_.size() > i && sprite_[i])) pixels_[i] = in;
+        }
+    return in;
+}
+
+// The colour of a strip of columns [x0, x1) of the picture when it is plain: one colour in nearly all of its scenery
+// pixels (sprites and a stray letter or two crossing it don't count), else `otherwise`.
+uint32_t Session::plain_edge(int x0, int x1, int w, int h, uint32_t otherwise) const {
+    x0 = std::max(0, x0);
+    x1 = std::min(w, x1);
+    if (x1 <= x0 || h <= 0) return otherwise;
+    const bool marks = sprite_.size() >= (size_t)w * h;
+    // the most common colour (a short list: a plain strip has one or two)
+    uint32_t colour[8] = {};
+    int count[8] = {}, kinds = 0, total = 0;
+    for (int y = 0; y < h; y++) {
+        const uint32_t* row = &pixels_[(size_t)y * w];
+        for (int x = x0; x < x1; x++) {
+            if (marks && sprite_[(size_t)y * w + x]) continue;
+            total++;
+            int k = 0;
+            while (k < kinds && colour[k] != row[x]) k++;
+            if (k == kinds) {
+                if (kinds == 8) continue;   // (busy: can't be plain)
+                colour[kinds] = row[x];
+                count[kinds++] = 0;
+            }
+            count[k]++;
+        }
+    }
+    int best = 0;
+    for (int k = 1; k < kinds; k++) if (count[k] > count[best]) best = k;
+    return kinds > 0 && total > 0 && count[best] * 100 >= total * 97 ? colour[best] : otherwise;
 }
 
 void Session::set_audio_rate(double out_rate) {
