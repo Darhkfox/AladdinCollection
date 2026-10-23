@@ -158,6 +158,8 @@ std::vector<RomPatch> wide_patches(int E) {
 
 // The stages whose map is a table of 256-px pages ($2E19); the others have one flat map from x = ($C4B9) on ($2DEC).
 bool paged_map(int stage) { return stage == 0 || stage == 1 || stage == 5 || stage == 7 || stage == 8; }
+// (the same five stages keep 7 objects in a queue fed from the stage's list, $3D09; the others keep them all, $3CAE)
+bool queue_objects(int stage) { return paged_map(stage); }
 
 uint8_t bank_rd8(const Sms& s, int bank, uint16_t a) { return s.rom_orig8((uint32_t)bank * 0x4000 + (a & 0x3FFF)); }
 uint16_t bank_rd16(const Sms& s, int bank, uint16_t a) {
@@ -183,6 +185,40 @@ int map_entry(const Sms& s, int wx, int row) {
     return bank_rd16(s, bank, (uint16_t)(s.ram16(METATILES) + mt * 8 + (row & 1) * 4 + ((wx >> 3) & 1) * 2));
 }
 
+// "A Whole New World" (stage 7) reloads tiles 259-374 with each of its five sections' graphics as the camera passes
+// $400 / $B00 / $1400 / $1B00 ($31EE: the lists in bank $1A, 8 bytes an entry: source, VRAM address, tile count).
+// The cells of a section use only its own list's tiles, and none of them lie within 320 px after a threshold (the
+// view while the next list loads). The view's sides can show a section whose graphics are not (or no longer) in
+// VRAM: those cells take their patterns from a copy of the section's tiles made from ROM.
+constexpr int S7_FIRST = 259, S7_TILES = 116, S7_SECTIONS = 5;
+
+struct SectionTiles {
+    uint8_t tiles[S7_SECTIONS][S7_TILES * 32];
+    int thresholds[S7_SECTIONS];
+    void build(const Sms& s) {
+        std::memset(tiles, 0, sizeof(tiles));
+        for (int sec = 0; sec < S7_SECTIONS; sec++) {
+            thresholds[sec] = s.rom_orig8(0x32A0 + 2 * sec) | (s.rom_orig8(0x32A1 + 2 * sec) << 8);
+            uint16_t e = bank_rd16(s, 0x1A, (uint16_t)(0x8000 + 2 * sec));
+            for (int k = 0; k < 16 && bank_rd8(s, 0x1A, e) != 0xFF; k++, e = (uint16_t)(e + 8)) {
+                const uint16_t src = bank_rd16(s, 0x1A, e);
+                const int tile = (bank_rd16(s, 0x1A, (uint16_t)(e + 2)) & 0x3FFF) / 32, n = bank_rd8(s, 0x1A, (uint16_t)(e + 4));
+                for (int t = 0; t < n; t++)
+                    for (int b = 0; b < 32; b++) {
+                        const int at = (tile + t - S7_FIRST) * 32 + b;
+                        if (at >= 0 && at < S7_TILES * 32) tiles[sec][at] = bank_rd8(s, 0x1A, (uint16_t)(src + t * 32 + b));
+                    }
+            }
+        }
+    }
+    // the section whose graphics world x's cells use (the 256 px after a threshold use none of the reloaded tiles)
+    int section(int wx) const {
+        int sec = 0;
+        for (int i = 1; i < S7_SECTIONS; i++) if (wx >= thresholds[i] + 256) sec = i;
+        return sec;
+    }
+};
+
 // The camera's range: the original view shows world x [lo, hi + 256). A flat map can end before the camera's
 // limit allows (Jafar's room): the map's end counts.
 void level_bounds(const Sms& s, int& lo, int& hi) {
@@ -194,8 +230,9 @@ void level_bounds(const Sms& s, int& lo, int& hi) {
 
 // module_state: [0..3] each sprite table entry's 256-px page as displayed (2 bits each, see sprite_x), [4] the
 // camera X at the last VBlank (the view of the next frame), [5] the camera X of the frame being drawn, [6] the
-// objects ($CA00 table) the slot allocator had no room for this frame (bit per object).
-constexpr int MS_CAM_NEXT = 4, MS_CAM = 5, MS_UNDRAWN = 6;
+// objects ($CA00 table) the slot allocator had no room for this frame (bit per object), [7] the extension the waiting
+// objects of the queue stages were loaded for (wide_patches: they are placed E px further right).
+constexpr int MS_CAM_NEXT = 4, MS_CAM = 5, MS_UNDRAWN = 6, MS_LOADED_E = 7;
 constexpr uint16_t OBJECTS = 0xCA00;     // 7 (stages 0/1/5/7/8) or up to 16 objects, $40 bytes each
 constexpr int OBJ_SIZE = 0x40, MAX_OBJECTS = 16;
 
@@ -252,6 +289,16 @@ public:
 
     void configure(Sms& s, const GameConfig& cfg) override {
         apply_patches(s, patch_list(cfg));
+        // A width change in a queue stage: the objects waiting for the camera were placed for the old width
+        if (in_stage(s) && queue_objects(s.ram8(STAGE))) {
+            const int delta = cfg.ext - (int)s.module_state[MS_LOADED_E];
+            for (int i = 0; i < 7 && delta; i++) {
+                const uint16_t o = (uint16_t)(OBJECTS + i * OBJ_SIZE);
+                if (s.ram8((uint16_t)(o + 0x14)) || s.ram8((uint16_t)(o + 0x1D)) || !s.ram8((uint16_t)(o + 0x20))) continue;
+                s.set_ram16((uint16_t)(o + 2), (uint16_t)(s.ram16((uint16_t)(o + 2)) + delta));
+            }
+        }
+        s.module_state[MS_LOADED_E] = (uint32_t)cfg.ext;
         sms_ = &s;
         hud_anchor_ = cfg.hud_anchor;
         s.clear_pc_hooks();
@@ -482,6 +529,8 @@ private:
     Sms* sms_ = nullptr;
     bool hud_anchor_ = true;
     uint8_t page_[64];   // each sprite table buffer entry's page as the writers left it (uploaded at the VBlank)
+    SectionTiles s7_;    // stage 7's sections' reloaded tiles (made from ROM when first needed)
+    bool s7_built_ = false;
 
     void piece_x(Sms& m, int slot) {
         if (slot < 0 || slot >= 64) return;
@@ -508,7 +557,19 @@ private:
         const int hs = v.reg[8];
         const int cam = (int)s.module_state[MS_CAM];
         if (((hs + cam) & 0xFF) != 0) return -1;   // a parallax band: it repeats every 256 px
-        return map_entry(s, cam + hs + vcol * 8, vrow - 2);
+        const int wx = cam + hs + vcol * 8;
+        const int e = map_entry(s, wx, vrow - 2);
+        const int tile = e & 0x1FF;
+        if (e >= 0 && s.ram8(STAGE) == 7 && tile >= S7_FIRST && tile < S7_FIRST + S7_TILES) {
+            SmsAladdin& mod = *(SmsAladdin*)host;
+            if (!mod.s7_built_) { mod.s7_.build(s); mod.s7_built_ = true; }
+            SmsVdp& vv = mod.sms_->vdp;
+            vv.alt_patterns = mod.s7_.tiles[mod.s7_.section(wx)];
+            vv.alt_first = S7_FIRST;
+            vv.alt_count = S7_TILES;
+            return e | 0x8000;
+        }
+        return e;
     }
 
     static int sprite_x(void* host, int index, int x, int y, int pattern) {

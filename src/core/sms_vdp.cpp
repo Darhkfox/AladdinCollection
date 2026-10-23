@@ -117,6 +117,8 @@ void SmsVdp::pattern_row(uint16_t e, int row, uint8_t* out) const {
     const uint8_t pri = (e & 0x1000) ? 0x80 : 0;
     const int r = vflip ? 7 - (row & 7) : (row & 7);
     const uint8_t* p = &vram[(pat * 32 + r * 4) & 0x3FFF];
+    if ((e & 0x8000) && alt_patterns && pat >= alt_first && pat < alt_first + alt_count)
+        p = alt_patterns + (pat - alt_first) * 32 + r * 4;
     for (int i = 0; i < 8; i++) {
         const int bit = hflip ? i : 7 - i;
         const uint8_t c = (uint8_t)(((p[0] >> bit) & 1) | (((p[1] >> bit) & 1) << 1) | (((p[2] >> bit) & 1) << 2) |
@@ -206,6 +208,7 @@ void SmsVdp::render_line(int ln) {
     fb_width = W;
     fb_lines = active_lines();
     uint8_t* out = fb[ln];
+    line_hscroll[ln] = (uint8_t)hscroll_for(ln);
     const uint8_t backdrop = cram[16 + (reg[7] & 0x0F)];
     if (!display_enabled()) {
         memset(out, backdrop, W);

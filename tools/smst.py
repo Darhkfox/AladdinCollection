@@ -45,6 +45,10 @@ _dll.smst_rom_size.argtypes = [C.c_void_p]
 _dll.smst_peek.argtypes = [C.c_void_p, C.c_int]
 _dll.smst_set_ext.argtypes = [C.c_void_p, C.c_int, C.c_int]
 _dll.smst_vdp_extra.argtypes = [C.c_void_p, C.POINTER(C.c_int), C.c_int]
+_dll.smst_module_state.restype = C.c_uint32
+_dll.smst_module_state.argtypes = [C.c_void_p, C.c_int]
+_dll.smst_line_hscroll.restype = C.POINTER(C.c_uint8)
+_dll.smst_line_hscroll.argtypes = [C.c_void_p]
 _dll.smst_debug_layers.argtypes = [C.c_void_p, C.c_int]
 _dll.smst_get_cpu.argtypes = [C.c_void_p, C.POINTER(C.c_uint32)]
 _dll.smst_set_cpu.argtypes = [C.c_void_p, C.c_int, C.c_uint32]
@@ -202,6 +206,13 @@ class SMS:
         buf = (C.c_int * 192)()
         n = _dll.smst_vdp_extra(self.h, buf, 64)
         return [tuple(buf[i * 3:i * 3 + 3]) for i in range(n)]
+
+    def module_state(self, i):
+        return _dll.smst_module_state(self.h, i)
+
+    def line_hscroll(self):
+        """the horizontal scroll each line of the last frame was drawn with"""
+        return list(C.cast(_dll.smst_line_hscroll(self.h), C.POINTER(C.c_uint8 * 240)).contents)
 
     def layers(self, mask):
         _dll.smst_debug_layers(self.h, mask)

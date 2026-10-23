@@ -44,9 +44,9 @@ def run(ext, stages, frames, hold, every, cheats='invincible', speed=0):
     s.module('sms')
     sheets = []
     for st in stages:
-        s.load_file(R.state_path('sms_stage%d.state' % st))
         s.configure(ext, True, cheats)
         s.set_ext(ext)
+        s.start_level(st)   # (the module's level select, so the stage's objects are loaded for this width)
         if speed and st in FREE:
             drive(s, speed)
         ims = []
