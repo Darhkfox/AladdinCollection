@@ -86,7 +86,7 @@ Bluetooth / USB controller.
 
 **Level select, cheats and achievements** — see *The games* below. With achievements on (the default), cheats,
 the level select, fast forward and rewind are switched off; save states still work. The collection adds two
-achievements of its own: *A Whole New World* (defeat Jafar in all three versions) and *Completionist*.
+achievements of its own: *A Whole New World* (defeat Jafar in all three versions) and *Completionist* — 54 in all.
 
 **Other**
 - Keyboard and gamepads: Xbox-compatible pads (XInput) and other USB pads (DirectInput), fully rebindable per
