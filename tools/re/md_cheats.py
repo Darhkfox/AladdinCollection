@@ -10,7 +10,7 @@ HEALTH, LIVES, APPLES, CONT = 0xFFEFFA, 0xFF7E3C, 0xFFEFE0, 0xFF7E3F
 def level(cheats=(), entry=0, ext=0):
     md = ModuleMD(ROM, 'md')
     md.configure(ext, True, cheats)
-    md.start_level(entry, 1)
+    start_play(md, entry, 1)
     return md
 
 
@@ -52,14 +52,17 @@ if __name__ == '__main__':
         md.set16(0xFFEFE2, 0x3035)
         md.bp_clear()
         print('%-16s gems routine first word %04x' % (','.join(c) or 'none', md.rom[0x1B03BE] << 8 | md.rom[0x1B03BF]))
-    # continues: lives '1' -> die -> game over / continue screen
+    # continues: lives '1' -> die -> the continue screen, YES
     for c in ((), ('inf_continues',)):
         md = level(c)
         md.set8(LIVES, 0x30)
         cont = md.ram8(CONT)
         die(md, 300)
-        for _ in range(30):
-            md.hold('START'); md.mrun(4); md.hold(0); md.mrun(30)
+        md.hold('RIGHT'); md.mrun(150); md.hold(0); md.mrun(60)   # (Aladdin walks over to YES)
+        for _ in range(40):
+            md.hold('START'); md.mrun(4); md.hold(0); md.mrun(16)
+            if md.info & 1:
+                break
         print('%-16s continues %d -> %d, lives %c, level %d, gameplay %d' % (','.join(c) or 'none', cont, md.ram8(CONT),
               md.ram8(LIVES), md.ram8(0xFF7E26), md.info & 1))
         shot(md).save(OUT + '/cheat_cont_%s.png' % (c[0] if c else 'none'))

@@ -68,6 +68,34 @@ def grid(images, cols=4, labels=None, path=None, scale=1):
     return g
 
 
+def start_play(md, entry, variant=1, limit=3000):
+    """The module's level select (start_level returns as the level's story card begins), then START tapped through the
+    card until the level init ($1AA484) and the frames run until the gameplay loop ($1A8C16) runs: the level's first
+    frame of play. Clears the breakpoints (and configures the module again: bp_clear drops its PC hooks too). Returns
+    whether the level is in play."""
+    if not md.start_level(entry, variant):
+        return False
+    md.bp_hits()   # (drop an old log)
+    md.bp(0x1AA484)
+    md.bp(0x1A8C16)
+    init = play = False
+    for f in range(limit):
+        if not init:
+            md.hold('START' if f % 20 < 3 else 0)
+        md.mrun(1)
+        for h in md.bp_hits():
+            init |= h['pc'] == 0x1AA484
+            play |= h['pc'] == 0x1A8C16
+        if init:
+            md.hold(0)
+        if play:
+            break
+    md.hold(0)
+    md.bp_clear()
+    md.configure(*md.config)
+    return play
+
+
 def save_state(md, name):
     open(os.path.join(STATES, name + '.state'), 'wb').write(md.save())
 

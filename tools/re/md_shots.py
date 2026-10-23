@@ -25,7 +25,7 @@ def masked(md, im):
 def run(entry, ext, script, variant=1, cheats=()):
     md = ModuleMD(ROM, 'md')
     md.configure(ext, True, cheats)
-    md.start_level(entry, variant)
+    start_play(md, entry, variant)
     ims, lab = [], []
     for step in script.split(','):
         f, b = step.split(':')

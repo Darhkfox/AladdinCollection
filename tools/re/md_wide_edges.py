@@ -28,7 +28,7 @@ def run(ext, entries):
     problems = []
     for e in entries:
         md.configure(ext)
-        md.start_level(e, 1)
+        start_play(md, e, 1)
         W = md.ram16(0xFF7DB6)
         hi = W * 16 - 18
 

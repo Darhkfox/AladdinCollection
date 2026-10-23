@@ -395,6 +395,7 @@ void VDP::render_line(int ln) {
     const int TW = W + 2 * ext;
     fb_width = TW;
     fb_lines = active_lines();
+    if (pre_line_hook) pre_line_hook(hook_host, ln);
 
     uint8_t la[kMaxWidth], lb[kMaxWidth], ls[kMaxWidth];
     const int vs = view_shift;
