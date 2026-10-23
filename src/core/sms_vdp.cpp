@@ -23,6 +23,8 @@ void SmsVdp::reset() {
     hcount_latch = 0;
     line = 0;
     extra_count = 0;
+    memset(bg_shift, 0, sizeof(bg_shift));
+    sprite_shift = 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -115,6 +117,7 @@ void SmsVdp::pattern_row(uint16_t e, int row, uint8_t* out) const {
     const bool hflip = (e & 0x200) != 0, vflip = (e & 0x400) != 0;
     const uint8_t pal = (e & 0x800) ? 0x10 : 0;
     const uint8_t pri = (e & 0x1000) ? 0x80 : 0;
+    const uint8_t alt = (e & 0x4000) && alt_cram ? 0x20 : 0;   // (line buffer bit 5: alt_cram's colours)
     const int r = vflip ? 7 - (row & 7) : (row & 7);
     const uint8_t* p = &vram[(pat * 32 + r * 4) & 0x3FFF];
     if ((e & 0x8000) && alt_patterns && pat >= alt_first && pat < alt_first + alt_count)
@@ -123,7 +126,7 @@ void SmsVdp::pattern_row(uint16_t e, int row, uint8_t* out) const {
         const int bit = hflip ? i : 7 - i;
         const uint8_t c = (uint8_t)(((p[0] >> bit) & 1) | (((p[1] >> bit) & 1) << 1) | (((p[2] >> bit) & 1) << 2) |
                                     (((p[3] >> bit) & 1) << 3));
-        out[i] = (uint8_t)(c | pal | (c ? pri : 0));
+        out[i] = (uint8_t)(c | pal | alt | (c ? pri : 0));
     }
 }
 
@@ -143,7 +146,7 @@ void SmsVdp::render_bg(uint8_t* dst, int ln, int x0, int x1) {
             const int yy = locked ? ln : ln + vscroll_latch;
             int e = -1;
             if (outside && bg_entry) e = bg_entry(hook_host, ln, vcol, yy >> 3);
-            if (e < 0) e = name_entry(vcol & 31, (yy % 224) >> 3) & 0x7FFF;   // (bit 15: alt_patterns, modules only)
+            if (e < 0) e = name_entry(vcol & 31, (yy % 224) >> 3) & 0x1FFF;   // (bits 14, 15: alt_cram / alt_patterns, modules only)
             pattern_row((uint16_t)e, yy & 7, row8);
         }
         dst[x - x0] = row8[tx & 7];
@@ -192,7 +195,7 @@ void SmsVdp::render_sprites(uint8_t* dst, int ln) {
                                         (((p[3] >> bit) & 1) << 3));
             if (!c) continue;
             for (int k = 0; k < step; k++) {
-                const int sx = x + px * step + k;
+                const int sx = x + px * step + k - sprite_shift;
                 if (sx < lo || sx >= hi) continue;
                 uint8_t& d = dst[sx + ext];
                 if (d) { status |= 0x20; continue; }    // the first sprite in the list stays in front
@@ -215,7 +218,8 @@ void SmsVdp::render_line(int ln) {
         return;
     }
     uint8_t bg[kMaxWidth], spr[kMaxWidth];
-    render_bg(bg, ln, -ext, 256 + ext);
+    if (line_shift) bg_shift[ln] = (int16_t)line_shift(hook_host, ln);
+    render_bg(bg, ln, -ext + bg_shift[ln], 256 + ext + bg_shift[ln]);
     memset(spr, 0, W);
     render_sprites(spr, ln);
     if (!(debug_layers & 1)) memset(bg, 0, W);
@@ -226,7 +230,7 @@ void SmsVdp::render_line(int ln) {
         if ((s & 0x0F) && !((b & 0x80) && (b & 0x0F)))
             out[i] = (uint8_t)(cram[16 + (s & 0x0F)] | (mark_sprites ? kSpritePixel : 0));
         else
-            out[i] = cram[b & 0x1F];
+            out[i] = (b & 0x20) && alt_cram ? alt_cram[b & 0x1F] : cram[b & 0x1F];
     }
     if ((reg[0] & 0x20) && !ignore_left_blank) memset(out + ext, backdrop, 8);
 }

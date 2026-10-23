@@ -45,6 +45,7 @@ _dll.smst_rom_size.argtypes = [C.c_void_p]
 _dll.smst_peek.argtypes = [C.c_void_p, C.c_int]
 _dll.smst_set_ext.argtypes = [C.c_void_p, C.c_int, C.c_int]
 _dll.smst_vdp_extra.argtypes = [C.c_void_p, C.POINTER(C.c_int), C.c_int]
+_dll.smst_view_shift.argtypes = [C.c_void_p, C.c_int]
 _dll.smst_module_state.restype = C.c_uint32
 _dll.smst_module_state.argtypes = [C.c_void_p, C.c_int]
 _dll.smst_line_hscroll.restype = C.POINTER(C.c_uint8)
@@ -207,6 +208,10 @@ class SMS:
         n = _dll.smst_vdp_extra(self.h, buf, 64)
         return [tuple(buf[i * 3:i * 3 + 3]) for i in range(n)]
 
+    def view_shift(self, line=-1):
+        """the view shift: sprites (line -1) or line `line`'s background"""
+        return _dll.smst_view_shift(self.h, line)
+
     def module_state(self, i):
         return _dll.smst_module_state(self.h, i)
 
@@ -303,6 +308,19 @@ class SMS:
         buf = (C.c_uint8 * len(data)).from_buffer_copy(data)
         if not _dll.smst_load_state(self.h, buf, len(data)):
             raise RuntimeError('state does not load')
+
+    def save_ext(self):
+        """the module's own part of a save state (what the app stores next to save())"""
+        _dll.smst_module_save_ext.argtypes = [C.c_void_p, C.POINTER(C.c_uint8), C.c_int]
+        n = _dll.smst_module_save_ext(self.h, None, 0)
+        buf = (C.c_uint8 * max(1, n))()
+        _dll.smst_module_save_ext(self.h, buf, n)
+        return bytes(buf[:n])
+
+    def load_ext(self, data):
+        _dll.smst_module_load_ext.argtypes = [C.c_void_p, C.POINTER(C.c_uint8), C.c_int]
+        buf = (C.c_uint8 * max(1, len(data))).from_buffer_copy(data or bytes(1))
+        _dll.smst_module_load_ext(self.h, buf, len(data))
 
     def save_file(self, path):
         with open(path, 'wb') as f:

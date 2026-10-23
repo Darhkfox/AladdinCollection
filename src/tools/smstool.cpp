@@ -159,6 +159,11 @@ API int smst_vdp_extra(void* h, int* out, int max) {
     }
     return v.extra_count;
 }
+// The view shift of the frame being drawn: sprites, and the background of line `line` (SmsVdp::bg_shift).
+API int smst_view_shift(void* h, int line) {
+    const SmsVdp& v = ((Tool*)h)->sms.vdp;
+    return line < 0 ? v.sprite_shift : v.bg_shift[line % SmsVdp::kMaxLines];
+}
 API uint32_t smst_module_state(void* h, int i) { return ((Tool*)h)->sms.module_state[i & 7]; }
 API uint8_t* smst_line_hscroll(void* h) { return ((Tool*)h)->sms.vdp.line_hscroll; }
 API void smst_debug_layers(void* h, int mask) { ((Tool*)h)->sms.vdp.debug_layers = (uint8_t)mask; }
@@ -283,6 +288,17 @@ API int smst_save_state(void* h, uint8_t* out, int max) {
 }
 API int smst_load_state(void* h, const uint8_t* data, int n) {
     return ((Tool*)h)->sms.load_state(std::vector<uint8_t>(data, data + n)) ? 1 : 0;
+}
+// The module's own part of a save state (GameModule::save_ext / load_ext), as the app keeps it next to the core's.
+API int smst_module_save_ext(void* h, uint8_t* out, int max) {
+    Tool* t = (Tool*)h;
+    const std::vector<uint8_t> d = t->module ? t->module->save_ext() : std::vector<uint8_t>();
+    if (out && (int)d.size() <= max) memcpy(out, d.data(), d.size());
+    return (int)d.size();
+}
+API void smst_module_load_ext(void* h, const uint8_t* data, int n) {
+    Tool* t = (Tool*)h;
+    if (t->module) t->module->load_ext(data, (size_t)n);
 }
 API int smst_audio(void* h, int32_t* out, int max_frames) {
     Sms& s = ((Tool*)h)->sms;
