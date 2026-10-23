@@ -51,6 +51,7 @@ public:
     uint8_t mem_ctrl = 0xAB;       // port $3E
     uint8_t io_ctrl = 0xFF;        // port $3F
     uint64_t frame_count = 0;
+    bool skip_render = false;        // headless runs (the launcher preview's warm-up): no lines are drawn
     uint32_t module_state[8] = {};   // scratch for game modules: cleared on power-on, kept in save states
 
     uint16_t pad_buttons[2] = {0, 0};

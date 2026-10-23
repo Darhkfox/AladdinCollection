@@ -57,6 +57,7 @@ protected:
     }
     void core_power_on() override { md_->power_on(); }
     void core_soft_reset() override { md_->soft_reset(); }
+    void core_headless(bool on) override { md_->skip_render = on; }
     void on_power_on() override { if (mdplus_) mdplus_->stop(); }
     void core_settings(const Settings& s) override {
         ColorProfile p{s.color, s.brightness, s.saturation, s.gamma};

@@ -190,7 +190,7 @@ void MegaDrive::run_frame() {
         vdp.mclk_now = line_start;
         int active = vdp.active_lines();
         if (ln == 0) vdp.vblank = false;
-        if (ln < active) vdp.render_line(ln);
+        if (ln < active && !skip_render) vdp.render_line(ln);
         if (ln == active) {
             vdp.vblank = true;
             if (on_vblank) on_vblank(*this);

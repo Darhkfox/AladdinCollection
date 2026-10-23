@@ -76,6 +76,17 @@ void Session::power_on() {
 
 void Session::soft_reset() { core_soft_reset(); }
 
+void Session::warm_up() {
+    if (!module_) return;
+    const bool was_muted = muted;
+    muted = true;
+    core_headless(true);
+    for (int f = 0; f < module_->preview_start() && !module_->preview_ready(ram()); f++)
+        run_frame(module_->preview_pad(f, ram()), 0);
+    core_headless(false);
+    muted = was_muted;
+}
+
 bool Session::start_level(int index, int variant) {
     if (!module_) return false;
     on_power_on();   // (an MD+ soundtrack stops first: the level's music is asked for during the start-up frames)

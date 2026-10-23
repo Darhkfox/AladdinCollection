@@ -57,6 +57,7 @@ public:
     std::vector<uint8_t> rom;
     bool pal = false;
     bool overseas = true;
+    bool skip_render = false;        // headless runs (the launcher preview's warm-up): no lines are drawn
     uint64_t frame_count = 0;
     uint32_t module_state[8] = {};   // scratch for game modules: cleared on power-on, kept in save states
 

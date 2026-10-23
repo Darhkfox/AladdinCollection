@@ -178,7 +178,7 @@ void Sms::run_frame() {
         line_start_ = (int64_t)ln * kCyclesPerLine;
         vdp.line = ln;
         if (ln == 0) vdp.start_frame();
-        if (ln < vdp.active_lines()) vdp.render_line(ln);
+        if (ln < vdp.active_lines() && !skip_render) vdp.render_line(ln);
         if (ln == 0xC1) {
             if (on_vblank) on_vblank(*this);
             vdp.frame_irq();

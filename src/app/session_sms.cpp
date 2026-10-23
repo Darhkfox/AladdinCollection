@@ -41,6 +41,7 @@ protected:
     bool core_load(const std::vector<uint8_t>& rom) override { return sms_->load_rom(rom); }
     void core_power_on() override { sms_->power_on(); }
     void core_soft_reset() override { sms_->soft_reset(); }
+    void core_headless(bool on) override { sms_->skip_render = on; }
     void core_settings(const Settings& s) override {
         ColorProfile p{s.color, s.brightness, s.saturation, s.gamma};
         if (p != profile_) {

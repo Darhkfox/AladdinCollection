@@ -35,6 +35,8 @@ public:
     void apply_settings(const Settings& s);
     void power_on();
     void soft_reset();
+    // The launcher preview's start: runs the game headless to its title screen (GameModule::preview_start).
+    void warm_up();
     bool start_level(int index, int variant = 0);
 
     // Runs one emulated frame with the given pad states (the console's own button bits: see action_bits()).
@@ -80,6 +82,7 @@ protected:
     virtual bool core_load(const std::vector<uint8_t>& rom) = 0;
     virtual void core_power_on() = 0;
     virtual void core_soft_reset() = 0;
+    virtual void core_headless(bool on) = 0;                 // skip drawing (headless runs)
     virtual void core_settings(const Settings& s) = 0;       // sprite limit, palette, chip options
     virtual void core_configure(const GameConfig& c) = 0;    // video width + the module's configure()
     virtual bool core_can_configure(const GameConfig& c) = 0;

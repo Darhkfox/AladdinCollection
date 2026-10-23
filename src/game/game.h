@@ -124,9 +124,13 @@ public:
     // (RomSpec::names), to tell a wrong version from none
     virtual const char* rom_names() const = 0;
     virtual uint32_t    accent_color() const = 0; // UI theme colour 0xAARRGGBB
-    // Launcher preview: frames run from power-on before it is shown (muted, not drawn), so it opens on the game's
-    // title screen instead of its logos.
+    // Launcher preview: from power-on, frames are run (muted, not drawn) until the game's title screen is up, so the
+    // preview opens there instead of on the logos: at most preview_start() frames, with preview_pad(frame, ram) held
+    // (the console's pad bits, e.g. START through an intro), ending early once preview_ready(ram) says so. `ram` is
+    // the work RAM (Session::ram()).
     virtual int         preview_start() const { return 0; }
+    virtual uint16_t    preview_pad(int frame, const uint8_t* ram) const { (void)frame; (void)ram; return 0; }
+    virtual bool        preview_ready(const uint8_t* ram) const { (void)ram; return false; }
 
     virtual std::vector<CheatEntry> cheats() const { return {}; }
     virtual std::vector<LevelEntry> levels() const { return {}; }

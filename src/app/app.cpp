@@ -570,10 +570,7 @@ void App::find_game_roms() {
         g.preview->set_audio_rate(48000);
         g.preview->open(g.module.get(), g.rom.data);
         g.preview->apply_settings(preview_settings(settings_));
-        // opens on the game's title screen (the logos before it run unseen)
-        g.preview->muted = true;
-        for (int f = 0; f < g.module->preview_start(); f++) g.preview->run_frame(0, 0);
-        g.preview->muted = false;
+        g.preview->warm_up();   // opens on the game's title screen (the logos before it run unseen)
     }
 }
 

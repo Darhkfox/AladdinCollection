@@ -47,6 +47,7 @@ protected:
         freeze_ = 0;
     }
     void core_soft_reset() override { snes_->reset(false); }
+    void core_headless(bool on) override { snes_->skipRender = on; }
     void core_settings(const Settings& s) override {
         ColorProfile p{s.color, s.brightness, s.saturation, s.gamma};
         if (p != profile_) {
