@@ -38,6 +38,7 @@ struct GameSlot {
     std::unique_ptr<GameModule> module;
     RomMatch rom;
     std::unique_ptr<Session> preview;     // launcher attract-mode preview
+    std::vector<uint8_t> preview_start;   // its state at the start point (warm_up): choosing the card restarts it there
 };
 
 class Jukebox {
@@ -138,6 +139,7 @@ private:
     Jukebox jukebox_;
     int  launcher_sel_ = 0;              // 0..kGameCount-1 games, then Options, Music Player, Credits, Quit
     int  launcher_last_card_ = 0;
+    int  launcher_heard_ = -1;           // the card whose preview is heard (restarted when another card is chosen)
     float launcher_anim_[kGameCount + 5] = {};
     Rect launcher_hit_[kGameCount + 5] = {};   // cards then buttons, where the last draw put them (taps)
 #ifdef __ANDROID__

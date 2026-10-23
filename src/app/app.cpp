@@ -333,6 +333,13 @@ void App::frame(double dt) {
     } else {
         if (menu_.active()) menu_.update(ui);
         else update_launcher(ui, dt);
+        // The chosen card's preview starts over at its start point (its music), so choosing a card is never met with
+        // the silent stretch of a game's attract loop it had reached unheard.
+        if (launcher_sel_ < kGameCount && launcher_sel_ != launcher_heard_) {
+            GameSlot& g = games_[launcher_sel_];
+            if (g.preview && !g.preview_start.empty()) g.preview->load_state(g.preview_start);
+            launcher_heard_ = launcher_sel_;
+        }
         // attract-mode previews keep running behind the launcher
         for (int i = 0; i < frames; i++) {
             for (int g = 0; g < kGameCount; g++) {
@@ -571,6 +578,7 @@ void App::find_game_roms() {
         g.preview->open(g.module.get(), g.rom.data);
         g.preview->apply_settings(preview_settings(settings_));
         g.preview->warm_up();   // opens on the game's title screen (the logos before it run unseen)
+        g.preview_start = g.preview->save_state();
     }
 }
 
@@ -651,6 +659,7 @@ void App::launch(int g) {
 
 void App::back_to_launcher() {
     session_.reset();
+    launcher_heard_ = -1;   // (the chosen card's music starts again)
     mode_ = Mode::Launcher;
     menu_.close();
     current_ = -1;
