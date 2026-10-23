@@ -117,7 +117,25 @@ achievements of its own: *A Whole New World* (defeat Jafar in all three versions
 
 <!-- snes -->
 
-<!-- sms -->
+### Aladdin — Master System (SIMS, 1994)
+
+- **Widescreen** up to 21:9 (404 px wide with CRT pixels, 460 with square ones) — the Master System's background
+  is only 256 pixels wide, so everything beyond it is drawn from the level map (the parallax bands too), and
+  stage 7's reloaded tile graphics come from the ROM. Objects wake, stay awake and are drawn across the whole
+  width at their true positions past the hardware's 256-pixel sprite limit; objects that no longer fit in the
+  console's 64-entry sprite table are drawn as extra sprites. Level edges are masked, Jafar's room carries its
+  pillars on past its ends (dimmed), the stone counter moves to the right edge. Title, menus, story scenes, game
+  over and the ending stay in their original shape.
+- **Level select**: all 10 stages, numbered as the developers' TEST MODE numbers them (1-1 to 7), entered through
+  the password screen as a player would.
+- **Cheats**: invincibility (the game's own, as the developers' password AIQY gives it), infinite health, infinite
+  stones, and the developers' hidden TEST MODE (the title's PASSWORD opens it: character viewer, stage select,
+  sound test, input test, the story scenes). The game has no lives (continues are unlimited), and its gems are the
+  health bar.
+- **Music player & sound test**: 20 music tracks and 60 effects, played by the game's own driver (the effects that
+  only play in menus and story scenes, or not at all, are listed by number).
+- **Achievements**: 17 — one per stage and for defeating Jafar, plus finishing from GAME START without a password
+  or a game over, clearing a stage without losing a gem, a flawless tour and beating Jafar without a scratch.
 
 ## Default controls
 
@@ -194,6 +212,10 @@ gradlew assembleDebug
   the Rug Ride's walls still cost a life. Developer Map View puts Aladdin back where the view is when it's
   switched off, so switch it off over solid ground. Attract demos are recorded inputs and can play out differently
   in widescreen.
+- Master System: with widescreen on the camera is the original's (Aladdin's position is an 8-bit screen
+  coordinate), so level edges are masked. Objects start acting a little earlier than in the original, so the
+  attract demos drift. In stage 7 a few companion sprites that fly in from the left appear inside the left side of
+  views wider than 16:10. Animated tiles at the sides show their current frame.
 <!-- per-game limitations -->
 - Save states made by a newer version may not load in an older one.
 
