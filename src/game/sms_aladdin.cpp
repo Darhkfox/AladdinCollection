@@ -334,8 +334,13 @@ public:
         s.add_pc_hook(0x23C2, [this](Sms& m) { piece_x(m, (m.z80.de - SAT_XT) >> 1); });
         s.add_pc_hook(0x3C63, [this](Sms& m) { piece_x(m, (m.z80.de - SAT_XT) >> 1); });
         s.add_pc_hook(0x0C99, [this](Sms& m) {
-            const uint16_t at = (uint16_t)(m.peek(m.z80.sp) | (m.peek((uint16_t)(m.z80.sp + 1)) << 8));
-            piece_x(m, (at - SAT_XT) >> 1);
+            // stack: the piece's table pointer, two counters, the object ($0C45 pushed ix)
+            auto word = [&](int o) { return (uint16_t)(m.peek((uint16_t)(m.z80.sp + o)) | (m.peek((uint16_t)(m.z80.sp + o + 1)) << 8)); };
+            const uint16_t obj = word(6);
+            // An object parked at the window's left end (x = -64, not moving with the camera: Jafar's room keeps two
+            // there) is never seen in the original: its pieces stay hidden
+            const bool parked = m.ram16(obj + 2) == 0xFFC0 && !m.ram8((uint16_t)(obj + 0x20));
+            piece_x(m, (word(0) - SAT_XT) >> 1, parked);
         });
         // an object the slot allocator has no room for (the caves of wide_patches): drawn as extra sprites
         auto undrawn = [](Sms& m) {
@@ -373,8 +378,7 @@ public:
             info.mask_right = right;
         }
         info.mask_from = 16;     // the status bar (lines 0..15) stays whole
-        info.mask_lines = 176;   // below the playfield: the text box of the stages' story moments, 256 px wide
-        info.pillar_below = true;
+        info.mask_lines = 176;   // (below the playfield: line_hook)
     }
 
     std::vector<CheatEntry> cheats() const override {
@@ -548,13 +552,13 @@ private:
     SectionTiles s7_;    // stage 7's sections' reloaded tiles (made from ROM when first needed)
     bool s7_built_ = false;
 
-    void piece_x(Sms& m, int slot) {
+    void piece_x(Sms& m, int slot, bool parked = false) {
         if (slot < 0 || slot >= 64) return;
         if (!in_stage(m)) { page_[slot] = PAGE_0; return; }
         const int x = (int16_t)m.z80.hl, E = m.vdp.ext;
         if (x >= 0 && x < 256) {
             page_[slot] = PAGE_0;
-        } else if (x > -8 - E && x < 256 + E) {
+        } else if (x > -8 - E && x < 256 + E && !parked) {
             page_[slot] = x < 0 ? PAGE_LEFT : PAGE_RIGHT;
             m.z80.hl &= 0x00FF;   // the test passes: the table gets the low byte
         } else {
@@ -567,7 +571,7 @@ private:
         const Sms& s = *((SmsAladdin*)host)->sms_;
         const SmsVdp& v = s.vdp;
         if (!in_stage(s)) return -1;
-        // the status bar (rows 0-1): blank beyond the 256 px; below the playfield (pillarboxed): the table
+        // the status bar (rows 0-1): blank beyond the 256 px; below the playfield: see line_hook
         if (vrow < 2) return v.name_entry(0, vrow);
         if (vrow >= 22) return -1;
         const int hs = v.reg[8];
@@ -614,6 +618,14 @@ private:
             if (v.reg[0] & 0x20) {
                 for (int i = E; i < E + 8; i++) { bg[i] = (uint8_t)(0x10 | (v.reg[7] & 0x0F)); spr[i] = 0; }
             }
+            return;
+        }
+        // Below the playfield (lines 176-191) the stages show blank rows in colour 0 (black, Jafar's room red), or the
+        // text box of a story moment (the lamp's chamber): the sides are that blank colour, the box stays 256 px wide.
+        // (Sprites stay: they can cross the border as in the original.)
+        if (line >= 176) {
+            std::memset(bg, 0, E);
+            std::memset(bg + 256 + E, 0, E);
             return;
         }
         // status bar: the stone counter (x 192..255) goes to the right edge; the gems stay in the middle

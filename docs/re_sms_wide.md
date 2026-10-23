@@ -19,7 +19,7 @@ autotest). Widths: 6/22/40/74 (CRT pixels) and 26/44/64/102 (square); `max_ext()
    64-entry table has no room for are drawn as extra sprites by the VDP.
 4. Status bar (rows 0-1): the stone counter moves to the right edge (`line_hook`), the gems stay centred.
 5. Not gameplay (every mode but the ten stage modes 2..$B): pillarboxed, the blanked left column drawn as the
-   hardware does. In the stages, lines 176-191 (border / story text box) are pillarboxed too.
+   hardware does. In the stages, lines 176-191 (blank border / a story moment's text box) get colour 0 at the sides.
 
 ---------------------------------------------------------------------------------------------------
 
@@ -35,7 +35,7 @@ autotest). Widths: 6/22/40/74 (CRT pixels) and 26/44/64/102 (square); `max_ext()
   repeat every 256 px in the map, so the hardware table (wrapped) is right there.
 * `map_entry` = the streamer's lookup (`$2E19` paged / `$2DEC` flat, metatiles at `$C49D`, slot 2 = bank
   `$3306[stage]`). `sms_map.check` compares it with the name table every frame: 0 mismatches in all stages.
-* Rows 0-1 (status bar, reg 0 bit 6): blank beyond the 256 px (`name_entry(0, row)`); rows 22+ pillarboxed.
+* Rows 0-1 (status bar, reg 0 bit 6): blank beyond the 256 px (`name_entry(0, row)`); rows 22+ colour 0 (§5).
 * Check (`sms_wide_check.py 102`, background only, every extension pixel at a world position the hardware region
   shows at another time): 0.0 % different in stages 1, 8, 9; 0.3-1 % in 2, 4, 6, 7; 2.7-5 % in 0, 3, 5. All
   differences are animated tiles (water, lava, treasure glitter) and stage 0's brick wall, whose patterns the game
@@ -83,7 +83,9 @@ ROM patches (`wide_patches(E)`, code caves in bank 1's unused zero fill `$7A00`-
 * True X: PC hooks before the "off screen" test of each writer — Aladdin `$23C2`, the second figure `$3C63`
   (hl = the piece's 16-bit X, de = its table byte), objects `$0C99` (the table pointer on the stack) — record the
   piece's 256-px page (2 bits per entry) and, inside (-8 - E, 256 + E), clear H so the game stores the low byte.
-  Pieces the original parks at X = 0 under the blanked column are marked hidden. The VBlank upload hook `$02D9`
+  Pieces the original parks at X = 0 under the blanked column are marked hidden, and so are the pieces of an object
+  parked at x = -64 (the keep window's left end) that does not move with the camera: Jafar's room keeps two there
+  (types $0B, $44), never seen in the original, which a view wider than 16:10 would show. The VBlank upload hook `$02D9`
   turns the pages into the displayed order (reversed on odd frames: `$C20E` bit 0) in module_state[0..3];
   `sprite_x` adds ±256 or hides. Off the stages the hooks change nothing.
 * Pop-in (`sms_popin.py`, objects whose first awake frame is inside the view, 1500 frames from the stage start):
@@ -108,8 +110,9 @@ bit 15 set: `SmsVdp::alt_patterns` points at the section's copy (section of worl
 * `FrameInfo.gameplay` = modes 2..$B (the stages, also the attract demo); title, password, game over, the story
   scenes (mode $13), the menus and the ending are pillarboxed. With the core ignoring reg 0 bit 5 in widescreen,
   the line hook draws the blanked column (backdrop colour, no sprites) on those screens.
-* In the stages lines 176-191 are pillarboxed (`mask_lines` = 176, `pillar_below`): the lamp's chamber and other
-  story moments put a text box there.
+* In the stages lines 176-191 are blank rows in colour 0 (black; red in Jafar's room), where the lamp's chamber and
+  other story moments put a text box: the line hook gives the sides colour 0, so the box stays 256 px wide in the
+  middle and the border runs the whole width (sprites crossing it are kept).
 
 ## 6. Verification
 
