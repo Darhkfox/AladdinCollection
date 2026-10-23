@@ -484,6 +484,43 @@ private:
 // =====================================================================================================================
 // The module
 // =====================================================================================================================
+// The levels in the order the game plays them: stage, act (the level index the game derives in the comments).
+// Stage 6 (A Whole New World) comes between the dungeon and the palace ($80:B988, the stage after each stage); the
+// last, stage 7, is Jafar (level $11, which is also the palace's act 3, unused by the game's progression).
+struct Level { uint8_t stage, act; const char* group; const char* name; };
+const Level kLevels[] = {
+    {0, 0, "Agrabah", "Agrabah Market"},                // $00
+    {0, 1, "Agrabah", "Desert Ruins"},                  // $01
+    {0, 2, "Agrabah", "Agrabah Rooftops"},              // $02
+    {0, 3, "Agrabah", "Market at Dusk"},                // $03
+    {1, 0, "Cave of Wonders", "Cave of Wonders"},       // $04
+    {1, 1, "Cave of Wonders", "Underground River"},     // $05
+    {2, 0, "Escape", "Lava Cavern"},                    // $06
+    {2, 1, "Escape", "Carpet Escape"},                  // $07
+    {3, 0, "Inside the Lamp", "Inside the Lamp 1"},     // $08
+    {3, 1, "Inside the Lamp", "Inside the Lamp 2"},     // $09
+    {3, 2, "Inside the Lamp", "Inside the Lamp 3"},     // $0A
+    {4, 0, "Sultan's Dungeon", "Sultan's Dungeon 1"},   // $0B
+    {4, 1, "Sultan's Dungeon", "Sultan's Dungeon 2"},   // $0C
+    {4, 2, "Sultan's Dungeon", "Sultan's Dungeon 3"},   // $0D
+    {6, 0, "A Whole New World", "A Whole New World"},   // $12
+    {5, 0, "Jafar's Palace", "Jafar's Palace 1"},       // $0E
+    {5, 1, "Jafar's Palace", "Jafar's Palace 2"},       // $0F
+    {5, 2, "Jafar's Palace", "Jafar's Palace 3"},       // $10
+    {7, 0, "Jafar's Palace", "Jafar"},                  // $11
+};
+constexpr int kLevelCount = (int)(sizeof(kLevels) / sizeof(kLevels[0]));
+
+// Code for the cheats and the level select.
+constexpr uint32_t kLevelCompute = 0x818157;   // the level index from stage / act (at GAME START: the first time)
+constexpr uint32_t kHit = 0x838024;            // a hit (ignored while $08E3 bit 7, the blink after a hit: RTS $8051)
+constexpr uint32_t kHitSkip = 0x838051;
+constexpr uint32_t kHitAlways = 0x838004;      // a hit regardless of the blink: JSR $8008 / RTL
+constexpr uint32_t kHitAlwaysRtl = 0x838007;
+constexpr uint32_t kHeartLost = 0x838010, kHeartLost2 = 0x838031;   // DEC $0367 in the two hit paths
+constexpr uint32_t kLifeLost = 0x81DC67, kLifeLost2 = 0x81E837;     // DEC $0364 (a life lost; game over at 0)
+constexpr uint32_t kAppleThrown = 0x81CE5C;    // STA $0369: one apple fewer
+
 class SnesAladdin : public SnesModule {
 public:
     const char* id() const override { return "snes"; }
@@ -501,20 +538,136 @@ public:
         apply_patches(s, {});
         s.clearExecMarks();
         wide_.configure(s, cfg);
+        // Cheats that change code paths run as exec hooks (no ROM bytes change, so they switch at any time).
+        invincible_ = cfg.cheat("invincible");
+        inf_health_ = cfg.cheat("inf_health");
+        inf_lives_ = cfg.cheat("inf_lives");
+        inf_apples_ = cfg.cheat("inf_apples");
+        const bool debug = cfg.cheat("debug_mode");
+        if (debug_ && !debug) clear_debug_ = true;   // (switched off: the game's own flag goes back off)
+        debug_ = debug;
+        if (invincible_) for (uint32_t pc : {kHit, kHitAlways}) s.markExec(pc, true);
+        if (inf_health_) for (uint32_t pc : {kHeartLost, kHeartLost2}) s.markExec(pc, true);
+        if (inf_lives_) for (uint32_t pc : {kLifeLost, kLifeLost2}) s.markExec(pc, true);
+        if (inf_apples_) s.markExec(kAppleThrown, true);
+        if (ls_.active) s.markExec(kLevelCompute, true);
     }
 
-    bool exec_hook(Snes& s, uint32_t pc) override { return wide_.exec_hook(s, pc); }
+    bool exec_hook(Snes& s, uint32_t pc) override {
+        CpuRegs& r = s.cpu.r;
+        switch (pc) {
+        case kHit:          // as if blinking: the hit doesn't land (A negative, as the game's own skip returns it)
+            if (!invincible_) break;
+            r.a = (uint16_t)((r.a & 0xFF00) | 0x80);
+            r.n = true;
+            r.z = false;
+            r.pc = (uint16_t)kHitSkip;
+            return true;
+        case kHitAlways:
+            if (!invincible_) break;
+            r.pc = (uint16_t)kHitAlwaysRtl;
+            return true;
+        case kHeartLost:    // the hit lands (knocked back, blinking) but no heart is lost
+        case kHeartLost2:
+            if (!inf_health_) break;
+            r.pc = (uint16_t)(pc + 3);
+            return true;
+        case kLifeLost:     // the DEC still runs (its flags decide the game over) on a count raised by one first
+        case kLifeLost2:
+            if (inf_lives_) wr8(s, kLives, (uint8_t)(rd8(s, kLives) + 1));
+            break;
+        case kAppleThrown:
+            if (!inf_apples_) break;
+            r.pc = (uint16_t)(pc + 3);
+            return true;
+        case kLevelCompute:
+            // The level select: GAME START's first level computation gets the chosen stage and act, as the game's own
+            // debug stage select on the title screen gives them; the game then starts that level as usual.
+            if (ls_.active && !ls_.done && rd8(s, kDemo) == 0) {
+                wr8(s, kStage, ls_.stage);
+                wr8(s, kAct, ls_.act);
+                ls_.done = true;
+            }
+            break;
+        default:
+            break;
+        }
+        return wide_.exec_hook(s, pc);
+    }
+
+    void pre_frame(Snes& s, const GameConfig& cfg) override {
+        if (clear_debug_) {
+            wr8(s, kDebug, 0);
+            clear_debug_ = false;
+        }
+        if (cfg.cheat("debug_mode")) wr8(s, kDebug, 1);
+        if (!wide_.level()) return;
+        if (cfg.cheat("inf_gems") && rd8(s, kGems) != 0x99) wr8(s, kGems, 0x99);
+    }
 
     void post_frame(Snes& s, const GameConfig& cfg, FrameInfo& info) override {
         (void)cfg;
         wide_.frame_end(s, info);
     }
 
+    std::vector<CheatEntry> cheats() const override {
+        return {
+            {"invincible", "Invincibility", "Enemies, their shots and hazards don't hurt Aladdin. Falling into a pit or the lava, or being crushed, still costs a life."},
+            {"inf_health", "Infinite Health", "Hits still knock Aladdin back, but he never loses a heart."},
+            {"inf_lives", "Infinite Lives", "Losing a life never lowers the lives counter."},
+            {"inf_apples", "Infinite Apples", "Throwing an apple never uses one up."},
+            {"inf_gems", "Infinite Gems", "The gem counter stays at 99: every gem picked up completes a hundred (an extra heart, then an extra life)."},
+            {"debug_mode", "Debug Mode", "The game's own developer mode: 10 hearts and 99 apples when a game starts, and a stage select on the title screen (left / right: stage, up / down: act)."},
+        };
+    }
+
+    std::vector<LevelEntry> levels() const override {
+        std::vector<LevelEntry> v;
+        for (const Level& l : kLevels) v.push_back({l.group, l.name});
+        return v;
+    }
+
+    // From power-on to the level: START through the logos and the story to the title menu, GAME START, whose first
+    // level computation gets the chosen stage and act (exec_hook). Run headless.
+    bool start_level(Snes& s, const GameConfig& cfg, int index, int variant) override {
+        (void)variant;
+        if (index < 0 || index >= kLevelCount) return false;
+        ls_ = LevelSelect();
+        ls_.active = true;
+        ls_.stage = kLevels[index].stage;
+        ls_.act = kLevels[index].act;
+        s.reset(true);
+        configure(s, cfg);
+        s.skipRender = true;
+        bool ok = false;
+        int in_level = 0;
+        for (int f = 0; f < 6000 && !ok; f++) {
+            const uint16_t pad = !ls_.done && (f / 4) % 2 == 0 ? kPadStart : 0;
+            pre_frame(s, cfg);   // (cheats act from power-on, as in the app)
+            run_frames(s, 1, pad);
+            FrameInfo info;
+            post_frame(s, cfg, info);
+            in_level = ls_.done && info.gameplay ? in_level + 1 : 0;
+            ok = in_level >= 2;
+        }
+        s.skipRender = false;
+        s.markExec(kLevelCompute, false);
+        ls_.active = false;
+        return ok;
+    }
+
     std::vector<uint8_t> save_ext() const override { return wide_.save_ext(); }
     void load_ext(const uint8_t* d, size_t n) override { wide_.load_ext(d, n); }
 
 private:
+    struct LevelSelect {
+        bool active = false, done = false;
+        uint8_t stage = 0, act = 0;
+    };
     AladdinWide wide_;
+    LevelSelect ls_;
+    bool invincible_ = false, inf_health_ = false, inf_lives_ = false, inf_apples_ = false;
+    bool debug_ = false, clear_debug_ = false;
 };
 
 }  // namespace
