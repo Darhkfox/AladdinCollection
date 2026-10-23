@@ -620,12 +620,13 @@ private:
             }
             return;
         }
-        // Below the playfield (lines 176-191) the stages show blank rows in colour 0 (black, Jafar's room red), or the
-        // text box of a story moment (the lamp's chamber): the sides are that blank colour, the box stays 256 px wide.
+        // Below the playfield (lines 176-191) the stages show blank rows (black, Jafar's room red: in either palette's
+        // colour 0, depending on the stage), or the text box of a story moment (the lamp's chamber): the sides take the
+        // colour the original picture shows at its own edges, so the box stays 256 px wide.
         // (Sprites stay: they can cross the border as in the original.)
         if (line >= 176) {
-            std::memset(bg, 0, E);
-            std::memset(bg + 256 + E, 0, E);
+            std::memset(bg, bg[E] & 0x1F, E);
+            std::memset(bg + 256 + E, bg[E + 255] & 0x1F, E);
             return;
         }
         // status bar: the stone counter (x 192..255) goes to the right edge; the gems stay in the middle
