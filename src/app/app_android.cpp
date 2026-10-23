@@ -9,15 +9,17 @@
 #include <algorithm>
 
 namespace {
-// The widest widescreen mode that fits the screen (square pixels), for the first start. The display's own size,
+// The widest widescreen mode that fits the screen, for the first start. The display's own size,
 // held landscape: the window can start out in another orientation or without the system bars' room.
 WideMode widest_fitting() {
     SDL_DisplayMode d;
     if (SDL_GetDesktopDisplayMode(0, &d) != 0 || d.w <= 0 || d.h <= 0) return WideMode::W16x9;
     const float aspect = (float)std::max(d.w, d.h) / std::min(d.w, d.h);
     WideMode best = WideMode::Off;
+    // (each mode is the picture's shape, on every console)
+    static const float shape[(int)WideMode::Count] = {4.0f / 3.0f, 16.0f / 10.0f, 16.0f / 9.0f, 2.0f, 43.0f / 18.0f};
     for (int m = 0; m < (int)WideMode::Count; m++)
-        if ((320.0f + 2 * wide_ext((WideMode)m)) / 224.0f <= aspect + 0.01f) best = (WideMode)m;
+        if (shape[m] <= aspect + 0.01f) best = (WideMode)m;
     return best;
 }
 
