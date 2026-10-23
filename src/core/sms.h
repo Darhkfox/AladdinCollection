@@ -66,6 +66,9 @@ public:
     std::function<void(Sms&)> on_frame_start, on_vblank, on_frame_end;
     // RAM write watch: called after every write to work RAM when set (addr $C000-$DFFF).
     std::function<void(Sms&, uint16_t addr, uint8_t value)> on_ram_write;
+    // VRAM / CRAM write watch (tools): called before every data-port write when set (addr = the VDP address,
+    // cram = a palette write).
+    std::function<void(Sms&, uint16_t addr, uint8_t value, bool cram)> on_vdp_write;
 
     // RAM / ROM helpers (address = Z80 address in $C000-$FFFF, or ROM offset)
     uint8_t  ram8(uint16_t a) const { return ram[a & 0x1FFF]; }

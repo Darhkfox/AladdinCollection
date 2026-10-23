@@ -50,10 +50,22 @@ public:
     // lie beyond its left / right edge), vrow = (line + vscroll) / 8 (rows 0-27 the table, 28+ wrapped). Return
     // the 13-bit entry (pattern, flips, palette, priority) or -1 to use the hardware table (wrapping).
     int  hw_x0 = 0, hw_x1 = 256;
+    // bg_entry may set bit 15 of an entry: that cell's pattern comes from alt_patterns (32 bytes a tile, from tile
+    // alt_first, alt_count of them) instead of VRAM - a module's copy of tiles the game has reloaded with other
+    // graphics since (or not yet). The module may point it elsewhere from one bg_entry call to the next.
+    const uint8_t* alt_patterns = nullptr;
+    int  alt_first = 0, alt_count = 0;
     int  (*bg_entry)(void* host, int line, int vcol, int vrow) = nullptr;
     // A sprite's screen X (default: its table X, less 8 when reg 0 bit 3 shifts sprites): lets a module place a
     // sprite in the extension, beyond the 8-bit X of the hardware. index = SAT index; x, y, pattern from the table.
     int  (*sprite_x)(void* host, int index, int x, int y, int pattern) = nullptr;
+    // Sprites a module adds after the table's 64 (widescreen: pieces of objects a game could not fit in its table).
+    // Same meaning as the table's entries (y = the line above the sprite's first, pattern before reg 6 bit 2), with
+    // the true screen X; drawn behind the table's sprites. Not kept in save states (the module sets them every frame).
+    struct ExtraSprite { int16_t x; uint8_t y, pattern; };
+    static constexpr int kMaxExtra = 64;
+    ExtraSprite extra[kMaxExtra];
+    int  extra_count = 0;
     // Called after a line's layers are rendered, before composition: a module can rewrite the line buffers
     // (index = screen x + ext). Format: bit 7 priority (background) / opaque (sprites), bit 4 palette (sprites
     // use the upper 16 colours), bits 3-0 colour index (0 = transparent).
@@ -80,6 +92,7 @@ public:
     // Frame buffer: 6-bit colours (--BBGGRR), kSpritePixel set on sprite pixels when mark_sprites.
     uint8_t fb[kMaxLines][kMaxWidth];
     int  fb_width = 256;            // width of the last rendered frame (256 + 2 * ext)
+    uint8_t line_hscroll[kMaxLines] = {};   // the horizontal scroll each line was drawn with (tools)
     int  fb_lines = 192;
 
     // ---- memory / registers ----------------------------------------------------

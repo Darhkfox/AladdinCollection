@@ -22,6 +22,7 @@ void SmsVdp::reset() {
     read_buffer = 0;
     hcount_latch = 0;
     line = 0;
+    extra_count = 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -116,6 +117,8 @@ void SmsVdp::pattern_row(uint16_t e, int row, uint8_t* out) const {
     const uint8_t pri = (e & 0x1000) ? 0x80 : 0;
     const int r = vflip ? 7 - (row & 7) : (row & 7);
     const uint8_t* p = &vram[(pat * 32 + r * 4) & 0x3FFF];
+    if ((e & 0x8000) && alt_patterns && pat >= alt_first && pat < alt_first + alt_count)
+        p = alt_patterns + (pat - alt_first) * 32 + r * 4;
     for (int i = 0; i < 8; i++) {
         const int bit = hflip ? i : 7 - i;
         const uint8_t c = (uint8_t)(((p[0] >> bit) & 1) | (((p[1] >> bit) & 1) << 1) | (((p[2] >> bit) & 1) << 2) |
@@ -140,7 +143,7 @@ void SmsVdp::render_bg(uint8_t* dst, int ln, int x0, int x1) {
             const int yy = locked ? ln : ln + vscroll_latch;
             int e = -1;
             if (outside && bg_entry) e = bg_entry(hook_host, ln, vcol, yy >> 3);
-            if (e < 0) e = name_entry(vcol & 31, (yy % 224) >> 3);
+            if (e < 0) e = name_entry(vcol & 31, (yy % 224) >> 3) & 0x7FFF;   // (bit 15: alt_patterns, modules only)
             pattern_row((uint16_t)e, yy & 7, row8);
         }
         dst[x - x0] = row8[tx & 7];
@@ -153,21 +156,33 @@ void SmsVdp::render_sprites(uint8_t* dst, int ln) {
     const int h = (tall ? 16 : 8) * (zoom ? 2 : 1);
     const int lo = -ext, hi = 256 + ext;
     int count = 0;
-    for (int i = 0; i < 64; i++) {
-        const int y = vram[(sat + i) & 0x3FFF];
-        if (y == 0xD0) break;                           // end of the list (192-line mode)
+    // the table's 64 entries (up to a $D0 Y), then the module's extra ones
+    const int n_table = 64;
+    for (int i = 0; i < n_table + extra_count; i++) {
+        int y, x, pat;
+        if (i < n_table) {
+            y = vram[(sat + i) & 0x3FFF];
+            if (y == 0xD0) { i = n_table - 1; continue; }   // end of the list (192-line mode)
+            x = vram[(sat + 0x80 + i * 2) & 0x3FFF];
+            pat = vram[(sat + 0x81 + i * 2) & 0x3FFF];
+        } else {
+            const ExtraSprite& e = extra[i - n_table];
+            y = e.y;
+            x = e.x;
+            pat = e.pattern;
+        }
         const int dy = (ln - (y + 1)) & 0xFF;
         if (dy >= h) continue;
         if (++count > 8) {
             status |= 0x40;
             if (sprite_limit) break;
         }
-        int x = vram[(sat + 0x80 + i * 2) & 0x3FFF];
-        int pat = vram[(sat + 0x81 + i * 2) & 0x3FFF];
         if (reg[6] & 0x04) pat |= 0x100;
         if (tall) pat &= ~1;
-        if (reg[0] & 0x08) x -= 8;
-        if (sprite_x) x = sprite_x(hook_host, i, x, y, pat);
+        if (i < n_table) {
+            if (reg[0] & 0x08) x -= 8;
+            if (sprite_x) x = sprite_x(hook_host, i, x, y, pat);
+        }
         const int row = zoom ? dy >> 1 : dy;
         const uint8_t* p = &vram[((pat + (row >> 3)) * 32 + (row & 7) * 4) & 0x3FFF];
         const int step = zoom ? 2 : 1;
@@ -193,6 +208,7 @@ void SmsVdp::render_line(int ln) {
     fb_width = W;
     fb_lines = active_lines();
     uint8_t* out = fb[ln];
+    line_hscroll[ln] = (uint8_t)hscroll_for(ln);
     const uint8_t backdrop = cram[16 + (reg[7] & 0x0F)];
     if (!display_enabled()) {
         memset(out, backdrop, W);
@@ -264,5 +280,6 @@ void SmsVdp::load_state(const uint8_t* src) {
     addr = s.addr;
     line = s.line;
     memcpy(vram, src + sizeof(s), sizeof(vram));
+    extra_count = 0;
     update_irq();
 }

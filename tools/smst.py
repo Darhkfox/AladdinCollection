@@ -44,8 +44,15 @@ for _n in ['smst_ram', 'smst_vram', 'smst_cram', 'smst_vdp_regs', 'smst_rom', 's
 _dll.smst_rom_size.argtypes = [C.c_void_p]
 _dll.smst_peek.argtypes = [C.c_void_p, C.c_int]
 _dll.smst_set_ext.argtypes = [C.c_void_p, C.c_int, C.c_int]
+_dll.smst_vdp_extra.argtypes = [C.c_void_p, C.POINTER(C.c_int), C.c_int]
+_dll.smst_module_state.restype = C.c_uint32
+_dll.smst_module_state.argtypes = [C.c_void_p, C.c_int]
+_dll.smst_line_hscroll.restype = C.POINTER(C.c_uint8)
+_dll.smst_line_hscroll.argtypes = [C.c_void_p]
 _dll.smst_debug_layers.argtypes = [C.c_void_p, C.c_int]
 _dll.smst_get_cpu.argtypes = [C.c_void_p, C.POINTER(C.c_uint32)]
+_dll.smst_set_cpu.argtypes = [C.c_void_p, C.c_int, C.c_uint32]
+_dll.smst_write.argtypes = [C.c_void_p, C.c_int, C.c_int]
 _dll.smst_frame.argtypes = [C.c_void_p, C.POINTER(C.c_uint32), C.POINTER(C.c_int), C.POINTER(C.c_int)]
 _dll.smst_save_png.argtypes = [C.c_void_p, C.c_char_p, C.c_int]
 _dll.smst_write_png.argtypes = [C.c_char_p, C.POINTER(C.c_uint32), C.c_int, C.c_int, C.c_int]
@@ -58,6 +65,8 @@ _dll.smst_bp_clear.argtypes = [C.c_void_p]
 _dll.smst_bp_log.argtypes = [C.c_void_p, C.POINTER(C.c_uint32), C.c_int]
 _dll.smst_watch.argtypes = [C.c_void_p, C.c_uint32, C.c_uint32]
 _dll.smst_watch_log.argtypes = [C.c_void_p, C.POINTER(C.c_uint32), C.c_int]
+_dll.smst_vdp_watch.argtypes = [C.c_void_p, C.c_uint32, C.c_uint32]
+_dll.smst_vdp_log.argtypes = [C.c_void_p, C.POINTER(C.c_uint32), C.c_int]
 _dll.smst_state_size.argtypes = [C.c_void_p]
 _dll.smst_save_state.argtypes = [C.c_void_p, C.POINTER(C.c_uint8), C.c_int]
 _dll.smst_load_state.argtypes = [C.c_void_p, C.POINTER(C.c_uint8), C.c_int]
@@ -175,9 +184,35 @@ class SMS:
         _dll.smst_get_cpu(self.h, out)
         return dict(zip(CPU_NAMES, out))
 
+    def set_cpu(self, name, v):
+        """sets a register ('pc', 'sp', 'af', ... or 'iff1')"""
+        _dll.smst_set_cpu(self.h, CPU_NAMES.index(name), v)
+
+    def write(self, a, v):
+        """a bus write (RAM, mapper registers at $FFFC-$FFFF)"""
+        _dll.smst_write(self.h, a, v)
+
+    def goto_mode(self, mode):
+        """Aladdin: restarts the main loop (rst $28) in game mode `mode` ($C200)"""
+        self.set8(0xC200, mode)
+        self.set_cpu('pc', 0x0028)
+
     # ---- video ----
     def set_ext(self, ext, sprite_limit=None):
         _dll.smst_set_ext(self.h, ext, (1 if ext == 0 else 0) if sprite_limit is None else int(sprite_limit))
+
+    def extra_sprites(self):
+        """the module's extra sprites for the next frame: [(x, y, pattern)]"""
+        buf = (C.c_int * 192)()
+        n = _dll.smst_vdp_extra(self.h, buf, 64)
+        return [tuple(buf[i * 3:i * 3 + 3]) for i in range(n)]
+
+    def module_state(self, i):
+        return _dll.smst_module_state(self.h, i)
+
+    def line_hscroll(self):
+        """the horizontal scroll each line of the last frame was drawn with"""
+        return list(C.cast(_dll.smst_line_hscroll(self.h), C.POINTER(C.c_uint8 * 240)).contents)
 
     def layers(self, mask):
         _dll.smst_debug_layers(self.h, mask)
@@ -233,6 +268,25 @@ class SMS:
         buf = (C.c_uint32 * (4 * 4096))()
         while True:
             n = _dll.smst_watch_log(self.h, buf, 4096)
+            for i in range(n):
+                f, pc, a, v = buf[i * 4:(i + 1) * 4]
+                out.append((f, pc, a & 0xFFFF, a >> 16, v))
+            if n < 4096:
+                return out
+
+    def vdp_watch(self, lo, hi=None):
+        """logs VRAM writes in [lo, hi] (CRAM writes as $8000 | index)"""
+        _dll.smst_vdp_watch(self.h, lo, lo if hi is None else hi)
+
+    def vdp_watch_off(self):
+        _dll.smst_vdp_watch(self.h, 1, 0)
+
+    def vdp_log(self):
+        """[(frame, pc, addr, line, value)]"""
+        out = []
+        buf = (C.c_uint32 * (4 * 4096))()
+        while True:
+            n = _dll.smst_vdp_log(self.h, buf, 4096)
             for i in range(n):
                 f, pc, a, v = buf[i * 4:(i + 1) * 4]
                 out.append((f, pc, a & 0xFFFF, a >> 16, v))
@@ -309,3 +363,36 @@ class SMS:
 def write_png(path, px, w, h, scale=1):
     buf = (C.c_uint32 * len(px))(*px)
     return _dll.smst_write_png(path.encode('mbcs'), buf, w, h, scale)
+
+
+# ---- achievement detectors on RAM images (headless checks of the module's achievement_frame) ----
+_dll.smst_ach_create.restype = C.c_void_p
+_dll.smst_ach_create.argtypes = [C.c_char_p]
+_dll.smst_ach_destroy.argtypes = [C.c_void_p]
+_dll.smst_ach_reset.argtypes = [C.c_void_p, C.c_int, C.c_uint32, C.POINTER(C.c_uint8)]
+_dll.smst_ach_step.argtypes = [C.c_void_p, C.POINTER(C.c_uint8), C.POINTER(C.c_int), C.c_int]
+_dll.smst_ach_run_bits.restype = C.c_uint32
+_dll.smst_ach_run_bits.argtypes = [C.c_void_p]
+
+
+class Ach:
+    """feeds RAM images to the module's achievement_frame: step(ram) -> [(kind, value, index)]
+    (kind 0 unlocked, 1 counted, 2 marked (value = bit), 3 progress (value = count))"""
+
+    def __init__(self, gid='sms', run_counts=True):
+        self.h = _dll.smst_ach_create(gid.encode())
+        _dll.smst_ach_reset(self.h, 1 if run_counts else 0, 0, None)
+
+    def __del__(self):
+        if getattr(self, 'h', None):
+            _dll.smst_ach_destroy(self.h)
+
+    def step(self, ram):
+        buf = (C.c_uint8 * 0x2000).from_buffer_copy(bytes(ram))
+        out = (C.c_int * 64)()
+        n = _dll.smst_ach_step(self.h, buf, out, 64)
+        return [((v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF) for v in out[:n]]
+
+    @property
+    def run_bits(self):
+        return _dll.smst_ach_run_bits(self.h)
