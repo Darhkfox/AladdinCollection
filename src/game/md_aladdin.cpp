@@ -103,10 +103,12 @@ constexpr uint32_t CAVE_LSPAWN = CAVE, CAVE_RSPAWN = CAVE + 0x80, CAVE_ROWSPAWN 
 // screen x -16-d) and L/16+22 (right, 336-d), |d| < 16, just outside its view. Spawning k = E/16 (rounded up) columns
 // further out keeps the same margin outside the widened view.
 int ext_blocks(int E) { return (E + 15) / 16; }
-int sprite_bias(int E) { return E > 96 ? 64 : 0; }          // object sprites drawn this far right in VDP X (see sprite_xoff)
+// Object sprites may start this far left of VDP X 0 (as negative X, read by the VDP's 10-bit mode): a 32-px piece just
+// entering the view's left edge at screen x -E.
+int sprite_left(int E) { return std::max(0, E - 96); }
 
 std::vector<RomPatch> wide_patches(int E) {
-    const uint16_t kl = (uint16_t)ext_blocks(E), kr = kl, o = (uint16_t)sprite_bias(E);
+    const uint16_t kl = (uint16_t)ext_blocks(E), kr = kl, o = (uint16_t)sprite_left(E);
     auto ff = [](size_t n) { return std::vector<uint16_t>(n, 0xFFFF); };
     // after the left column writer's own spawn (column L), the column L-16kl (if >= 1)
     std::vector<uint16_t> lspawn = {
@@ -155,11 +157,11 @@ std::vector<RomPatch> wide_patches(int E) {
         0x43F8, 0x4154,                            // lea $4154.w, a1
         0x45F9, 0x00FF, 0xAE87,                    // lea $FFAE87, a2
         0x4E75};
-    // object sprite clip: VDP X in [0, 448+E) (+ the bias)
+    // object sprite clip: VDP X in [-o, 448+E) instead of [0, 447) (the compare on a copy biased by o: the X written
+    // stays the piece's own, negative left of X 0)
     std::vector<uint16_t> clip = {0x9647};         // sub.w d7, d3 (the replaced instruction)
-    if (o) { clip.push_back(0x0643); clip.push_back(o); }
-    clip.push_back(0x0C43);
-    clip.push_back((uint16_t)(448 + E + o));
+    if (o) clip.insert(clip.end(), {0x3F03, 0x0657, o, 0x0C5F, (uint16_t)(448 + E + o)});   // move.w d3, -(a7); addi.w #o, (a7); cmpi.w #lim, (a7)+
+    else clip.insert(clip.end(), {0x0C43, (uint16_t)(448 + E)});                           // cmpi.w #lim, d3
     clip.push_back(0x4E75);
     return {
         {0x1AB446, {0x6100, 0x2FB4}, {0x4EB8, (uint16_t)CAVE_LSPAWN}},
@@ -177,12 +179,19 @@ std::vector<RomPatch> wide_patches(int E) {
         // sprite clip: map objects (sub.w d7, d3; cmpi.w #$1BF, d3 -> jsr CAVE_CLIP; nop) and screen-fixed ones
         {0x1ABAD0, {0x9647, 0x0C43, 0x01BF}, {0x4EB8, (uint16_t)CAVE_CLIP, 0x4E71}},
         {CAVE_CLIP, ff(clip.size()), clip},
-        {0x1ABA8C, {0x0443, 0x0080, 0x0C43, 0x01BF}, {0x0443, (uint16_t)(0x80 - o), 0x0C43, (uint16_t)(448 + E + o)}},
+        {0x1ABA8C, {0x0443, 0x0080, 0x0C43, 0x01BF}, {0x0443, 0x0080, 0x0C43, (uint16_t)(448 + E)}},
     };
 }
 
 bool in_gameplay(const MegaDrive& md) {
     return md.module_state[MS_PLAY] != 0 && (uint32_t)md.frame_count + 1 - md.module_state[MS_PLAY] <= 4;
+}
+
+// Gameplay shown wide: all but Abu's bonus rounds (a 336-px room) and the Rug Ride, whose obstacles are sent in at the
+// 4:3 view's right edge on a timer (wider, they would pop up in the middle of the right extension). Those stay 4:3.
+bool wide_view(const MegaDrive& md) {
+    const int level = md.ram8(LEVEL);
+    return in_gameplay(md) && level != L_ABU_AGRABAH && level != L_ABU_CAVE && level != L_RUG_RIDE;
 }
 
 // The status bar's sprites (the lamp and its smoke, Aladdin's face and lives top-left / bottom-left; apples, gems
@@ -194,11 +203,8 @@ int sprite_xoff(void* host, int index, uint16_t attr, int x, int y) {
     const MegaDrive& md = *(const MegaDrive*)host;
     if (!in_gameplay(md)) return 0;
     const int E = md.vdp.ext;
-    if (hud_tile(attr & 0x7FF)) {
-        if (!(md.vdp.hook_flags & 1)) return 0;
-        return x < 0x100 ? -E : E;
-    }
-    return -sprite_bias(E);
+    if (!hud_tile(attr & 0x7FF) || !(md.vdp.hook_flags & 1) || !wide_view(md)) return 0;
+    return x < 0x100 ? -E : E;
 }
 
 // The line's horizontal scroll for a plane (H scroll table, reg 11 mode).
@@ -274,10 +280,8 @@ void line_hook(void* host, int line, uint8_t* plane_a, uint8_t* plane_b, uint8_t
     MegaDrive& md = *(MegaDrive*)host;
     VDP& v = md.vdp;
     v.edge_mask_l = v.edge_mask_r = 0;
-    if (!in_gameplay(md)) return;
-    // The Rug Ride doesn't stream: plane A is one 512-px loop of the lava cave the camera runs along (its "map" is
-    // nominal), so the VDP's own wrap-around is right.
-    if (md.ram8(LEVEL) == L_RUG_RIDE) return;
+    // (The Rug Ride doesn't stream: plane A is one 512-px loop of the lava cave the camera runs along, its "map" nominal.)
+    if (!wide_view(md)) return;
     const bool swapped = md.ram8(SWAP_PLANES) != 0;
     const LineView lv = line_view(md, line, swapped);
     draw_map_ext(md, lv, swapped ? plane_b : plane_a);
@@ -390,7 +394,7 @@ public:
         md.vdp.sprite_xoff = wide ? sprite_xoff : nullptr;
         md.vdp.sprite_is_hud = wide ? sprite_is_hud : nullptr;
         md.vdp.edge_mask_l = md.vdp.edge_mask_r = 0;
-        md.vdp.sprite_x10 = wide && 448 + cfg.ext + sprite_bias(cfg.ext) > 512;
+        md.vdp.sprite_x10 = false;   // (per frame: post_frame)
         md.vdp.hook_host = &md;
         md.vdp.hook_flags = cfg.hud_anchor ? 1 : 0;
     }
@@ -415,12 +419,11 @@ public:
     }
 
     void post_frame(MegaDrive& md, const GameConfig& cfg, FrameInfo& info) override {
+        // (the level-edge masks are drawn per line by line_hook, so the HUD stays over them)
+        info.gameplay = wide_view(md);
+        // Sprite X read as 10 bits only in play (the other screens, shown 4:3, may leave junk in the upper bits)
         const int E = cfg.ext;
-        const int level = md.ram8(LEVEL);
-        // Shown 4:3: Abu's bonus rounds (a 336-px room) and the Rug Ride, whose obstacles are sent in at the 4:3 view's
-        // right edge on a timer (wider, they would pop up in the middle of the right extension).
-        info.gameplay = in_gameplay(md) && level != L_ABU_AGRABAH && level != L_ABU_CAVE && level != L_RUG_RIDE;
-        (void)E;   // (the level-edge masks are drawn per line by line_hook, so the HUD stays over them)
+        md.vdp.sprite_x10 = E > 0 && in_gameplay(md) && (448 + E > 512 || sprite_left(E) > 0);
     }
 
     std::vector<AchievementDef> achievements() const override {
