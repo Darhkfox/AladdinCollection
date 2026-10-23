@@ -32,7 +32,7 @@ constexpr uint32_t kHeartsMax = 0x0365, kHearts = 0x0367;             // ($0366 
 constexpr uint32_t kGems = 0x036B;                                    // BCD ($0369 apples; $0368 / $036A the bar's copies)
 constexpr uint32_t kCamX = 0x1773, kCamY = 0x1777;                   // the camera (BG1 struct + $3B / $3F)
 constexpr uint32_t kCamCentre = 0x1A44;                               // camera + $80 (objects' range tests)
-constexpr uint32_t kCamMaxX = 0x1A04;                                 // the level's last camera x (width - 256)
+constexpr uint32_t kCamMaxX = 0x1A04, kCamMaxY = 0x1A06;              // the level's last camera x (width - 256), y
 constexpr uint32_t kCamLimLo = 0x1A40, kCamLimHi = 0x1A42;            // a zone's camera limits (boss arenas)
 constexpr uint32_t kCamHoldX = 0x1A10, kCamHoldY = 0x1A12;            // nonzero: the camera doesn't follow in x / y
 constexpr uint32_t kBg1Shown = 0x19ED, kBg2Shown = 0x19F5;            // the scroll the NMI writes (+ shake $1A18)
@@ -58,13 +58,16 @@ constexpr uint32_t kDrawTest = 0x8191D4, kDrawIn = 0x8191E3, kDrawOut = 0x81921D
 constexpr uint32_t kKeepTest = 0x83962E, kKeepIn = 0x83963D, kKeepOut = 0x83964C;
 constexpr uint32_t kDrawRanges = 0x80BA02, kKeepRanges = 0x80CE73;
 // Level objects: spawned by 32-px column when the spawner's camera crosses one ($82:A79C, the edge columns camera +
-// $120 / - $40), all at once at a level start ($82:A72C, 12 columns), rows within [camera - $40, camera + $140).
-constexpr uint32_t kSpawnInit = 0x82A72C, kSpawnInitCam = 0x82A75F, kSpawnInitRight = 0x82A767;
+// $120 / - $40), all at once at a level start ($82:A72C, 12 columns), rows within [camera - $40, camera + $140). The
+// level start first sets the spawner up ($82:A93A: its lists and spawned bits at $7E:C100-$C7FF cleared and rebuilt,
+// $82:A73C); kSpawnColumns is the part after that (the edge columns from the camera, then the columns spawned).
+constexpr uint32_t kSpawnInit = 0x82A72C, kSpawnColumns = 0x82A742;
+constexpr uint32_t kSpawnInitCam = 0x82A75F, kSpawnInitRight = 0x82A767;
 constexpr uint32_t kSpawnInitLeft = 0x82A772, kSpawnInitCount = 0x82A77E;
 constexpr uint32_t kSpawnFrameCam = 0x82A7AA, kSpawnRowX = 0x82A876, kSpawnRowIn = 0x82A882, kSpawnRowOut = 0x82A892;
 // The level's main loop (its top: the stack is the task's own, nothing in flight) and its frame wait (the frame's
-// logic done).
-constexpr uint32_t kLevelLoop = 0x8182CF, kLevelWait = 0x8182E6;
+// logic done). The scheduler's way back in ($81:BD28) from any task's wait ($81:BD31), restart ($81:BCF6) or end.
+constexpr uint32_t kLevelLoop = 0x8182CF, kLevelWait = 0x8182E6, kTaskYield = 0x81BD28;
 // The band routines' tables ($81:C84B): by routine (0: Agrabah Rooftops, 2: Agrabah Market) the band count * 2 and the
 // offset of its bands' world-y bounds from $80:C606.
 constexpr uint32_t kBandCount = 0x80C602, kBandBounds = 0x80C606;
@@ -90,12 +93,16 @@ public:
     void configure(Snes& s, const GameConfig& cfg) {
         snes_ = &s;
         cfg_ = cfg;
-        if (ext_ != cfg.ext && level_ && last_ext_ >= 0) respawn_ = true;   // objects for the new width's margins
+        // Objects for the new width's margins: at the level loop's next top (pending through screens that aren't the
+        // loop yet, such as the Underground River's set-up; a level's own start spawn sees the new width anyway).
+        if (ext_ != cfg.ext && last_ext_ >= 0) respawn_ = true;
         if (ext_ != cfg.ext) band_next_.valid = false;   // (the virtual camera jumps with the width: no ratchet move)
         ext_ = cfg.ext;
         last_ext_ = ext_;
         s.ppu.hooks = this;
-        for (uint32_t pc : {kOamPiece, kOamPieceFlip, kOamBuild, kOamDma, kLevelLoop, kLevelWait}) s.markExec(pc, true);
+        for (uint32_t pc :
+             {kOamPiece, kOamPieceFlip, kOamBuild, kOamDma, kLevelLoop, kLevelWait, kTaskYield, kSpawnInit})
+            s.markExec(pc, true);
         if (ext_ > 0)
             for (uint32_t pc : {kDrawTest, kKeepTest, kSpawnInitCam, kSpawnInitRight, kSpawnInitLeft, kSpawnInitCount,
                                 kSpawnFrameCam, kSpawnRowX})
@@ -123,15 +130,23 @@ public:
             return false;
         case kLevelWait:
             logic_done_ = true;
-            s.turboActive = false;   // (Remove Slowdown: the frame's work is done; the wait keeps the console's timing)
+            return false;
+        case kSpawnInit:
+            respawn_ = false;   // (a level's start spawn: for the width set now)
+            return false;
+        case kTaskYield:
+            // Remove Slowdown ends wherever the level's main task gives the CPU back: its frame wait, the pause loop's,
+            // and the restart that leaves the level (an exit, a life lost: the next screen keeps the console's timing).
+            s.turboActive = false;
             return false;
         case kLevelLoop:
-            s.turboActive = s.cpuTurbo > 1;   // Remove Slowdown: the frame's work runs faster up to the frame wait
+            s.turboActive = s.cpuTurbo > 1;   // Remove Slowdown: the frame's work runs faster up to the task's yield
             loop_frame_ = s.frameCount();
             logic_done_ = band_taken_ = false;
             if (respawn_) {
                 // A width change mid-level: the spawner's edge columns move to the new margins, and the game's own
-                // level-start spawn runs again (objects already out are skipped), so the new margins get theirs.
+                // level-start spawn runs again past its set-up, which would clear the spawned bits: objects already
+                // out are skipped by them, so the new margins get only theirs.
                 respawn_ = false;
                 if (ext_ > 0) {
                     r.pb = 0x60;
@@ -235,7 +250,6 @@ public:
             d_off_ = 0;
             band_next_.valid = band_shown_.valid = false;
         }
-        if (!level_) respawn_ = false;
         info.gameplay = level_;
         info.view_left = level_ ? el_ : -1;
     }
@@ -285,7 +299,7 @@ public:
         // game's own code would scroll it with its camera at the picture's middle (band_adj), so where the view stops
         // at a level's end it holds still with the picture and moves exactly as the game moves it.
         if (band_on_) {
-            const int adj = band_adj(p, row);
+            const int adj = band_adj(p, row, line_[1].hi);
             if (adj != 0) {
                 p.bgHofsAdj[1] = (int16_t)adj;
                 if (line_[1].decode) {
@@ -463,7 +477,8 @@ private:
         uint16_t off = 0;
         uint8_t bank = 0;
     };
-    // Patch-ROM stub: the level start's object spawn, then back to the main loop's top.
+    // Patch-ROM stub: the level start's object spawn past its set-up (kSpawnColumns, entered as $82:A72C has it: DP 0,
+    // DB $82, D and B on the stack under the return address), then back to the main loop's top.
     static constexpr uint32_t kStubRespawn = 0x608000;
 
     const Snes* snes_ = nullptr;
@@ -499,8 +514,12 @@ private:
 
     static void write_stub(Snes& s) {
         PatchAsm a(s, kStubRespawn);
-        for (uint8_t b : jsl(kSpawnInit)) a.b8(b);
-        for (uint8_t b : jml(kLevelLoop)) a.b8(b);
+        const uint32_t entry = kStubRespawn + 8;
+        for (uint8_t b : jsl(entry)) a.b8(b);                           // JSL entry
+        for (uint8_t b : jml(kLevelLoop)) a.b8(b);                      // JML $81:82CF
+        a.b({0xE2, 0x30, 0x0B, 0xA9, 0x00, 0x48, 0x48, 0x2B});           // entry: SEP #$30, PHD, LDA #0, PHA x2, PLD
+        a.b({0x8B, 0xA9, 0x82, 0x48, 0xAB});                            // PHB, LDA #$82, PHA, PLB
+        for (uint8_t b : jml(kSpawnColumns)) a.b8(b);                   // JML $82:A742 (its RTL comes back here)
     }
 
     // A level screen: the main task waits in the level's main loop or its pause loop (task 0's saved return address).
@@ -529,15 +548,39 @@ private:
         return rom16(s, ((uint32_t)ll.bank << 16) | (uint16_t)(blk + sub));
     }
 
-    // Where the view stops: the level's ends, [0, last camera x + 256); an arena holding the camera, its screen.
-    // (Not the zones' limits nor the pages the camera can't enter at its height: they change as the camera goes,
-    // and the view would have to pan by itself; past them the margins are dimmed / mirrored instead.)
-    static void span(const Snes& s, int cam, int& lo, int& hi) {
+    // The level's extent: [0, last camera x + 256) without the columns of pages no row of the camera's reach may enter
+    // (bit 15 from top to bottom: the Underground River's first column; the camera never shows them).
+    static void level_extent(const Snes& s, int& lo, int& hi) {
         lo = 0;
         hi = std::max(256, (int16_t)rd16(s, kCamMaxX) + 256);
+        const int rows = (std::max(0, (int)(int16_t)rd16(s, kCamMaxY)) + 223) >> 8;
+        auto wall = [&](int px) {
+            for (int py = 0; py <= rows; py++)
+                if (!barrier(s, px, py)) return false;
+            return true;
+        };
+        int c0 = 0, c1 = (hi - 1) >> 8;
+        while (c0 < c1 && wall(c0)) c0++;
+        while (c1 > c0 && wall(c1)) c1--;
+        lo = c0 * 256;
+        hi = std::min(hi, (c1 + 1) * 256);
+    }
+    // Where the view stops: the level's ends (level_extent); an arena holding the camera, the picture around its
+    // screen - centred on it, kept inside the level where the level is as wide as the picture (an arena at a level's
+    // end: the Cave of Wonders' last event), else centred. (Not the zones' limits nor the pages the camera can't enter
+    // at its height: they change as the camera goes, and the view would have to pan by itself; past them the margins
+    // are dimmed / mirrored instead.)
+    void span(const Snes& s, int cam, int& lo, int& hi) const {
+        level_extent(s, lo, hi);
         if (arena(s)) {
-            lo = cam;
-            hi = cam + 256;
+            const int vw = 256 + 2 * ext_;
+            if (hi - lo >= vw) {
+                lo = std::clamp(cam - ext_, lo, hi - vw);
+                hi = lo + vw;
+            } else {
+                lo = cam;
+                hi = cam + 256;
+            }
         }
     }
     // The camera held in x while it follows in y: a fixed arena (Jafar's). (Both held: a death's fall.)
@@ -582,9 +625,10 @@ private:
     // by the IRQ at line 8 (its NMI sets the table's start and a line count of 1), so the table's second entry
     // reaches row 11. A line whose register isn't the band's value as worked out (a frame the logic didn't finish
     // in) takes it from the register (a sum's low bits unknown: within 1 px). A half-speed line drawn from the level's
-    // data shows a little before its first column there: the page table's border column, which these levels fill with
-    // their background's repeat (and past the end its row goes on), so nothing is mirrored.
-    int band_adj(const Ppu& p, int row) const {
+    // data shows a little before its first column there: the page table's border column, which Agrabah's levels fill
+    // with their background's repeat (and past the end its row goes on), so nothing is mirrored; Jafar's Palace 3's
+    // background at half speed is mirrored past what the game shows of it (`hi`: BG2's extent, decoded lines).
+    int band_adj(const Ppu& p, int row, int& hi) const {
         const Snes& s = *snes_;
         const int mode = rd16(s, kBgMode);
         const int c = band_cam_, v = band_vcam_, h = p.bgHofs(1) & 0x3FF;
@@ -636,6 +680,8 @@ private:
         } else if (mode == 0x10) {
             const int sub = rd16(s, kBgSub);
             dh = phase_x(sub, v) - phase_x(sub, c);
+            // (past what the game shows of it at the level's end its last pages hold other data: mirrored there)
+            if (sub != 0) hi = phase_x(sub, (int16_t)rd16(s, kCamMaxX)) + 256;
         }
         return dh - (v - c);
     }
@@ -643,7 +689,11 @@ private:
     // Where the game's camera can show now (beyond: dimmed): the level, the zone's camera limits, an arena, and the
     // pages the camera may enter in the rows its screen covers (bit 15: a page it may not).
     static void reach(const Snes& s, int cam, int camy, int& lo, int& hi) {
-        span(s, cam, lo, hi);
+        level_extent(s, lo, hi);
+        if (arena(s)) {
+            lo = cam;
+            hi = cam + 256;
+        }
         const int lmin = (int16_t)rd16(s, kCamLimLo), lmax = (int16_t)rd16(s, kCamLimHi);
         lo = std::max(lo, std::min(cam, lmin));
         hi = std::min(hi, std::max(cam, lmax) + 256);
@@ -774,7 +824,10 @@ constexpr uint32_t kAppleThrown = 0x81CE5C;    // STA $0369: one apple fewer
 // NMI ($80:B463; ring $03BF, 32 bytes). A sound effect: JSL $81:FA00 with A = its id (queued). A song: JSL $81:FA23
 // with A = its upload index (command $FA and the song's data block, table $85:8000; the song starts when the upload
 // ends); OPTIONS' B.G.M. test plays upload $10 + n. $F2 (JSL $81:F9F7) stops the music.
-constexpr uint32_t kSfx = 0x81FA00, kSong = 0x81FA23, kMusicStop = 0x81F9F7;
+constexpr uint32_t kSfx = 0x81FA00, kSong = 0x81FA23;
+// The driver's stop commands: $F2 the music only ($81:F9F7), $F1 the effects only, $F0 both (and later songs and
+// effects play as before; $F9 silences the driver for good).
+constexpr uint8_t kStopAll = 0xF0;
 // The music player parks the CPU right after the boot uploads the driver ($81:8021 JSL $80:B4AA, before the logos
 // and their jingle) in a stub in patch ROM that waits for requests in a RAM mailbox (cmd: 1 song, 2 effect, 3 stop).
 constexpr uint32_t kJukeboxPark = 0x818025;
@@ -843,19 +896,20 @@ const Tune kSongs[] = {
     {0x2C, "Jingle", 3, 0},
     {0x33, "Short Jingle", 3, 0},
 };
-// Sound effects (id + $100): the ones whose use was traced are named, the others numbered.
+// Sound effects (id + $100): the ones whose use was traced are named, the others numbered. Not listed: $0D and $17,
+// which key off looping effects ($3F; $2A and $33), and $19 and $29, which sound nothing on their own.
 const Tune kEffects[] = {
     {0x101, "Jump", 0, 0}, {0x102, "Fall", 0, 0}, {0x103, "Throw an Apple", 0, 0}, {0x104, "Effect 04", 0, 0},
     {0x105, "Effect 05", 0, 0}, {0x106, "Land", 0, 0}, {0x107, "Effect 07", 0, 0}, {0x108, "Effect 08", 0, 0},
     {0x109, "Heart / Extra Life", 0, 0}, {0x10A, "Effect 0A", 0, 0}, {0x10B, "Pick Up", 0, 0},
-    {0x10C, "Cursor", 0, 0}, {0x10D, "Effect 0D", 0, 0}, {0x10E, "Pause", 0, 0}, {0x10F, "Enemy Hit", 0, 0},
+    {0x10C, "Cursor", 0, 0}, {0x10E, "Pause", 0, 0}, {0x10F, "Enemy Hit", 0, 0},
     {0x110, "Effect 10", 0, 0}, {0x111, "Effect 11", 0, 0}, {0x112, "Enemy Defeated", 0, 0},
     {0x113, "Effect 13", 0, 0}, {0x114, "Effect 14", 0, 0}, {0x115, "Effect 15", 0, 0}, {0x116, "Effect 16", 0, 0},
-    {0x117, "Effect 17", 0, 0}, {0x118, "Effect 18", 0, 0}, {0x119, "Effect 19", 0, 0}, {0x11A, "Explosion", 0, 0},
+    {0x118, "Effect 18", 0, 0}, {0x11A, "Explosion", 0, 0},
     {0x11B, "Effect 1B", 0, 0}, {0x11C, "Effect 1C", 0, 0}, {0x11D, "Effect 1D", 0, 0}, {0x11E, "Effect 1E", 0, 0},
     {0x11F, "Effect 1F", 0, 0}, {0x120, "Effect 20", 0, 0}, {0x121, "Effect 21", 0, 0}, {0x122, "Effect 22", 0, 0},
     {0x123, "Effect 23", 0, 0}, {0x124, "Effect 24", 0, 0}, {0x125, "Effect 25", 0, 0}, {0x126, "Effect 26", 0, 0},
-    {0x127, "Effect 27", 0, 0}, {0x128, "Secret", 0, 0}, {0x129, "Effect 29", 0, 0}, {0x12A, "Effect 2A", 0, 0},
+    {0x127, "Effect 27", 0, 0}, {0x128, "Secret", 0, 0}, {0x12A, "Effect 2A", 0, 0},
     {0x12B, "Effect 2B", 0, 0}, {0x12C, "Effect 2C", 0, 0}, {0x12D, "Effect 2D", 0, 0}, {0x12E, "Effect 2E", 0, 0},
     {0x12F, "Effect 2F", 0, 0}, {0x130, "Effect 30", 0, 0}, {0x131, "Gem", 0, 0}, {0x132, "Effect 32", 0, 0},
     {0x133, "Effect 33", 0, 0}, {0x134, "Effect 34", 0, 0}, {0x135, "Effect 35", 0, 0}, {0x136, "Effect 36", 0, 0},
@@ -1009,7 +1063,7 @@ public:
             {"inf_lives", "Infinite Lives", "Losing a life never lowers the lives counter."},
             {"inf_apples", "Infinite Apples", "Throwing an apple never uses one up."},
             {"inf_gems", "Infinite Gems", "The gem counter stays at 99: every gem picked up completes a hundred (an extra heart, then an extra life)."},
-            {"debug_mode", "Debug Mode", "The game's own developer mode: 10 hearts and 99 apples when a game starts, and a stage select on the title screen (left / right: stage, up / down: act)."},
+            {"debug_mode", "Debug Mode", "The game's own developer mode: 10 hearts and 99 apples when a game starts, and a stage select on the title screen (hold L or R: up / down for the stage, left / right for the act)."},
         };
     }
 
@@ -1062,8 +1116,8 @@ public:
             {"snes_stage_clean", "Riffraff, Street Rat", "Clear a whole stage, from its first part to STAGE CLEAR, without losing a life."},
             {"snes_untouched", "Not a Scratch", "Clear a part of a stage from its start without losing a single heart."},
             {"snes_wheel", "Break Time!", "Collect a Genie token in a stage and spin the Genie's bonus wheel."},
-            {"snes_hearts", "Heart of Gold", "Raise Aladdin's hearts to the full ten."},
-            {"snes_gems", "Treasure of the Cave", "Collect a hundred gems."},
+            {"snes_hearts", "Heart of Gold", "Raise Aladdin's hearts to the full ten.", false, 10},
+            {"snes_gems", "Treasure of the Cave", "Collect a hundred gems.", false, 100},
             {"snes_lives", "Nine Lives", "Have nine spare lives at once.", true},
             {"snes_jafar_flawless", "Never Had a Friend Like Me", "Beat Jafar's final stage without losing a single heart.", true},
             {"snes_debug", "Developer's Secret", "Discover Capcom's developer code on the OPTIONS screen.", true},
@@ -1116,6 +1170,8 @@ public:
             sc[S_ACT_CLEAN] = cp + 1;
             if (s.b(kAct) == 0 && (before < 0 || kLevelStage[before] != kLevelStage[cp])) sc[S_STAGE_CLEAN] = kLevelStage[cp] + 1;
             if (pp == kScreenContinue) sc[S_STAGE_CLEAN] = 0;   // (restarted after a game over)
+            c.progress.push_back({A_HEARTS, std::min<int>(10, s.b(kHeartsMax))});
+            c.progress.push_back({A_GEMS, (s.b(kGems) >> 4) * 10 + (s.b(kGems) & 15)});
         }
         if (cp < kScreenFirst && cp == pp && level_now) {
             if (s.b(kLives) < p.b(kLives)) sc[S_STAGE_CLEAN] = 0;
@@ -1123,6 +1179,10 @@ public:
             if (s.b(kHeartsMax) >= 10 && p.b(kHeartsMax) < 10) fire(A_HEARTS);
             if (s.b(kLives) >= 10 && p.b(kLives) < 10) fire(A_LIVES);
             if (p.b(kGems) >= 0x90 && s.b(kGems) < 0x10) fire(A_GEMS);   // (a hundred: the counter starts over)
+            // progress: the hearts' maximum (3-10) and the gem counter (BCD 0-99), whenever either goes up
+            if (s.b(kHeartsMax) > p.b(kHeartsMax)) c.progress.push_back({A_HEARTS, std::min<int>(10, s.b(kHeartsMax))});
+            const int gems = (s.b(kGems) >> 4) * 10 + (s.b(kGems) & 15), pgems = (p.b(kGems) >> 4) * 10 + (p.b(kGems) & 15);
+            if (gems > pgems) c.progress.push_back({A_GEMS, gems});
         }
         // A level left forward: the next part, the STAGE CLEAR or bonus wheel, the ending (not a game over).
         if (pp < kScreenFirst && cp != pp &&
@@ -1170,18 +1230,20 @@ private:
         a.b({0xCB});                                        // WAI
         a.b({0xAD}); a.w16((uint16_t)kMailCmd);             // LDA cmd
         a.b({0xF0, (uint8_t)(loop - (a.pc + 2))});          // BEQ loop
-        a.b({0xC9, 0x01, 0xD0, 0x12});                      // CMP #1 / BNE +18
+        a.b({0xC9, 0x01, 0xD0, 0x16});                      // CMP #1 / BNE not_song (+22)
         a.b({0xAD}); a.w16((uint16_t)kMailBefore);          // LDA before
-        a.b({0xF0, 0x04});                                  // BEQ +4
+        a.b({0xF0, 0x08});                                  // BEQ play_id (+8)
         for (uint8_t b : jsl(kSong)) a.b8(b);               // JSL song (the one played ahead)
-        a.b({0xAD}); a.w16((uint16_t)kMailId);              // LDA id
+        a.b({0xCB, 0xCB, 0xCB, 0xCB});                      // WAI x4: it starts and sets the driver up first
+        a.b({0xAD}); a.w16((uint16_t)kMailId);              // play_id: LDA id
         for (uint8_t b : jsl(kSong)) a.b8(b);               // JSL song
-        a.b({0x80, 0x11});                                  // BRA done
-        a.b({0xC9, 0x02, 0xD0, 0x09});                      // CMP #2 / BNE +9
+        a.b({0x80, 0x13});                                  // BRA done (+19)
+        a.b({0xC9, 0x02, 0xD0, 0x09});                      // not_song: CMP #2 / BNE stop (+9)
         a.b({0xAD}); a.w16((uint16_t)kMailId);              // LDA id
         for (uint8_t b : jsl(kSfx)) a.b8(b);                // JSL effect
-        a.b({0x80, 0x04});                                  // BRA done
-        for (uint8_t b : jsl(kMusicStop)) a.b8(b);          // JSL stop
+        a.b({0x80, 0x06});                                  // BRA done (+6)
+        a.b({0xA9, kStopAll});                              // stop: LDA #$F0
+        for (uint8_t b : jsl(kSfx)) a.b8(b);                // JSL queue (stop: music and effects)
         a.b({0xE2, 0x30});                                  // done: SEP #$30
         a.b({0x9C}); a.w16((uint16_t)kMailCmd);             // STZ cmd
         a.b({0x80, (uint8_t)(loop - (a.pc + 2))});          // BRA loop

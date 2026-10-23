@@ -70,7 +70,8 @@ the game moves it; where the view is centred, v = camera and nothing changes. H 
   whatever the camera does, but band 9, which is the camera: every line holds still (H independent of the camera),
   band 9's moves with BG1.
 - `$10` Jafar's Palace 3 (`$81:C9F2`, phase `$0841`): the camera; from its last part (phase 2, 4) at half speed past
-  `$1000` (`$81:CA55`).
+  `$1000` (`$81:CA55`). Past what the game shows of it at the level's end (`phase($1A04) + 256`) its page row holds
+  other data (a block of zigzag tiles at 21:9): mirrored there.
 - `$12` the Carpet Escape's wave: placed by its object at its world position (`$83:F244`: camera + `$80` - x), `$14`
   Sultan's Dungeon 3 (`$81:CA6A`): the camera (its y moves by itself): both move with BG1 - no shift.
 
@@ -81,7 +82,7 @@ worked-out value takes the sum from the register (its low bits unknown: within 1
 the level's data shows up to ext / 2 px before its first column at the level's start: these levels fill the page
 table's border column (page -1) with their background's repeat (Agrabah Market's town: `$1800`, `$1600`, `$1800`, ...;
 the Market at Dusk's `$0200`, `$0000`, `$0200`, ...), so it is drawn from there, not mirrored as the parallax levels'
-(whose border column is empty in places: Desert Ruins); at the right end the page row goes on past what the game
+(whose border column is empty in places: Desert Ruins); at the right end their page rows go on past what the game
 shows. `tools/re/snes_motion.py` checks every band against the game's own move of it, from the registers
 (`Ppu::lineRegs`, `snt.py line_regs`).
 
@@ -90,13 +91,17 @@ shows. `tools/re/snes_motion.py` checks every band against the game's own move o
 The picture is the game's 256 px plus `extL` / `extR` (`Ppu::setExt` at the first line; the PPU's `kMaxExt` is now 288
 so one side can take both extensions, 2 x 140).
 
-**Where the view stops** (`span`): at the level's ends, `[0, $1A04 + 256)`, and on an arena's screen when the camera is
-held in x while free in y (`$1A10` set, `$1A12` clear: Jafar). The view is centred on the camera and stops there; a
-span narrower than the picture is centred. That is where every layer can follow a view that stays still while the
-game's camera moves (`can_stop`): BG1, and BG2 in every level's mode - at a known speed (`$083F` modes 0-8, the parallax
-shift) or as the game scrolls it itself (`$0A-$14`: raster bands, phases, an object; section 2). (A first version
-kept the view centred in those seven levels, with the level mirrored and dimmed past their ends; before that they
-stopped with the bands sliding against the still picture.) A mode outside those would keep the view centred.
+**Where the view stops** (`span`): at the level's ends, `[0, $1A04 + 256)` less the columns of pages no row the
+camera reaches may enter (bit 15 top to bottom: `level_extent`; the Underground River's first 256 px, where its camera
+never goes - a first version stopped at 0 there and showed that column dimmed and mirrored), and on an arena's screen
+when the camera is held in x while free in y (`$1A10` set, `$1A12` clear: Jafar, the Cave of Wonders' last event). The
+view is centred on the camera and stops there; an arena's picture is centred on its screen but kept inside the level
+where the level is as wide as the picture (the Cave's end: centred, it went a pixel past the level's end once the
+offset closed); a span narrower than the picture is centred. That is where every layer can follow a view that stays
+still while the game's camera moves (`can_stop`): BG1, and BG2 in every level's mode - at a known speed (`$083F` modes
+0-8, the parallax shift) or as the game scrolls it itself (`$0A-$14`: raster bands, phases, an object; section 2). (A
+first version kept the view centred in those seven levels, with the level mirrored and dimmed past their ends; before
+that they stopped with the bands sliding against the still picture.) A mode outside those would keep the view centred.
 
 The span changes only at an arena or when the level's width changes (Jafar's room). The view's offset to its new place
 then closes only as the game's camera moves (at most 4 px a frame, and no more than the camera moved): the picture
@@ -130,9 +135,15 @@ rewound picture with the straight run's: identical (also from near a level's end
   `$82:A79C`); rows within `[camera - $40, camera + $140)`. The hooks give the spawner the camera at the picture's
   middle (`cam - extL + ext`, so its columns follow the view also where it is split) and move both edge columns out by
   `ext` (`$82:A767`, `$82:A772`; the start's column count `$82:A77E`, the rows' range `$82:A876`).
-- A width change mid-level (or a state made at another width) re-runs the level start's spawn at the next main-loop
-  top (a stub in patch ROM, `$60:8000`: `JSL $82:A72C`, `JML $81:82CF`); objects already out are skipped by their
-  spawned bits, so the new margins get theirs at once.
+- A width change mid-level (or a state made at another width, or without the module's data) re-runs the level
+  start's spawn at the next main-loop top, past its set-up: a stub in patch ROM (`$60:8000`: `JSL` an entry that sets
+  DP 0 / DB `$82` and pushes D and B as `$82:A72C` does, `JML $82:A742`; back at `JML $81:82CF`). The set-up
+  (`$82:A93A` -> `$82:A978`) clears `$7E:C100-$C7FF`, the spawned bits at `$7E:C600` among them; run with it, as a
+  first version did, every object near the camera was spawned again on each widening (gems counted twice, Jafar's
+  room grew twice as far). Past it, objects already out are skipped by their bits (`$82:A8C0`: `AND #$81`) and the new
+  margins get only theirs (`tools/qa` round 1, F1: no duplicates in any level after any widening; the margins hold
+  what a level start there spawns). The request waits through screens that aren't the level loop yet (the
+  Underground River's set-up) and is dropped when a level's own start spawn (`$82:A72C`) runs for the new width.
 - **Sprites:** the OAM builder (`$81:9309`) stores each piece's 16-bit screen x (`$81:938B`, flipped `$81:93F9`, X =
   OAM index * 4); recorded at those stores, latched at the NMI's OAM DMA (`$80:81B2`), the PPU places them by their
   true x (`objTrueX`). `tools/re/snes_oam_writers.py`: no other code writes sprite x in any level.

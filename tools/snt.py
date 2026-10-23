@@ -457,6 +457,8 @@ class SNES:
         _dll.snt_module_ach(self.h, None, -1)
 
     def ach(self):
+        """This frame's achievement events: an index earned; 1000 + index * 32 + bit marked; 5000 + index counted;
+        100000 + index * 1000 + count, progress reported."""
         o = (C.c_int * 64)()
         n = _dll.snt_module_ach(self.h, o, 64)
         return list(o[:n])

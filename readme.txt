@@ -202,7 +202,9 @@
        Super Nintendo ... Invincibility, Infinite Health, Infinite Lives,
                           Infinite Apples, Infinite Gems, and Capcom's Debug
                           Mode (10 hearts and 99 apples at the start, a
-                          stage select on the title screen).
+                          stage select on the title screen: hold L or R,
+                          up / down for the stage, left / right for the
+                          act).
        Master System .... Invincibility, Infinite Health, Infinite Stones,
                           and the Developer Menu (the title's PASSWORD
                           opens the developers' TEST MODE). This version has
@@ -230,7 +232,7 @@
      + 4 PSG; SNES: 8 voices; Master System: 4 PSG channels).
        Mega Drive ....... 28 tunes (10 of them never used by the game) and
                           76 effects, under the developers' own names.
-       Super Nintendo ... 39 songs and 80 effects.
+       Super Nintendo ... 39 songs and 76 effects.
        Master System .... 20 tracks and 60 effects.
 
   OPTIONS, CREDITS
