@@ -143,6 +143,12 @@ void App::open_credits(bool from_launcher) {
     p.items.push_back(link("YouTube", "https://www.youtube.com/adhgaming", "https://www.youtube.com/adhgaming"));
     p.items.push_back(link("Reddit", "u/Darhkwing", "https://www.reddit.com/user/Darhkwing"));
     p.items.push_back(link("GitHub", "https://github.com/Darhkfox", "https://github.com/Darhkfox"));
+    p.items.push_back(MenuItem::header("The games"));
+    for (const GameSlot& g : games_) {
+        const GameModule* m = g.module.get();
+        p.items.push_back(MenuItem::info(game_label(m), [m]() { return std::string(m->subtitle()) + ", " + m->year(); }));
+    }
+    p.items.push_back(MenuItem::info("Disney's Aladdin \xC2\xA9 Disney. An unofficial fan project; it contains no game data."));
     if (from_launcher) menu_.open(std::move(p));
     else menu_.push(std::move(p));   // from the pause menu: Back returns to it
 }

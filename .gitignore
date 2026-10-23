@@ -84,3 +84,6 @@ soundtracks/
 *.cue
 *.bps
 *.ips
+
+# local build output of the agents' worktrees
+.claude/

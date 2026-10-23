@@ -21,7 +21,7 @@ WideMode widest_fitting() {
     return best;
 }
 
-// Calls a static method of MDActivity (the SDL activity) through JNI.
+// Calls a static method of CollectionActivity (the SDL activity) through JNI.
 jint call_activity_int(const char* name) {
     JNIEnv* env = (JNIEnv*)SDL_AndroidGetJNIEnv();
     jobject act = (jobject)SDL_AndroidGetActivity();
