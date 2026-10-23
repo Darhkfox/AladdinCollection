@@ -546,6 +546,104 @@ constexpr uint32_t kHeartLost = 0x838010, kHeartLost2 = 0x838031;   // DEC $0367
 constexpr uint32_t kLifeLost = 0x81DC67, kLifeLost2 = 0x81E837;     // DEC $0364 (a life lost; game over at 0)
 constexpr uint32_t kAppleThrown = 0x81CE5C;    // STA $0369: one apple fewer
 
+// ---- Sound (Capcom's driver; docs/re_snes_game.md, Sound). The CPU sends the APU one queued byte a frame from the
+// NMI ($80:B463; ring $03BF, 32 bytes). A sound effect: JSL $81:FA00 with A = its id (queued). A song: JSL $81:FA23
+// with A = its upload index (command $FA and the song's data block, table $85:8000; the song starts when the upload
+// ends); OPTIONS' B.G.M. test plays upload $10 + n. $F2 (JSL $81:F9F7) stops the music.
+constexpr uint32_t kSfx = 0x81FA00, kSong = 0x81FA23, kMusicStop = 0x81F9F7;
+// The music player parks the CPU right after the boot uploads the driver ($81:8021 JSL $80:B4AA, before the logos
+// and their jingle) in a stub in patch ROM that waits for requests in a RAM mailbox (cmd: 1 song, 2 effect, 3 stop).
+constexpr uint32_t kJukeboxPark = 0x818025;
+constexpr uint32_t kJukeboxStub = 0x608100;
+constexpr uint32_t kMailCmd = 0x1FF8, kMailId = 0x1FF9, kMailBefore = 0x1FFA;
+
+// ---- Achievements: screens by level index $035E (levels are $00-$13, the attract demos' $14-$1C).
+constexpr uint32_t kNmiCount = 0x032E;          // counted by the NMI
+constexpr uint32_t kContinues = 0x035B;         // continues left (3 at GAME START)
+constexpr int kScreenFirst = 0x14;
+constexpr int kScreenStageClear = 0x24, kScreenContinue = 0x25, kScreenPassword = 0x2C, kScreenBonus = 0x2F;
+constexpr int kScreenNextAct = 0x30, kScreenEnding = 0x39;   // (between two parts of a stage; the ending's story)
+constexpr uint32_t kTitleWaitRet = 0x809FBE, kOptionsWaitRet = 0x838A6F;   // the main task waiting in those screens
+const uint8_t kLevelStage[kScreenFirst] = {0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 5, 7, 6, 8};
+
+// The main task's wait: the return address its frame wait left on its stack (task 0, saved stack pointer $0071).
+inline uint32_t main_wait(const RamViewLE& m) {
+    const uint16_t sp = m.w(0x0071);
+    if (sp < 0x0100 || sp > 0x0170) return 0;
+    return m.w(sp + 7) | ((uint32_t)m.b(sp + 9) << 16);
+}
+
+// The jukebox's tracks: song upload index, name, seconds (one pass); then sound effects (id + $100).
+struct Tune { int id; const char* name; int seconds; int before; };
+// Songs: their upload index (the B.G.M. test's number + $10), and seconds for the jingles (0: a loop). Songs written to
+// follow another one inherit its volume settings and are silent after the boot alone: `before` is the song the game
+// plays ahead of them, played first (its upload is replaced at once).
+const Tune kSongs[] = {
+    {0x10, "Capcom Logo", 3, 0},
+    {0x12, "Title Fanfare", 8, 0},
+    {0x13, "Title", 0, 0},
+    {0x1C, "Story: Welcome to Agrabah", 0, 0x10},
+    {0x1F, "Story: Jafar", 0, 0x10},
+    {0x15, "Agrabah", 0, 0},
+    {0x16, "Cave of Wonders", 0, 0},
+    {0x17, "Escape", 0, 0},
+    {0x18, "Inside the Lamp", 0, 0},
+    {0x19, "Sultan's Dungeon", 0, 0},
+    {0x1B, "A Whole New World", 0, 0},
+    {0x1A, "Jafar's Palace", 0, 0},
+    {0x2E, "Jafar's Throne Room", 0, 0},
+    {0x22, "Jafar", 0, 0},
+    {0x21, "Boss", 0, 0},
+    {0x25, "Danger", 0, 0},
+    {0x30, "Chase (Intro)", 0, 0x16},
+    {0x2F, "Chase", 0, 0},
+    {0x31, "Magic Carpet", 7, 0},
+    {0x28, "Area Clear", 1, 0},
+    {0x27, "Stage Clear", 8, 0},
+    {0x29, "Break Time! (Bonus Wheel)", 0, 0},
+    {0x2A, "Lost a Life", 2, 0},
+    {0x2B, "Continue", 0, 0},
+    {0x2D, "Password", 0, 0},
+    {0x1E, "Story: Aladdin and Jasmine", 0, 0x27},
+    {0x11, "Story: The Old Man", 0, 0x27},
+    {0x35, "Story: Trapped in the Cave", 0, 0x27},
+    {0x1D, "Story: The Genie", 0, 0x27},
+    {0x36, "Jafar Defeated", 10, 0},
+    {0x32, "Ending: Jafar's Wish", 0, 0},
+    {0x34, "Ending: Absolute Power", 14, 0},
+    {0x23, "Ending: Into the Lamp", 8, 0},
+    {0x24, "Ending: Free at Last", 0, 0},
+    {0x26, "Staff Roll", 0, 0},
+    {0x14, "Fanfare", 3, 0},
+    {0x20, "Short Fanfare", 2, 0},
+    {0x2C, "Jingle", 3, 0},
+    {0x33, "Short Jingle", 3, 0},
+};
+// Sound effects (id + $100): the ones whose use was traced are named, the others numbered.
+const Tune kEffects[] = {
+    {0x101, "Jump", 0, 0}, {0x102, "Fall", 0, 0}, {0x103, "Throw an Apple", 0, 0}, {0x104, "Effect 04", 0, 0},
+    {0x105, "Effect 05", 0, 0}, {0x106, "Land", 0, 0}, {0x107, "Effect 07", 0, 0}, {0x108, "Effect 08", 0, 0},
+    {0x109, "Heart / Extra Life", 0, 0}, {0x10A, "Effect 0A", 0, 0}, {0x10B, "Pick Up", 0, 0},
+    {0x10C, "Cursor", 0, 0}, {0x10D, "Effect 0D", 0, 0}, {0x10E, "Pause", 0, 0}, {0x10F, "Enemy Hit", 0, 0},
+    {0x110, "Effect 10", 0, 0}, {0x111, "Effect 11", 0, 0}, {0x112, "Enemy Defeated", 0, 0},
+    {0x113, "Effect 13", 0, 0}, {0x114, "Effect 14", 0, 0}, {0x115, "Effect 15", 0, 0}, {0x116, "Effect 16", 0, 0},
+    {0x117, "Effect 17", 0, 0}, {0x118, "Effect 18", 0, 0}, {0x119, "Effect 19", 0, 0}, {0x11A, "Explosion", 0, 0},
+    {0x11B, "Effect 1B", 0, 0}, {0x11C, "Effect 1C", 0, 0}, {0x11D, "Effect 1D", 0, 0}, {0x11E, "Effect 1E", 0, 0},
+    {0x11F, "Effect 1F", 0, 0}, {0x120, "Effect 20", 0, 0}, {0x121, "Effect 21", 0, 0}, {0x122, "Effect 22", 0, 0},
+    {0x123, "Effect 23", 0, 0}, {0x124, "Effect 24", 0, 0}, {0x125, "Effect 25", 0, 0}, {0x126, "Effect 26", 0, 0},
+    {0x127, "Effect 27", 0, 0}, {0x128, "Secret", 0, 0}, {0x129, "Effect 29", 0, 0}, {0x12A, "Effect 2A", 0, 0},
+    {0x12B, "Effect 2B", 0, 0}, {0x12C, "Effect 2C", 0, 0}, {0x12D, "Effect 2D", 0, 0}, {0x12E, "Effect 2E", 0, 0},
+    {0x12F, "Effect 2F", 0, 0}, {0x130, "Effect 30", 0, 0}, {0x131, "Gem", 0, 0}, {0x132, "Effect 32", 0, 0},
+    {0x133, "Effect 33", 0, 0}, {0x134, "Effect 34", 0, 0}, {0x135, "Effect 35", 0, 0}, {0x136, "Effect 36", 0, 0},
+    {0x137, "Effect 37", 0, 0}, {0x138, "Effect 38", 0, 0}, {0x139, "Effect 39", 0, 0},
+    {0x13A, "Bonus Wheel Spin", 0, 0}, {0x13B, "Bonus Wheel Stop", 0, 0}, {0x13C, "Effect 3C", 0, 0},
+    {0x13D, "Effect 3D", 0, 0}, {0x13E, "Effect 3E", 0, 0}, {0x13F, "Effect 3F", 0, 0}, {0x140, "Effect 40", 0, 0},
+    {0x141, "Effect 41", 0, 0}, {0x142, "Effect 42", 0, 0}, {0x143, "Effect 43", 0, 0}, {0x144, "Effect 44", 0, 0},
+    {0x145, "Effect 45", 0, 0}, {0x146, "Effect 46", 0, 0}, {0x147, "Effect 47", 0, 0}, {0x148, "Effect 48", 0, 0},
+    {0x149, "Jafar", 0, 0}, {0x14A, "Effect 4A", 0, 0}, {0x14B, "Effect 4B", 0, 0}, {0x14C, "Effect 4C", 0, 0},
+    {0x14D, "Effect 4D", 0, 0}, {0x14E, "Effect 4E", 0, 0}, {0x14F, "Game Start", 0, 0}, {0x150, "Effect 50", 0, 0},
+};
+
 class SnesAladdin : public SnesModule {
 public:
     const char* id() const override { return "snes"; }
@@ -576,11 +674,47 @@ public:
         if (inf_lives_) for (uint32_t pc : {kLifeLost, kLifeLost2}) s.markExec(pc, true);
         if (inf_apples_) s.markExec(kAppleThrown, true);
         if (ls_.active) s.markExec(kLevelCompute, true);
+        write_jukebox_stub(s);
+        if (jb_park_) s.markExec(kJukeboxPark, true);
     }
+
+    // ---- Music player
+    std::vector<SoundEntry> sounds() const override {
+        std::vector<SoundEntry> v;
+        for (const Tune& t : kSongs) v.push_back({t.id, t.name, true, t.seconds});
+        for (const Tune& t : kEffects) v.push_back({t.id, t.name, false, t.seconds});
+        return v;
+    }
+    void jukebox_boot(Snes& s) override {
+        s.reset(true);
+        write_jukebox_stub(s);
+        jb_park_ = true;
+        s.markExec(kJukeboxPark, true);
+        s.skipRender = true;
+        run_until(s, [&]() { return s.cpu.r.pb == (kJukeboxStub >> 16); }, 600);
+        run_frames(s, 8);
+        s.skipRender = false;
+        s.markExec(kJukeboxPark, false);
+        jb_park_ = false;
+    }
+    void jukebox_frame(Snes& s) override { s.input[0] = s.input[1] = 0; }
+    void play_sound(Snes& s, int id) override {
+        int before = 0;
+        for (const Tune& t : kSongs) if (t.id == id) before = t.before;
+        wr8(s, kMailId, (uint8_t)id);
+        wr8(s, kMailBefore, (uint8_t)before);
+        wr8(s, kMailCmd, id >= 0x100 ? 2 : 1);
+    }
+    void stop_sound(Snes& s) override { wr8(s, kMailCmd, 3); }
 
     bool exec_hook(Snes& s, uint32_t pc) override {
         CpuRegs& r = s.cpu.r;
         switch (pc) {
+        case kJukeboxPark:
+            if (!jb_park_) break;
+            r.pb = (uint8_t)(kJukeboxStub >> 16);
+            r.pc = (uint16_t)kJukeboxStub;
+            return true;
         case kHit:          // as if blinking: the hit doesn't land (A negative, as the game's own skip returns it)
             if (!invincible_) break;
             r.a = (uint16_t)((r.a & 0xFF00) | 0x80);
@@ -681,14 +815,150 @@ public:
         return ok;
     }
 
+    std::vector<AchievementDef> achievements() const override {
+        return {
+            {"snes_agrabah", "Street Rat", "Run through Agrabah's market and over its rooftops: clear Stage 1."},
+            {"snes_cave", "Diamond in the Rough", "Make it through the Cave of Wonders."},
+            {"snes_escape", "Hold On Tight", "Fly out of the collapsing cave on the Magic Carpet."},
+            {"snes_lamp", "Phenomenal Cosmic Power", "Find a way through the inside of the Genie's lamp."},
+            {"snes_dungeon", "Jailbreak", "Escape from the Sultan's dungeon."},
+            {"snes_carpet", "Magic Carpet Ride", "Finish the moonlit carpet ride of A Whole New World."},
+            {"snes_palace", "Storming the Palace", "Fight your way through Jafar's palace to Jafar himself."},
+            {"snes_jafar", "Snake Charmer", "Defeat Jafar and his giant cobra form to finish the game."},
+            {"snes_no_continue", "One Jump Ahead", "Finish a new game without using a continue."},
+            {"snes_stage_clean", "Riffraff, Street Rat", "Clear a whole stage, from its first part to STAGE CLEAR, without losing a life."},
+            {"snes_untouched", "Not a Scratch", "Clear a part of a stage from its start without losing a single heart."},
+            {"snes_wheel", "Break Time!", "Collect a Genie token in a stage and spin the Genie's bonus wheel."},
+            {"snes_hearts", "Heart of Gold", "Raise Aladdin's hearts to the full ten."},
+            {"snes_gems", "Treasure of the Cave", "Collect a hundred gems."},
+            {"snes_lives", "Nine Lives", "Have nine spare lives at once.", true},
+            {"snes_jafar_flawless", "Never Had a Friend Like Me", "Beat Jafar's final stage without losing a single heart.", true},
+            {"snes_debug", "Developer's Secret", "Discover Capcom's developer code on the OPTIONS screen.", true},
+        };
+    }
+
+    // ---- Achievements (RAM only; reference: tools/re/snes_achievements.py). Indices follow achievements().
+    enum { A_AGRABAH, A_CAVE, A_ESCAPE, A_LAMP, A_DUNGEON, A_CARPET, A_PALACE, A_JAFAR, A_NO_CONTINUE, A_STAGE_CLEAN,
+           A_UNTOUCHED, A_WHEEL, A_HEARTS, A_GEMS, A_LIVES, A_JAFAR_FLAWLESS, A_DEBUG };
+    // scratch: fired bits; the title was seen (a GAME START follows); the last level played + 1; the stage begun from
+    // its first part with no life lost since + 1; the level begun from its start with no heart lost since + 1
+    enum { S_FIRED, S_TITLE, S_LAST_LEVEL, S_STAGE_CLEAN, S_ACT_CLEAN };
+    // run bits: a new game from the title's GAME START; a continue was used
+    enum : uint32_t { R_NEWGAME = 1, R_CONTINUED = 2 };
+
+    void achievement_frame(const Snes& snes, AchievementCtx& c) const override {
+        if (c.prev.size() != sizeof(snes.wram)) return;
+        const RamViewLE s{snes.wram, 0x1FFFF}, p{c.prev.data(), 0x1FFFF};
+        int32_t* sc = c.scratch;
+        auto fire = [&](int i) {
+            if (sc[S_FIRED] & (1 << i)) return;
+            sc[S_FIRED] |= 1 << i;
+            c.unlocked.push_back(i);
+        };
+        // A jump of the NMI's frame counter (a state loaded, a reset) breaks every condition in progress.
+        if (((s.b(kNmiCount) - p.b(kNmiCount)) & 0xFF) > 4) {
+            for (int i = S_TITLE; i <= S_ACT_CLEAN; i++) sc[i] = 0;
+            return;
+        }
+        if (s.b(kDemo) || p.b(kDemo)) return;             // attract demo
+        // The developer code (controller 2 on OPTIONS): then its 10 hearts and 99 apples spoil the rest.
+        if (!p.b(kDebug) && s.b(kDebug) == 1 && main_wait(s) == kOptionsWaitRet) fire(A_DEBUG);
+        if (s.b(kDebug) || p.b(kDebug)) return;
+        const int pp = p.b(kLevel), cp = s.b(kLevel);
+        const bool level_now = main_wait(s) == kLevelWaitRet || main_wait(s) == kPauseWaitRet;
+
+        // run bits: GAME START from the title (not a password: its screen clears the title mark), a continue taken
+        if (main_wait(s) == kTitleWaitRet) sc[S_TITLE] = 1;
+        if (cp == kScreenPassword) sc[S_TITLE] = 0;
+        if (sc[S_TITLE] && level_now && cp == 0) {
+            c.run_bits = R_NEWGAME;
+            sc[S_TITLE] = 0;
+        }
+        if (s.b(kContinues) < p.b(kContinues)) c.run_bits |= R_CONTINUED;
+
+        // A level begun from its start: its act (and, at a stage's first part, the stage) counts as clean so far.
+        if (cp < kScreenFirst && (cp != pp || (sc[S_LAST_LEVEL] == 0 && level_now))) {
+            const int before = sc[S_LAST_LEVEL] - 1;
+            sc[S_LAST_LEVEL] = cp + 1;
+            sc[S_ACT_CLEAN] = cp + 1;
+            if (s.b(kAct) == 0 && (before < 0 || kLevelStage[before] != kLevelStage[cp])) sc[S_STAGE_CLEAN] = kLevelStage[cp] + 1;
+            if (pp == kScreenContinue) sc[S_STAGE_CLEAN] = 0;   // (restarted after a game over)
+        }
+        if (cp < kScreenFirst && cp == pp && level_now) {
+            if (s.b(kLives) < p.b(kLives)) sc[S_STAGE_CLEAN] = 0;
+            if (s.b(kHearts) < p.b(kHearts) && s.b(kHeartsMax) == p.b(kHeartsMax)) sc[S_ACT_CLEAN] = 0;
+            if (s.b(kHeartsMax) >= 10 && p.b(kHeartsMax) < 10) fire(A_HEARTS);
+            if (s.b(kLives) >= 10 && p.b(kLives) < 10) fire(A_LIVES);
+            if (p.b(kGems) >= 0x90 && s.b(kGems) < 0x10) fire(A_GEMS);   // (a hundred: the counter starts over)
+        }
+        // A level left forward: the next part, the STAGE CLEAR or bonus wheel, the ending (not a game over).
+        if (pp < kScreenFirst && cp != pp &&
+            (cp < kScreenFirst || cp == kScreenStageClear || cp == kScreenBonus || cp == kScreenNextAct || cp == kScreenEnding)) {
+            if (sc[S_ACT_CLEAN] == pp + 1) {
+                fire(A_UNTOUCHED);
+                if (pp == 0x11 && cp == kScreenEnding) fire(A_JAFAR_FLAWLESS);
+            }
+            sc[S_ACT_CLEAN] = 0;
+        }
+        if (cp == kScreenBonus && pp != kScreenBonus) fire(A_WHEEL);
+        // A stage cleared: its last part leads to the STAGE CLEAR screen (after the bonus wheel, if any).
+        if (cp == kScreenStageClear && pp != kScreenStageClear) {
+            const int last = sc[S_LAST_LEVEL] - 1;
+            switch (last) {
+            case 0x03: fire(A_AGRABAH); break;
+            case 0x05: fire(A_CAVE); break;
+            case 0x07: fire(A_ESCAPE); break;
+            case 0x0A: fire(A_LAMP); break;
+            case 0x0D: fire(A_DUNGEON); break;
+            case 0x12: fire(A_CARPET); break;
+            case 0x10: fire(A_PALACE); break;
+            default: break;
+            }
+            if (last >= 0 && sc[S_STAGE_CLEAN] == kLevelStage[last] + 1) fire(A_STAGE_CLEAN);
+            sc[S_STAGE_CLEAN] = 0;
+        }
+        // Jafar beaten: his stage hands over to the ending's story.
+        if (cp == kScreenEnding && pp != kScreenEnding && sc[S_LAST_LEVEL] == 0x11 + 1) {
+            fire(A_JAFAR);
+            if ((c.run_bits & R_NEWGAME) && !(c.run_bits & R_CONTINUED)) fire(A_NO_CONTINUE);
+        }
+    }
+
     std::vector<uint8_t> save_ext() const override { return wide_.save_ext(); }
     void load_ext(const uint8_t* d, size_t n) override { wide_.load_ext(d, n); }
 
 private:
+    // The music player's loop (8-bit registers, DB $80, D 0): wait for a frame, take a request from the mailbox, run the
+    // game's own routine for it. (The NMI sends the queued bytes and keeps running as in the game.)
+    static void write_jukebox_stub(Snes& s) {
+        PatchAsm a(s, kJukeboxStub);
+        a.b({0x78, 0xE2, 0x30, 0xA9, 0x80, 0x48, 0xAB, 0xF4, 0x00, 0x00, 0x2B, 0x58});   // SEI SEP PHB.. PLD CLI
+        const uint32_t loop = a.pc;
+        a.b({0xCB});                                        // WAI
+        a.b({0xAD}); a.w16((uint16_t)kMailCmd);             // LDA cmd
+        a.b({0xF0, (uint8_t)(loop - (a.pc + 2))});          // BEQ loop
+        a.b({0xC9, 0x01, 0xD0, 0x12});                      // CMP #1 / BNE +18
+        a.b({0xAD}); a.w16((uint16_t)kMailBefore);          // LDA before
+        a.b({0xF0, 0x04});                                  // BEQ +4
+        for (uint8_t b : jsl(kSong)) a.b8(b);               // JSL song (the one played ahead)
+        a.b({0xAD}); a.w16((uint16_t)kMailId);              // LDA id
+        for (uint8_t b : jsl(kSong)) a.b8(b);               // JSL song
+        a.b({0x80, 0x11});                                  // BRA done
+        a.b({0xC9, 0x02, 0xD0, 0x09});                      // CMP #2 / BNE +9
+        a.b({0xAD}); a.w16((uint16_t)kMailId);              // LDA id
+        for (uint8_t b : jsl(kSfx)) a.b8(b);                // JSL effect
+        a.b({0x80, 0x04});                                  // BRA done
+        for (uint8_t b : jsl(kMusicStop)) a.b8(b);          // JSL stop
+        a.b({0xE2, 0x30});                                  // done: SEP #$30
+        a.b({0x9C}); a.w16((uint16_t)kMailCmd);             // STZ cmd
+        a.b({0x80, (uint8_t)(loop - (a.pc + 2))});          // BRA loop
+    }
+
     struct LevelSelect {
         bool active = false, done = false;
         uint8_t stage = 0, act = 0;
     };
+    bool jb_park_ = false;
     AladdinWide wide_;
     LevelSelect ls_;
     bool invincible_ = false, inf_health_ = false, inf_lives_ = false, inf_apples_ = false;
