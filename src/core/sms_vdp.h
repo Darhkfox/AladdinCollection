@@ -50,6 +50,10 @@ public:
     // lie beyond its left / right edge), vrow = (line + vscroll) / 8 (rows 0-27 the table, 28+ wrapped). Return
     // the 13-bit entry (pattern, flips, palette, priority) or -1 to use the hardware table (wrapping).
     int  hw_x0 = 0, hw_x1 = 256;
+    // With a fine scroll the screen's last, partial cell shows the same name-table column as its first one (the
+    // column a game rewrites as it scrolls, sometimes a frame late): when set, that cell counts as outside the
+    // hardware region too, and bg_entry is asked for it.
+    bool hw_right_partial_out = false;
     // View shift (widescreen): a module can slide the picture near a level's ends instead of showing what lies
     // outside it. Line ln's background is sampled bg_shift[ln] px further right (screen x of the original picture:
     // output x + shift; the bg_entry / hw_x0..hw_x1 tests use the shifted position), sprites sprite_shift px.

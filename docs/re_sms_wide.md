@@ -27,6 +27,7 @@ sms_end` for states near the auto-run stages' ends). Widths: 6/22/40/74 (CRT pix
 5. Not gameplay (every mode but the ten stage modes 2..$B): pillarboxed, the blanked left column drawn as the
    hardware does. In the stages, lines 176-191 (blank border / a story moment's text box) get colour 0 at the sides.
 6. Save states and rewind carry what the hooks keep from one frame to the next (`save_ext`, section 6).
+7. The attract demos run on the original ROM and are shown at 4:3: they play exactly as at 4:3 (section 3).
 
 ---------------------------------------------------------------------------------------------------
 
@@ -53,6 +54,10 @@ sms_end` for states near the auto-run stages' ends). Widths: 6/22/40/74 (CRT pix
   = `$1300`). `level_bounds` takes the map's end, `map_entry` has nothing past it. Before, the right side of stage
   0's last screen showed the data after the table as cells (blocks of sky and awning), and the view did not slide
   there.
+* With a fine scroll the screen's last, partial cell (x 248 + (scroll & 7) .. 255) shows the same table column as
+  the hidden first one - the column the streamer rewrites as the camera moves, sometimes a frame late (at 4:3 a
+  few pixels at the screen's edge; in a wide picture a stale sliver in the middle: a cut tree crown in A Whole New
+  World, a gold stripe in the Treasure Room). It comes from the map too (`SmsVdp::hw_right_partial_out`).
 * Rows 0-1 (status bar, reg 0 bit 6): blank beyond the 256 px (`name_entry(0, row)`); rows 22+ colour 0 (section 5).
 * Check (`sms_wide_check.py 74` / `102`, whole stages played through, background only, every third frame: each
   extension pixel against the colours the hardware region showed at that world position with the same palette):
@@ -89,15 +94,19 @@ Illusion port shows its arenas.
 
 ## 3. Objects and sprites
 
-ROM patches (`wide_patches(E)`, code caves in bank 1's unused zero fill, `$7A00`-`$7AAB`):
+ROM patches (`wide_patches(E)`, code caves in bank 1's unused zero fill, `$7A00`-`$7B63`):
 
 | at | original | patched | purpose |
 |---|---|---|---|
 | `$3E50` | `ld hl,($C482)` | `call $7A00` | a waiting object (stages 0 1 5 7 8) that moves with the camera wakes K px earlier |
-| `$4151` | `call $41B3` | `call $7A30` | ... and is loaded K px further right (`$410D`): same place in the level |
-| `$3EC5` | `ld de,$0020` | `call $7A70` | it leaves (next record takes the slot) at x < -32 - E, up to E px further at the end |
-| `$3E25` / `$3E29` | `ld de,$0040` / `$0170` | `$40+2E` / `$170+4E` | stages 2 3 4 6 9: awake while x in [-64 - 2E, 304 + 2E) |
-| `$3D86` / `$3D6B` | `ld (ix+$1D),0; ret` | `jp $7AA0` / `$7AA8` | sprite table full: skip the draw (see below) |
+| `$4151` | `call $41B3` | `call $7A40` | ... and is loaded K px further right (`$410D`): same place in the level |
+| `$3EC5` | `ld de,$0020` | `call $7A90` | it leaves (next record takes the slot) at x < -32 - E, up to E px further at the end |
+| `$3E25` / `$3E29` | `ld de,$0040` / `$0170` | `call $7B10` / `$7B30` | stages 2 3 4 6 9: awake while x in [-64 - 2E, 304 + 2E) |
+| `$3D86` / `$3D6B` | `ld (ix+$1D),0; ret` | `jp $7AD0` / `$7AF0` | sprite table full: skip the draw (see below) |
+| `$4AAEB` (bank `$12` `$AAEB`) | `ld a,h; or a; ret z` | `call $7B50` | rolling boulders come home off the view (below) |
+
+The caves of the first five rows first test `$C104` (a demo playing: the original's behaviour), a second line of
+defence: while a demo plays the ROM holds none of these patches (below).
 
 * K = E, except that at a stage's start the view reaches the level's first 256 + 2E px: an object whose X is
   within lo + 2E is awake from the start, placed X - lo px further right. K depends only on the object, so its
@@ -106,7 +115,7 @@ ROM patches (`wide_patches(E)`, code caves in bank 1's unused zero fill, `$7A00`
   enter at x = -16 / -31, stage 1/8 screen objects) are left alone: they appear at their screen position, which can
   be inside the left side (a known limitation).
 * The leave distance grows by the end slide: 32 + E + clamp(camera - (hi - E), 0, E), hi as `level_bounds` has it
-  (a PC hook at `$7A78` puts it in de, so stages 0, 1 and 8 use their map's end).
+  (a PC hook at `$7AA8` puts it in de, so stages 0, 1 and 8 use their map's end).
 * A width change in the middle of a stage moves the waiting objects of stages 0 1 5 7 8 by the difference of K
   (`configure`, module_state[7] = the width they were loaded for).
 * The original's allocators (`$3D74`, `$3D5E`) put an object that does not fit in the 64 entries to sleep, but the
@@ -123,6 +132,21 @@ ROM patches (`wide_patches(E)`, code caves in bank 1's unused zero fill, `$7A00`
   the camera: Jafar's room keeps two there (types $0B, $44), never seen in the original. The VBlank upload hook
   `$02D9` turns the pages into the displayed order (reversed on odd frames: `$C20E` bit 0) in module_state[0..3];
   `sprite_x` adds ±256 or hides; the VDP moves every sprite by the slide. Off the stages the hooks change nothing.
+* The Caverns' and the Treasure Room's rolling boulders (type `$0A`, bank `$12` `$AADE`) roll left from their home,
+  fall, and come back home once it is off the screen (hl = home - camera not within x 0..255): just past the
+  original's left edge, under its blanked column, which put them out of nothing 70-100 px inside a wide view's left
+  side. They come back once it is off the view: not within [-2E - 32, 256 + 2E) (the keep window reaches 64 px
+  further, so they still do).
+* The attract mode's demos replay recorded input against the original game. Any change to the code they run
+  changes their course: the windows above (objects act earlier), the cheats, and also the number of instructions,
+  as the game's random numbers take the Z80's R register. At 2:1 square and wider the third demo (The Rooftops)
+  lost Aladdin in a pit and waited on TRY AGAIN with the demo's input for ever. While a demo plays (`$C104` = 2..$B)
+  the module puts the original ROM back (but for the developer menu's title change; `pre_frame` switches at the
+  frame the demo starts or ends - the title's fade lies between the flag and the stage), its hooks change nothing
+  (`in_stage` is false) and the demo is shown at 4:3. Should a demo still reach a game over, a PC hook at `$7270`
+  sends it to the title as a demo that loses Aladdin goes (`$352C`). `sms_attract.py`: 60,000 frames from power-on
+  (12 demos) at E = 0, 6, 22, 40, 74, 26, 44, 64, 102, also with all cheats: the work RAM is identical to the 4:3
+  run in every frame.
 * Pop-in (`sms_popin.py`, objects whose first awake frame is inside the view, 1500 frames from the stage start):
   stage 5: 5 at E = 0, 40 and 102 — the designed ones (fire bursts out of the lava), at their place; stage 0: none;
   stage 7: 0 / 5 / 4, the screen-space flyers entering at x = -16. Objects drawn as extra sprites in those runs:
@@ -149,7 +173,7 @@ as it is).
 * Rows 0-1, fixed (reg 0 bit 6): gems at columns 15-17, the stone counter (stages 2 3 4 6) at 26-29, PAUSE in row
   0. With `hud_anchor` the line hook moves x 192..255 of lines 0-15 to the right edge; the gems and PAUSE stay in
   the middle. There are no status sprites. The slide leaves lines 0-15 alone.
-* `FrameInfo.gameplay` = modes 2..$B (the stages, also the attract demo); title, password, game over, the story
+* `FrameInfo.gameplay` = modes 2..$B but the attract demos (shown at 4:3); title, password, game over, the story
   scenes (mode $13), the menus and the ending are pillarboxed. With the core ignoring reg 0 bit 5 in widescreen,
   the line hook draws the blanked column (backdrop colour, no sprites) on those screens.
 * In the stages lines 176-191 are blank rows in colour 0 (black; red in Jafar's room), where the lamp's chamber and
@@ -179,16 +203,18 @@ alone (`--no-ext`) gives wrong extra sprites for a frame (stage 5 at 102: 17 of 
 | slide at the ends | `sms_slide_check.py 22 74 102`, 600 frames (free stages to the far end and back) | no jumps, view never outside the level, bands still while it holds (0.0 %) |
 | level ends | `sms_run_sheet.py`, app `--states sms_end` (21:9 CRT and square) | the view holds at the last pixel; no cells past the map |
 | rewind | `sms_rewind.py` (tool), app `--rewind 120` (hold R, achievements off) | identical pictures; app: no glitches while rewinding or after |
+| attract mode | `sms_attract.py`, 60,000 frames at every width, with and without cheats | RAM identical to 4:3 every frame; 12 demos, never a game over |
+| widescreen off | the module at E = 0 against the plain core: attract 20,000 frames, every stage 3,000 | RAM and picture identical |
 | object pop-in | `sms_popin.py 0 40 102` | section 3 |
 | width changes | E 0 → 102 → 40 in stage 5 | waiting objects wake for the current E |
 | screens | `sms_wide_shots.py`, `sms_run_sheet.py` (whole stages 0 1 5 7 at 74 / 102), `sms_app_test.py` (16:9 and 21:9 CRT, 21:9 square) | reviewed: stages, ends, HUD, scenes |
 
 ## 8. Known limitations
 
-* Screen-space objects that enter from the left (stage 7's companions, x = -16 / -31) appear at that position,
-  inside the left side of a view wider than 16:10.
-* Objects run their code up to 2E px earlier than in the original (as in the Castle of Illusion port); the attract
-  demos drift as a result.
+* Screen-space objects that enter and leave on the left (stage 7's companions, x = -16 / -31) appear and vanish
+  at that position, inside the left side of a view wider than 16:10.
+* Objects run their code up to 2E px earlier than in the original (as in the Castle of Illusion port). (The attract
+  demos don't: they run on the original ROM.)
 * Tiles the game animates with the camera (stage 0's far building and brick wall, stage 1's railings) show at the
   sides as they are now; at the start / end holds stage 0's far building keeps changing while the view holds still.
 * With the sprite limit on ("Remove Sprite Flicker" off), sprites in the sides count towards the 8 per line.

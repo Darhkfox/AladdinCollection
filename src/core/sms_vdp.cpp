@@ -133,13 +133,15 @@ void SmsVdp::pattern_row(uint16_t e, int row, uint8_t* out) const {
 void SmsVdp::render_bg(uint8_t* dst, int ln, int x0, int x1) {
     const int hs = hscroll_for(ln);
     const bool vlock = (reg[0] & 0x80) != 0;
+    // (the partial cell at the right: from 248 + the fine scroll)
+    const int hx1 = hw_right_partial_out && (hs & 7) ? std::min(hw_x1, 248 + (hs & 7)) : hw_x1;
     int key = -0x7FFFFFFF;
     uint8_t row8[8] = {};
     for (int x = x0; x < x1; x++) {
         const int tx = x - hs;
         const int vcol = tx >> 3;                       // (arithmetic shift: floor for the left extension)
         const bool locked = vlock && x >= 192;          // the right 8 columns ignore the vertical scroll
-        const bool outside = x < hw_x0 || x >= hw_x1;
+        const bool outside = x < hw_x0 || x >= hx1;
         const int k = vcol * 4 + (locked ? 1 : 0) + (outside ? 2 : 0);
         if (k != key) {
             key = k;
