@@ -60,7 +60,11 @@ by 8 hits (`$C6AD`, `$27DE`): `$2787` starts scene `$20`. A death (`$C116` = 0, 
 no lives: continues are unlimited. Passwords (`$7477`, ten 4-letter entries in bank `$0C` at `$A906`, letter =
 0..25) start a stage; `AIQY` sets `$C12C` = `$FF`, which every stage copies to `$C467` (permanent invulnerability,
 Aladdin flickers) and starts stage 0. Attract mode: the title runs out after `$3A0` frames and plays a demo
-(`$C104` = its mode, recorded input `$34F8`).
+(`$C104` = its mode, recorded input `$34F8`): stage 2 (The Caverns), 5 (Escape), 1 (The Rooftops), in turn (`$C107`).
+A demo ends after `$500` frames, on a button, or when Aladdin is lost (`$C438` = `$FF`): `$352C` clears `$C104`, mode
+0 (the title). A demo that reached a game over another way would wait on TRY AGAIN (`$7270`) with its own input -
+it never does in the original. The game's random numbers add the Z80's R register (`$09B8`, `$0A0E`, `$0A64` →
+`$C204`), so they depend on the exact number of instructions run: a demo stays on its path only on unchanged code.
 
 Story scenes (`$13`) scroll their own picture with a text box on lines 176-191. Pressing both buttons at once
 (`$66B7`: `$C207 & $30 = $30` sets `$CF92`) skips a scene `0-$1F`.
@@ -202,7 +206,8 @@ cleared.
 
 | cheat | patch |
 |---|---|
-| Invincibility | the three `$C467` tests read `$FF`: `$3F5F` (hits; `$3F5D`: also the type 5 ones that skip it), `$38A9` (carpet crashes), `$4B64C` (the boss) |
+| Invincibility | the three `$C467` tests read `$FF`: `$3F5F` (hits; `$3F5D`: also the type 5 ones that skip it), `$38A9` (carpet crashes), `$4B64C` (the boss); and the Sultan's palace guards' grab (stage 6's second figure, bank `$0C`: `call c,$B90F` after the touch test `$B8B3` at ROM `$32C76` and `$329DA` → `nop`s; `$B90F` takes Aladdin straight to his death, past the `$C467` tests - the developers' AIQY doesn't cover it either) |
+| (Infinite health) | grabs (stage 0's guards, `$37A2` after `$3F7E` → `$4015`; stage 6's) and the carpet's crashes into walls (`$3ABF`: health 0 and the pit flag) still end a life |
 | Infinite health | no decrement: `$3F88`, `$3F76` (`dec a` → `or a`: the zero test after it must see the health), `$4A6F4` (`sub 2` → `sub 0`) |
 | Infinite stones | `$2156` `dec (hl)` → `nop` |
 | Developer menu | `$4BC4` `ld c,$0F` → `ld c,$01`: the title's PASSWORD opens mode 1, TEST MODE (CHARACTER viewer, STAGE SELECT 1-1..7, SOUND TEST, INPUT TEST, VISUAL TEST = the story scenes) |
@@ -218,5 +223,7 @@ cleared). About 700 frames, 0.13 s headless.
 
 Checked on RAM every frame (`achievement_frame`): a stage clear is `$C105` going up while the mode is a stage
 mode; Jafar's defeat is mode `$B` → `$13` with scene `$20`; a run starts at GAME START (mode 0 → `$13`, scene 0)
-or a password (mode $F → a stage); a game over is mode $11. `tools/re/sms_ach_test.py` drives the real flow
-(stage exits through `$35B8`, Jafar's counter) and prints the events.
+or a password (mode $F → a stage); a game over is mode $11. The stage being played (an attempt from its start, no
+gem lost so far) is kept in the run bits, which travel with save states: a stage cleared after loading a state of
+the same run counts. `tools/re/sms_ach_test.py` drives the real flow (stage exits through `$35B8`, Jafar's
+counter) and prints the events.

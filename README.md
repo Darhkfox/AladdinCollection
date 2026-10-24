@@ -160,12 +160,13 @@ achievements of its own: *A Whole New World* (defeat Jafar in all three versions
   console's 64-entry sprite table are drawn as extra sprites. Near a stage's ends the picture slides instead of
   showing black, with the parallax bands holding still with the level; Jafar's room carries its pillars on past
   its ends (dimmed); the stone counter moves to the right edge. Title, menus, story scenes, game
-  over and the ending stay in their original shape.
+  over and the ending stay in their original shape, and so do the attract demos, which play exactly as recorded at
+  every width.
 - **Level select**: all 10 stages, numbered as the developers' TEST MODE numbers them (1-1 to 7), entered through
   the password screen as a player would.
-- **Cheats**: invincibility (the game's own, as the developers' password AIQY gives it), infinite health, infinite
-  stones, and the developers' hidden TEST MODE (the title's PASSWORD opens it: character viewer, stage select,
-  sound test, input test, the story scenes). The game has no lives (continues are unlimited), and its gems are the
+- **Cheats**: invincibility (the game's own, as the developers' password AIQY gives it, extended to the palace
+  guards' grab), infinite health, infinite stones, and the developers' hidden TEST MODE (the title's PASSWORD opens
+  it: character viewer, stage select, sound test, input test, the story scenes). The game has no lives (continues are unlimited), and its gems are the
   health bar.
 - **Music player & sound test**: 20 music tracks and 60 effects, played by the game's own driver (the effects that
   only play in menus and story scenes, or not at all, are listed by number).
@@ -250,10 +251,12 @@ gradlew assembleDebug
   in widescreen.
 - Master System: the game's own camera is kept (Aladdin's position is an 8-bit screen coordinate), so near a
   stage's ends the scenery holds still while Aladdin walks for the first stretch of camera travel. Objects run up
-  to twice the extra width earlier than in the original, so the attract demos drift. In stage 7 a few flyers that
-  enter from the left appear inside the left side of views wider than 16:10. Tiles the game animates with the
+  to twice the extra width earlier than in the original. In A Whole New World a few flyers that enter and leave on
+  the left appear and vanish inside the left side of views wider than 16:10. Tiles the game animates with the
   camera (stage 0's distant building and brick wall, stage 1's railings) show their current state at the sides.
-  With Remove Sprite Flicker off, sprites in the sides count towards the 8-per-line limit.
+  Infinite Health keeps the gems, but the guards' grabs, the carpet's crashes, pits and lava still cost a life;
+  Invincibility covers all but pits and lava. With Remove Sprite Flicker off, sprites in the sides count towards
+  the 8-per-line limit.
 - SNES: with Remove Slowdown on, the attract demos (recorded button presses) can drift slightly from their path, as
   the lag frames they were recorded with are gone. Invincibility and infinite health don't prevent pits, crushes or being left behind by the scrolling. Infinite
   Gems keeps the counter at 99, so every gem completes a hundred (an extra heart, then an extra life). The dimmed

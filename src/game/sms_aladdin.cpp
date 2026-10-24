@@ -33,7 +33,10 @@ constexpr uint16_t SOUND_ON = 0xC203, SOUND_MUSIC = 0xDE06, SOUND_SFX = 0xDE07, 
 constexpr uint16_t JUKEBOX_IDLE = 0xC0A0;   // music player: the CPU waits here (below the stack at $C100)
 
 bool stage_mode(int m) { return m >= 2 && m <= 0x0B; }
-bool in_stage(const Sms& s) { return stage_mode(s.ram8(MODE)) && s.ram8(STAGE) <= 9; }
+// A demo of the attract mode plays as recorded and is shown at 4:3 (see the caves).
+bool demo_playing(const Sms& s) { const int d = s.ram8(DEMO); return d >= 2 && d <= 0x0B; }
+// A stage being played (the widescreen view): stage modes, not a demo.
+bool in_stage(const Sms& s) { return stage_mode(s.ram8(MODE)) && s.ram8(STAGE) <= 9 && !demo_playing(s); }
 
 // ---- levels: the ten stages, entered through the password screen like a player would -------------------
 struct Stage { const char* group; const char* name; const char* password; };
@@ -99,6 +102,10 @@ const std::vector<RomPatch> kInvincible = {
     {0x3F5F, {0x3A, 0x67, 0xC4, 0xB7, 0xC0}, {0x3E, 0xFF, 0xB7, 0xC0, 0x00}},
     {0x38A9, {0x3A, 0x67, 0xC4, 0xB7, 0x20}, {0x3E, 0xFF, 0x00, 0xB7, 0x20}},
     {0x4B64C, {0x3A, 0x67, 0xC4, 0xB7, 0xC0}, {0x3E, 0xFF, 0xB7, 0xC0, 0x00}},
+    // the Sultan's palace guards' grab (stage 6's second figure, bank 12): `call c,$B90F` after the touch test
+    // $B8B3 (which changes nothing) takes Aladdin straight to his death, past the tests above
+    {0x32C76, {0xDC, 0x0F, 0xB9}, {0x00, 0x00, 0x00}},
+    {0x329DA, {0xDC, 0x0F, 0xB9}, {0x00, 0x00, 0x00}},
 };
 // The three ways a hit takes health: one half gem ($3F88), one but never the last ($3F76), two ($4A6F4). The
 // `dec a`s become `or a`: the test after them ("none left?") must see the health, not stale flags.
@@ -120,10 +127,14 @@ const std::vector<RomPatch> kDevMenu = {{0x4BC4, {0x0E, 0x0F}, {0x0E, 0x01}}};
 // pixel: it then reaches up to 2E px past the original 256-px screen on one side. Objects live in screen coordinates:
 // the windows that wake / keep them and the per-piece sprite clipping are widened to that; the true X of a sprite
 // beyond the 8-bit table X is recorded by PC hooks on the three sprite writers (sprite_x).
+constexpr uint16_t GAME_OVER_ENTRY = 0x7270, DEMO_END = 0x352C;
+// The attract mode's demos replay recorded input: they keep the original's windows (every cave first tests $C104,
+// DEMO_TEST) and are shown at 4:3 (in_stage), or they drift off their path.
 // Code caves in bank 1's unused zero fill ($7943-$7DFF).
-constexpr uint16_t CAVE_WAKE = 0x7A00, CAVE_LOAD = 0x7A30, CAVE_GONE = 0x7A70, CAVE_FULL_A = 0x7AA0,
-                   CAVE_FULL_B = 0x7AA8;
-constexpr uint16_t CAVE_GONE_MAX = CAVE_GONE + 8;   // (CAVE_GONE's `or a` after `ld de,($C480)`)
+constexpr uint16_t CAVE_WAKE = 0x7A00, CAVE_LOAD = 0x7A40, CAVE_GONE = 0x7A90, CAVE_FULL_A = 0x7AD0,
+                   CAVE_FULL_B = 0x7AF0, CAVE_KEEP_A = 0x7B10, CAVE_KEEP_B = 0x7B30, CAVE_BOULDER = 0x7B50;
+constexpr uint16_t CAVE_GONE_MAX = CAVE_GONE + 24;   // (CAVE_GONE's `or a` after `ld de,($C480)`)
+constexpr uint16_t CAVE_FULL_A_WIDE = CAVE_FULL_A + 16, CAVE_FULL_B_WIDE = CAVE_FULL_B + 16;   // (their wide paths)
 
 std::vector<RomPatch> wide_patches(int E) {
     auto zeros = [](size_t n) { return std::vector<uint8_t>(n, 0x00); };
@@ -137,12 +148,25 @@ std::vector<RomPatch> wide_patches(int E) {
     // there an object whose X is within lo + 2E is awake from the start, placed (X - lo) px further right. K depends
     // only on the object, so the place and the wake agree whenever it loads or wakes.
     // CAVE_WAKE: hl = the camera + K for the test (`sbc hl,de` with de = X), $FFFF = awake.
+    // (a demo playing: carry set; a and the flags change)
+    const std::vector<uint8_t> demo_test = {
+        0x3A, 0x04, 0xC1,        // ld a,($C104)        the demo's mode (2..$B), else 0 or $FF
+        0xD6, 0x02,              // sub 2
+        0xFE, 0x0A,              // cp 10
+    };
+    auto with_demo_test = [&](std::vector<uint8_t> head, const std::vector<uint8_t>& tail) {
+        head.insert(head.end(), demo_test.begin(), demo_test.end());
+        head.insert(head.end(), tail.begin(), tail.end());
+        return head;
+    };
     const int E2 = 2 * E;
-    const std::vector<uint8_t> wake = {
+    const std::vector<uint8_t> wake = with_demo_test({
         0xDD, 0x7E, 0x20,        // ld a,(ix+$20)
         0xB7,                    // or a
         0x2A, 0x82, 0xC4,        // ld hl,($C482)
         0xC8,                    // ret z               (screen-space objects: the original test)
+    }, {                         // (demo test)
+        0xD8,                    // ret c               (a demo: the original test)
         0xDD, 0x5E, 0x28,        // ld e,(ix+$28)
         0xDD, 0x56, 0x29,        // ld d,(ix+$29)
         0xE5,                    // push hl
@@ -158,10 +182,12 @@ std::vector<RomPatch> wide_patches(int E) {
         0x01, lo(E), hi(E),      // far: ld bc,E
         0x09,                    // add hl,bc
         0xC9,                    // ret
-    };
+    });
     // CAVE_LOAD (instead of `call $41B3` at $4151, the record just loaded): X += K
-    const std::vector<uint8_t> load = {
+    const std::vector<uint8_t> load = with_demo_test({
         0xE5,                    // push hl
+    }, {                         // (demo test)
+        0x38, 0x34,              // jr c,done           (a demo: as loaded)
         0xDD, 0x7E, 0x20,        // ld a,(ix+$20)
         0xB7,                    // or a
         0x28, 0x2E,              // jr z,done
@@ -187,12 +213,19 @@ std::vector<RomPatch> wide_patches(int E) {
         0xDD, 0x74, 0x03,        // ld (ix+$03),h
         0xE1,                    // done: pop hl
         0xC3, 0xB3, 0x41,        // jp $41B3
-    };
+    });
     // ... and an object leaves (the next one of the list takes the slot) once past the view's left edge: x < -32 - E,
     // and up to E px further near the stage's right end, where the view slides left (the camera within E px of its
     // limit). CAVE_GONE returns de = the distance for `add hl,de` at $3EC8 (x + de < 0: gone). The limit is $C480 or
     // the map's end if that comes first (level_bounds): the module's hook at CAVE_GONE_MAX puts it in de.
-    const std::vector<uint8_t> gone = {
+    const std::vector<uint8_t> gone = with_demo_test({
+        0xF5,                    // push af
+    }, {                         // (demo test)
+        0x30, 0x05,              // jr nc,wide
+        0xF1,                    // pop af
+        0x11, 0x20, 0x00,        // ld de,$0020         (a demo: the original distance)
+        0xC9,                    // ret
+        0xF1,                    // wide: pop af
         0xE5,                    // push hl
         0x2A, 0x82, 0xC4,        // ld hl,($C482)
         0xED, 0x5B, 0x80, 0xC4,  // ld de,($C480)
@@ -214,26 +247,71 @@ std::vector<RomPatch> wide_patches(int E) {
         0xEB,                    // ex de,hl
         0xE1,                    // pop hl
         0xC9,                    // ret
-    };
+    });
     // The sprite slot allocators ($3D74 / $3D5E) put an object that no longer fits in the 64 entries to sleep, but
     // the draw call after them still writes its pieces past the table (over the palette buffer at $C3C0), and a
     // sleeping object of stages 0/1/5/7/8 stops following the camera ($3DC8) for that frame. Rare in the 256-px view,
     // common with more objects awake: the object stays awake, and the module has the VDP draw it after the table's
     // 64 sprites (extra_sprites).
-    const std::vector<uint8_t> full_a = {0xE1, 0xC3, 0x39, 0x3D};
-    const std::vector<uint8_t> full_b = {0xE1, 0xC3, 0xE4, 0x3C};
+    // (a demo: the original's sleep; the module's hook marks the object at CAVE_FULL_x_WIDE)
+    auto full = [&](uint16_t to) {
+        return with_demo_test({
+            0xF5,                    // push af
+        }, {                         // (demo test)
+            0x30, 0x06,              // jr nc,wide
+            0xF1,                    // pop af
+            0xDD, 0x36, 0x1D, 0x00,  // ld (ix+$1D),0       (a demo: as the original)
+            0xC9,                    // ret
+            0xF1,                    // wide: pop af
+            0xE1,                    // pop hl
+            0xC3, lo(to), hi(to),    // jp to               (keep it awake, skip the draw)
+        });
+    };
+    const std::vector<uint8_t> full_a = full(0x3D39), full_b = full(0x3CE4);
     // The other stages keep all their objects: one is awake while its x is in [-64, 304) ($3E1F); widened by 2E on
-    // both sides (as far as the sliding view reaches)
-    const int keep = 0x40 + E2, win = 0x170 + 2 * E2;
+    // both sides (as far as the sliding view reaches): CAVE_KEEP_A / _B instead of `ld de,$0040` / `ld de,$0170`
+    auto keep = [&](int original, int wide) {
+        return with_demo_test({
+            0xF5,                    // push af
+        }, {                         // (demo test)
+            0x11, lo(wide), hi(wide),           // ld de,wide
+            0x30, 0x03,                         // jr nc,done
+            0x11, lo(original), hi(original),   // ld de,original      (a demo)
+            0xF1,                    // done: pop af
+            0xC9,                    // ret
+        });
+    };
+    const std::vector<uint8_t> keep_a = keep(0x40, 0x40 + E2), keep_b = keep(0x170, 0x170 + 2 * E2);
+    // The Caverns' and the Treasure Room's rolling boulders (type $0A, bank $12 $AADE) come back to their home once
+    // it is off the screen (`ld a,h; or a; ret z` with hl = home - camera: not within x 0..255) - just past the
+    // original's left edge, under its blanked column, they popped up inside a wide view's left side. Off the view
+    // now: not within [-2E - 32, 256 + 2E) (the keep window reaches 64 px further, so they still come back).
+    const std::vector<uint8_t> boulder = {
+        0xE5,                    // push hl
+        0x11, lo(E2 + 32), hi(E2 + 32),             // ld de,2E+32
+        0x19,                    // add hl,de
+        0x11, lo(256 + 2 * E2 + 32), hi(256 + 2 * E2 + 32),   // ld de,256+4E+32
+        0xB7,                    // or a
+        0xED, 0x52,              // sbc hl,de           x + 2E + 32 < 256 + 4E + 32: in the view
+        0xE1,                    // pop hl
+        0xD0,                    // ret nc              (back: come home)
+        0xD1,                    // pop de              (the call's return)
+        0xAF,                    // xor a
+        0xC9,                    // ret                 (as the original `ret z`: not yet)
+    };
     return {
+        {0x4AAEB, {0x7C, 0xB7, 0xC8}, {0xCD, lo(CAVE_BOULDER), hi(CAVE_BOULDER)}},
+        {CAVE_BOULDER, zeros(boulder.size()), boulder},
         {0x3E50, {0x2A, 0x82, 0xC4}, {0xCD, lo(CAVE_WAKE), hi(CAVE_WAKE)}},
         {CAVE_WAKE, zeros(wake.size()), wake},
         {0x4151, {0xCD, 0xB3, 0x41}, {0xCD, lo(CAVE_LOAD), hi(CAVE_LOAD)}},
         {CAVE_LOAD, zeros(load.size()), load},
         {0x3EC5, {0x11, 0x20, 0x00}, {0xCD, lo(CAVE_GONE), hi(CAVE_GONE)}},
         {CAVE_GONE, zeros(gone.size()), gone},
-        {0x3E25, {0x11, 0x40, 0x00}, {0x11, lo(keep), hi(keep)}},
-        {0x3E29, {0x11, 0x70, 0x01}, {0x11, lo(win), hi(win)}},
+        {0x3E25, {0x11, 0x40, 0x00}, {0xCD, lo(CAVE_KEEP_A), hi(CAVE_KEEP_A)}},
+        {CAVE_KEEP_A, zeros(keep_a.size()), keep_a},
+        {0x3E29, {0x11, 0x70, 0x01}, {0xCD, lo(CAVE_KEEP_B), hi(CAVE_KEEP_B)}},
+        {CAVE_KEEP_B, zeros(keep_b.size()), keep_b},
         {0x3D86, {0xDD, 0x36, 0x1D, 0x00, 0xC9}, {0xC3, lo(CAVE_FULL_A), hi(CAVE_FULL_A), 0x00, 0x00}},
         {CAVE_FULL_A, zeros(full_a.size()), full_a},
         {0x3D6B, {0xDD, 0x36, 0x1D, 0x00, 0xC9}, {0xC3, lo(CAVE_FULL_B), hi(CAVE_FULL_B), 0x00, 0x00}},
@@ -441,10 +519,32 @@ public:
         return p;
     }
 
-    bool can_configure(const Sms& s, const GameConfig& cfg) const override { return patches_safe(s, patch_list(cfg)); }
+    // The attract mode's demos replay recorded input against the original game: any change to the code they run
+    // changes their course - the windows of the widescreen patches and the cheats, but also just the number of
+    // instructions, as the game's random numbers take the Z80's R register ($09B8, $0A0E, $0A64). While a demo
+    // plays the ROM is the original (but for the developer menu's title change), and the demo is shown at 4:3
+    // (in_stage). The ROM switches at the frame a demo starts or ends (pre_frame): the title's fade lies between
+    // the demo flag and the stage's start.
+    static std::vector<RomPatch> demo_patch_list(const GameConfig& cfg) {
+        return cfg.cheat("dev_menu") ? kDevMenu : std::vector<RomPatch>();
+    }
+    static std::vector<RomPatch> rom_for(const Sms& s, const GameConfig& cfg) {
+        return demo_playing(s) ? demo_patch_list(cfg) : patch_list(cfg);
+    }
+
+    bool can_configure(const Sms& s, const GameConfig& cfg) const override { return patches_safe(s, rom_for(s, cfg)); }
+
+    void pre_frame(Sms& s, const GameConfig& cfg) override {
+        if (demo_playing(s) == demo_rom_) return;
+        const std::vector<RomPatch> rom = rom_for(s, cfg);
+        if (!patches_safe(s, rom)) return;   // (a later frame)
+        apply_patches(s, rom);
+        demo_rom_ = !demo_rom_;
+    }
 
     void configure(Sms& s, const GameConfig& cfg) override {
-        apply_patches(s, patch_list(cfg));
+        apply_patches(s, rom_for(s, cfg));
+        demo_rom_ = demo_playing(s);
         // A width change in a queue stage: the objects waiting for the camera were placed for the old width
         // (wake_shift; none at all without widescreen)
         if (in_stage(s) && queue_objects(s.ram8(STAGE))) {
@@ -461,11 +561,17 @@ public:
         sms_ = &s;
         hud_anchor_ = cfg.hud_anchor;
         s.clear_pc_hooks();
+        // A demo that ends in a game over (a cheat can still change its course) would wait on TRY AGAIN, its input
+        // being the recording's: back to the title instead, as a demo that loses Aladdin goes ($352C).
+        s.add_pc_hook(GAME_OVER_ENTRY, [](Sms& m) { if (demo_playing(m)) m.z80.pc = DEMO_END; });
         SmsVdp& v = s.vdp;
         v.hook_host = this;
         const bool wide = cfg.ext > 0;
         v.hw_x0 = wide ? 8 : 0;
         v.hw_x1 = 256;
+        // (the partial cell at the right shows the table column the game is about to rewrite, sometimes a frame
+        // late: a stale sliver in the middle of a wide picture. It comes from the map like the sides.)
+        v.hw_right_partial_out = wide;
         v.bg_entry = wide ? bg_entry : nullptr;
         v.sprite_x = wide ? sprite_x : nullptr;
         v.line_hook = wide ? line_hook : nullptr;
@@ -513,8 +619,8 @@ public:
             level_bounds(m, lo, hi);
             m.z80.de = (uint16_t)hi;
         });
-        s.add_pc_hook(CAVE_FULL_A, undrawn);
-        s.add_pc_hook(CAVE_FULL_B, undrawn);
+        s.add_pc_hook(CAVE_FULL_A_WIDE, undrawn);
+        s.add_pc_hook(CAVE_FULL_B_WIDE, undrawn);
         // the VBlank's sprite table upload ($02D9): in reverse order on odd frames (the game's flicker)
         s.add_pc_hook(0x02D9, [this](Sms& m) {
             const bool rev = m.ram8(FRAMES) & 1;
@@ -585,13 +691,10 @@ public:
 
     std::vector<CheatEntry> cheats() const override {
         return {
-            {"invincible", "Invincibility", "Enemies, their shots and the carpet's crashes can't hurt Aladdin (the game's own "
-                                            "invulnerability, as the developers' password AIQY gives it). Pits and lava still end the stage."},
-            {"inf_health", "Infinite Health", "Hits never take a gem away."},
+            {"invincible", "Invincibility", "Enemies, shots, grabs and carpet crashes can't hurt Aladdin; pits and lava can."},
+            {"inf_health", "Infinite Health", "Hits never take a gem away. Grabs, carpet crashes, pits and lava still cost a life."},
             {"inf_rocks", "Infinite Stones", "Throwing a stone never uses one up."},
-            {"dev_menu", "Developer Menu", "The title's PASSWORD opens the developers' TEST MODE instead: character viewer, stage "
-                                           "select, sound test, input test and VISUAL TEST (the story scenes). Up / Down choose, "
-                                           "Left / Right change, button 1 starts."},
+            {"dev_menu", "Developer Menu", "PASSWORD opens TEST MODE: stages, sound test (hold Left/Right, 2 plays), scenes."},
         };
     }
 
@@ -622,9 +725,10 @@ public:
     // ---- Achievements (indices follow achievements())
     enum { A_MARKET, A_ROOFTOPS, A_CAVE, A_TREASURE, A_LAMP, A_ESCAPE, A_PRINCE, A_CARPET, A_PALACE, A_JAFAR, A_NEWGAME,
            A_NOCONTINUE, A_NOSCRATCH, A_FLAWLESS, A_JAFAR_FLAWLESS, A_STONES, A_SKIP };
-    enum { S_FIRED, S_CLEAN, S_ATTEMPT };
-    // run bits: a run is going (a stage was entered), it began with GAME START, a game over happened
-    enum : uint32_t { R_RUN = 1, R_NEWGAME = 2, R_GAME_OVER = 4 };
+    enum { S_FIRED };
+    // run bits (they travel with save states): a run is going (a stage was entered), it began with GAME START, a game
+    // over happened; and the stage being played: an attempt from its start, and no gem lost in it so far
+    enum : uint32_t { R_RUN = 1, R_NEWGAME = 2, R_GAME_OVER = 4, R_ATTEMPT = 8, R_CLEAN = 16 };
 
     void achievement_frame(const Sms& m, AchievementCtx& c) const override {
         if (c.prev.size() != sizeof(m.ram)) return;
@@ -636,39 +740,40 @@ public:
         };
         const int sm = s.b(MODE), pm = p.b(MODE), stage = s.b(STAGE), pstage = p.b(STAGE);
         auto demo = [](const RamViewLE& r) { const int d = r.b(DEMO); return d >= 2 && d <= 0x0B; };
-        if (demo(s) || demo(p)) { c.scratch[S_ATTEMPT] = 0; return; }   // the attract mode's recorded play
+        auto set = [&](uint32_t bit, bool on) { c.run_bits = on ? c.run_bits | bit : c.run_bits & ~bit; };
+        if (demo(s) || demo(p)) { set(R_ATTEMPT, false); return; }   // the attract mode's recorded play
         // runs: GAME START (the opening scene from the title), a password, a game over, back to the title
         if (pm == 0 && sm == M_SCENE && s.b(SCENE) == 0) c.run_bits = R_RUN | R_NEWGAME;
         if (pm == M_PASSWORD && stage_mode(sm)) c.run_bits = R_RUN;
         if (sm == M_GAME_OVER && pm != M_GAME_OVER) c.run_bits |= R_GAME_OVER;
         if (sm == 0 && pm != 0) c.run_bits = 0;
         // stage clears: the stage number goes up as the stage hands over to its story scene / the next stage
-        if (stage_mode(pm) && pstage <= 8 && stage == pstage + 1 && c.scratch[S_ATTEMPT]) {
+        if (stage_mode(pm) && pstage <= 8 && stage == pstage + 1 && (c.run_bits & R_ATTEMPT)) {
             fire(A_MARKET + pstage);
-            if (c.scratch[S_CLEAN]) {
+            if (c.run_bits & R_CLEAN) {
                 fire(A_NOSCRATCH);
                 c.marked.push_back({A_FLAWLESS, pstage});
             }
-            c.scratch[S_ATTEMPT] = 0;
+            set(R_ATTEMPT, false);
         }
         // a stage attempt: from its first frame (entered - also straight from the stage before, as the lamp's chamber
         // is -, restarted after a game over, or by the level select)
         const bool selected = c.level_select && stage_mode(sm);
         c.level_select = false;
         if ((stage_mode(sm) && sm != pm) || selected) {
-            c.scratch[S_ATTEMPT] = 1;
-            c.scratch[S_CLEAN] = 1;
+            set(R_ATTEMPT, true);
+            set(R_CLEAN, true);
         }
-        if (stage_mode(sm) && sm == pm && s.b(HEALTH) < p.b(HEALTH)) c.scratch[S_CLEAN] = 0;
+        if (stage_mode(sm) && sm == pm && s.b(HEALTH) < p.b(HEALTH)) set(R_CLEAN, false);
         // Jafar: eight hits ($C6AD) and the stage hands over to the ending's first scene ($20)
         if (pm == 0x0B && sm == M_SCENE && s.b(SCENE) == 0x20) {
             fire(A_JAFAR);
-            if (c.scratch[S_ATTEMPT] && c.scratch[S_CLEAN]) {
+            if ((c.run_bits & R_ATTEMPT) && (c.run_bits & R_CLEAN)) {
                 fire(A_NOSCRATCH);
                 fire(A_JAFAR_FLAWLESS);
                 c.marked.push_back({A_FLAWLESS, 9});
             }
-            c.scratch[S_ATTEMPT] = 0;
+            set(R_ATTEMPT, false);
             if (c.run_counts && (c.run_bits & R_RUN) && (c.run_bits & R_NEWGAME)) {
                 fire(A_NEWGAME);
                 if (!(c.run_bits & R_GAME_OVER)) fire(A_NOCONTINUE);
@@ -761,6 +866,7 @@ private:
     int cam_band_ = 0;
     int moved_at_ = 0;
     bool wide_ = false;   // (configured with widescreen: the hooks keep page_ and the extra sprites)
+    bool demo_rom_ = false;   // the ROM holds the demos' patches (demo_patch_list), not patch_list
 
     // The parallax band of a line: 0 up to the first line interrupt's change, 1.. after each one
     int band_of(int line) const {
