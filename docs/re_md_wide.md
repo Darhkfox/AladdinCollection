@@ -140,23 +140,35 @@ drawing there.
   screen. With the wider spawning a kind could load its colours while another is on screen: in the idol's arena at
   21:9 (CRT), Aladdin moving left brings the bat at block (109, 36) into the spawn band (camera 1872; the 4:3 window
   never reaches it from the arena, whose left end is camera 1821) and the idol and both pedestals took the bat's dark
-  red, yellow and magenta for the rest of the fight (the QA's report: bright yellow / magenta outlines). Now a map
-  object spawned outside the 4:3 window whose colours differ from the line's, while an object of the kind that loaded
-  the line's colours is on screen, has the handler's call skipped (a hook at `$1B2650` that checks the return address
-  against the 13 spawn-handler calls, then returns) and the load held in `module_state[7]` (four entries: slot, palette
-  index; save states and rewind keep them). It is drawn in the line's colours meanwhile. Right after the gameplay
-  loop's streaming (`$1A8CE8`, with the boss tune) a held load is done when the object's block (found by its block word,
-  +`$32` × 2, unique in every map) comes into the 4:3 window - when the 4:3 game would spawn it and load them - or once
-  no object of the line's kind is alive (for a boss's colours, `$1292F2` / `$1295D2` / `$129152`: none on screen, so
-  the boss doesn't come in in a bat's colours while that bat lingers in view). Checked (the held entries read from save
-  states): the arena at 21:9, in from the left and a 1,710-frame fight walking both ways - idol / pedestals in other
-  colours on 1,671 frames before, 0 now; held: that bat (drawn in the idol's gold in the left extension, the only place
-  it shows, 526 frames) and, coming in, the idol itself for 4 frames in the right extension while a bat was in view;
-  from the ledges above, 26 frames (16:9: 1) before, 0 now. A map-view sweep of every camera row of the Dungeon, the
-  Cave and Jafar's Palace at 16:9 / 21:9: line 2 repainted under an object on screen by an object outside the 4:3
-  window 1 / 1 (that bat) before, 0 now. What remains is the 4:3 game's own: a load at its window's edge repainting a
-  statue that only the extension shows (Jafar's Palace at 21:9), and the 4:3 game itself repaints the idol with the
-  bat's colours when its camera reaches (1740, 440) with the idol alive.
+  red, yellow and magenta for the rest of the fight (the QA's report: bright yellow / magenta outlines). Now:
+  - a map object spawned outside the 4:3 window whose colours differ from the line's, while an object of the kind that
+    loaded the line's colours is on screen (a boss's colours, `$1292F2` / `$1295D2` / `$129152`: alive), has the
+    handler's call skipped (a hook at `$1B2650` that checks the return address against the 13 spawn-handler calls,
+    then returns): its load is held, and it is drawn in the line's colours meanwhile;
+  - otherwise its load goes through but is noted as early, since the 4:3 game would load those colours later, possibly
+    after another kind's: the Cave's leaping fish (`$3E`, the river under the arena) loaded early, a bat's held load was
+    done at its 4:3 moment in the same frame, and the fish was shown in the bat's colours, partly in the 4:3 area, for
+    20 frames (the QA's re-run of the arena, 21:9 from the ledges above);
+  - right after the gameplay loop's streaming (`$1A8CE8`, with the boss tune), an entry whose object's block (found by
+    its block word, +`$32` × 2, unique in every map) comes into the 4:3 window - when the 4:3 game would spawn it and
+    load its colours - loads them if the line has others, and is done; then a held one whose line is free (no object of
+    the line's kind alive; for a boss's colours, none on screen, so the boss doesn't come in in a bat's colours while
+    that bat lingers in view) loads and becomes early. A held one whose colours the line has by then counts as early.
+  - `module_state[7]`: three entries of 10 bits (slot, palette index << 5, bit 8 early); save states and rewind keep
+    them. With no free entry, a load goes through as the game does it.
+  Checked (the entries read from save states): the arena at 21:9, in from the left and a 1,710-frame fight walking both
+  ways - idol / pedestals in other colours on 1,671 frames before, 0 now; held: that bat (drawn in the idol's gold in the
+  left extension, the only place it shows, 526 frames) and, coming in, the idol itself for 4 frames in the right
+  extension while a bat was in view; from the ledges above, 26 frames (16:9: 1) before, 0 now, and the fish in other
+  colours in the 4:3 area 20 frames at 21:9 before, 0 now. What that run still counts for the fish (E=0 / 54 / 128: 15 /
+  35 / 12 frames) is Aladdin falling into the river: `$1A905E` → `$1B2784` points every line's source at an all-black
+  palette (`$128ED2`, line 2 `$128F12`) and fades CRAM to it (frames shown 4:3 from the fall on, CRAM the fish's own
+  colours a step darker each frame); the widened band spawns the fish earlier, so it is on screen in more of those
+  fades. A map-view sweep of every camera row of the Dungeon, the Cave and Jafar's Palace at 16:9 / 21:9: line 2
+  repainted under an object on screen by an object outside the 4:3 window 1 / 1 (that bat) before, 0 now. What remains
+  is the 4:3 game's own: a load at its window's edge repainting a statue that only the extension shows (Jafar's Palace
+  at 21:9), and the 4:3 game itself repaints the idol with the bat's colours when its camera reaches (1740, 440) with
+  the idol alive.
 * **Sprite clip** (`$1ABA0A`): map objects' pieces need VDP X in [0, `$1BF`) — now [−o, 448 + 2E) with
   o = max(0, 2E − 96) (`$1ABAD0` → `jsr $7180.w`: the compare runs on a biased copy on the stack, so the X written is
   the piece's own, negative left of X 0); screen-fixed objects (+6 bit 3) [0, 448 + 2E) (`$1ABA8C` → `jsr $71C0.w`).
