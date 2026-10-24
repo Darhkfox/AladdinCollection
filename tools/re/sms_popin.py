@@ -27,7 +27,7 @@ def run(ext, st, frames, verbose=False):
     if st in FREE:
         drive(s, 2)
     y0 = s.ram8(0xC400)
-    n = N_SLOTS.get(st, 16)
+    n = s.peek(0x3D14) if st in N_SLOTS else 16   # (the queue stages: 7 slots, 12 in a wide view)
     awake = [False] * n
     pops, spawns = [], 0
     s.bp(0x3D86)   # allocator full: an object not drawn

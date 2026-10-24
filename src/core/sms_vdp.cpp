@@ -50,6 +50,7 @@ void SmsVdp::write_ctrl(uint8_t v) {
     } else if (code == 2) {
         const int r = v & 0x0F;
         if (r < 11) reg[r] = (uint8_t)(addr & 0xFF);
+        if (r == 8) hscroll_writes++;
         update_irq();
     }
 }
@@ -214,6 +215,7 @@ void SmsVdp::render_line(int ln) {
     fb_lines = active_lines();
     uint8_t* out = fb[ln];
     line_hscroll[ln] = (uint8_t)hscroll_for(ln);
+    line_hscroll_writes[ln] = hscroll_writes;
     const uint8_t backdrop = cram[16 + (reg[7] & 0x0F)];
     if (!display_enabled()) {
         memset(out, backdrop, W);

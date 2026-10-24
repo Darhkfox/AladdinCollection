@@ -109,6 +109,10 @@ public:
     uint8_t fb[kMaxLines][kMaxWidth];
     int  fb_width = 256;            // width of the last rendered frame (256 + 2 * ext)
     uint8_t line_hscroll[kMaxLines] = {};   // the horizontal scroll each line was drawn with (tools)
+    // writes to register 8 so far, and as each line was drawn: a module tells a line interrupt's raster split by it
+    // (the line where the scroll actually changed), whatever the values
+    uint16_t hscroll_writes = 0;
+    uint16_t line_hscroll_writes[kMaxLines] = {};
     int  fb_lines = 192;
 
     // ---- memory / registers ----------------------------------------------------

@@ -134,7 +134,8 @@ achievements of its own: *A Whole New World* (defeat Jafar in all three versions
   out as the game's own code would place them with its camera at the picture's middle — so every layer moves as on
   the console. The Carpet Escape's wave and A Whole New World widen too. Objects appear, act and are drawn across the
   whole width; the HUD and the PAUSE / ACTION texts are re-anchored. Boss arenas (the Market at Dusk, the end of
-  Sultan's Dungeon, Jafar) keep the original camera with the unreachable sides dimmed.
+  Sultan's Dungeon, Jafar) keep the original camera with the unreachable sides dimmed. The attract demos stay in
+  their original shape and play exactly as recorded at every width, with Remove Slowdown and cheats on too.
 - **Level select**: all 19 levels in the order the game plays them, A Whole New World included, started through
   GAME START with the game's own hidden stage select.
 - **Cheats**: invincibility, infinite health, lives, apples and gems, and Capcom's developer mode (10 hearts and 99
@@ -252,21 +253,23 @@ gradlew assembleDebug
   switched off, so switch it off over solid ground. Attract demos are recorded inputs and can play out differently
   in widescreen.
 - Master System: the game's own camera is kept (Aladdin's position is an 8-bit screen coordinate), so near a
-  stage's ends the scenery holds still while Aladdin walks for the first stretch of camera travel. Objects run up
-  to twice the extra width earlier than in the original. In A Whole New World a few flyers that enter and leave on
-  the left appear and vanish inside the left side of views wider than 16:10. Tiles the game animates with the
+  stage's ends the scenery holds still while Aladdin walks for the first stretch of camera travel. Objects wake as
+  they come within the original's margins of the view as shown, so those entering from the right act as much
+  earlier as the extra width takes the camera to cover (and A Whole New World's birds from the left start
+  correspondingly earlier). Tiles the game animates with the
   camera (stage 0's distant building and brick wall, stage 1's railings) show their current state at the sides.
   Infinite Health keeps the gems, but the guards' grabs, the carpet's crashes, pits and lava still cost a life;
   Invincibility covers all but pits and lava. With Remove Sprite Flicker off, sprites in the sides count towards
   the 8-per-line limit. The attract demos play at 4:3: they replay recorded input, which only stays on its path
   with the original code.
-- SNES: with Remove Slowdown on, the attract demos (recorded button presses) can drift slightly from their path, as
-  the lag frames they were recorded with are gone. Invincibility and infinite health don't prevent pits, crushes or being left behind by the scrolling. Infinite
-  Gems keeps the counter at 99, so every gem completes a hundred (an extra heart, then an extra life). The dimmed
-  sides of a boss arena show the level as stored, not what the fight paints on it (Jafar's fire floor stays in the
-  4:3 area). In the levels with a half-speed background, up to about 70 px of that background is shown mirrored at
-  a level's start at 21:9 (the level itself is real to the edge). The staff roll stays 4:3. The level select starts
-  with new-game stats (3 lives, 3 hearts, 10 apples).
+- SNES: the attract demos play at 4:3 and without Remove Slowdown or cheats: they replay recorded input (lag frames
+  included), which only stays on its path with the original code. Invincibility and infinite health don't prevent
+  pits, crushes or being left behind by the scrolling. Infinite Gems keeps the counter at 99, so every gem completes
+  a hundred (an extra heart, then an extra life). The dimmed sides of a boss arena show the level as stored, not
+  what the fight paints on it (Jafar's fire floor stays in the 4:3 area). In the levels with a half-speed
+  background, up to about 70 px of that background is shown mirrored at a level's start at 21:9 (the level itself
+  is real to the edge). The staff roll stays 4:3. The level select starts with new-game stats (3 lives, 3 hearts,
+  10 apples).
 - Save states made by a newer version may not load in an older one.
 
 ## Credits and licences
