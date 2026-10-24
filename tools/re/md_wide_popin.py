@@ -1,7 +1,8 @@
 """Pop-in check (Aladdin MD): where map objects first show in the widened, slid view. An object counts once it has
 lived 2 frames (a spawn that can't get sprite tiles is gone the next frame and never drawn); its screen x / y on its
 first frame is compared with the slid view [-E+s, 320+E+s) x [0, 224). Also counts the sprite-tile allocation failures
-($1AD406: the pool of $74 slots at $FFF008 shared by every object).
+that drop an object ($1AD40A, after the failure path: the pool of $74 slots at $FFF008 shared by every object; the
+module's hook at $1AD406 makes room first, so no breakpoint goes there).
 
     python tools/re/md_wide_popin.py <ext> [entries]
 """
@@ -19,7 +20,7 @@ def run(ext, entry, script=((240, 'RIGHT'), (60, 'RIGHT+C'), (300, 'RIGHT'), (20
     md = ModuleMD(ROM, 'md')
     md.configure(ext)
     start_play(md, entry, 1)
-    md.bp(0x1AD406)
+    md.bp(0x1AD40A)
     born = {}          # slot -> (frame, x, y, s, type) of a new object
     inside, fails = [], 0
     prev = [md.ram8(OBJ + i * SIZE) for i in range(N)]
