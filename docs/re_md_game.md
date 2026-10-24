@@ -149,6 +149,11 @@ The sequence bank holds 114 sequences (offset table, little-endian); music and e
 `$FF` ends). Music by where it plays: level music is header +`$1A` (§2); 26 NEW WORLD (title, `$1B3CDE`, and the
 ending `$1B4F9A`), 84 STORYLINE / 85 DRAMA / 86 MUSHY ONE (story cut-scenes before levels, `$1B0F8E`), 17 LEVEL
 COMPLETE (`$1B0D9A`), 18 BONUS TUNE (Abu's round intro `$1B5196`), 10 NE NAW TUNE (continue screen `$1B0900`).
+Mid-level the music changes only through four object types' spawn handlers, which stop everything and start 50
+BOSS TUNE (if the music option `$FFF57F` is on): `$18` (`$1B6C5A`) and `$28` (`$1B6D1E`, only while Aladdin's Y is in
+[`$2AD`, `$2F4`)) at the Rooftops' end, `$4D` (`$1B6CCE`) in Jafar's Palace and `$F5` (`$1B6D90`, unless `$FFF175`) for
+the Cave of Wonders' golden idol (block column 129, row 29) - the tune starts as the boss object spawns, i.e. as its
+block is streamed into the plane (`tools/re/md_boss_tune.py`). Jafar's Quarters has it as its level music.
 Ten long sequences are never requested and not in the sound test (21, 28, 30, 36, 37, 51-54, 74: listed as
 "Unused Tune 1-10"); 2 (SILENT LAMB), 23-25, 40, 48, 87-89, 111 are silent. Renders: `md_sound.py render`.
 
