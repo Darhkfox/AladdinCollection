@@ -19,9 +19,10 @@ sms_end` for states near the auto-run stages' ends). Widths: 6/22/40/74 (CRT pix
 2. The camera is the original's (Aladdin's position is an 8-bit screen X). Near a level's ends the picture slides
    instead (`view_slide`): the view shows the level from its first / to its last pixel and holds still while the
    camera covers the E px next to the end. Only a level narrower than the view is masked (Jafar's room: dimmed).
-3. Objects live in screen coordinates: their wake / keep windows are widened (ROM patches) as far as the sliding
-   view reaches; sprite pieces beyond the 8-bit table X get their true X from PC hooks on the three sprite writers
-   (`sprite_x`); objects the 64-entry table has no room for are drawn as extra sprites by the VDP.
+3. Objects live in screen coordinates: they wake, stay awake and leave with the original's margins around the
+   view as shown (the slide included, per side, per frame); nothing appears or vanishes inside the view. Sprite
+   pieces beyond the 8-bit table X get their true X from PC hooks on the three sprite writers (`sprite_x`);
+   objects the 64-entry table has no room for are drawn as extra sprites by the VDP.
 4. Status bar (rows 0-1): the stone counter moves to the right edge (`line_hook`), the gems stay centred; neither
    moves with the slide.
 5. Not gameplay (every mode but the ten stage modes 2..$B): pillarboxed, the blanked left column drawn as the
@@ -82,7 +83,9 @@ Parallax bands hold still with the picture: a band line's shift is what that ban
 camera covered the slide, less what the logic has moved it already (the IRQs read live RAM). Stage 0 (camera 1 px a
 frame): the floor bands move 2 and 3 px per camera px. Stage 1 (2 px a frame): `$C493` 1 px every frame, `$C494` on
 even frames, `$C495` every fourth (`$2CC7`), counted from the frame counter at the camera's last move
-(`band_steps`). The camera's own band: s less the band camera's lead over the frame's. In stages 0 and 1 the
+(`band_steps`). The camera's own band: s less the band camera's lead over the frame's. A line's band is counted
+from the scroll register's writes before it (the VDP counts them per line): the game sometimes takes a line
+interrupt a few lines late (its logic holding interrupts off), and the lines between then still show the band above. In stages 0 and 1 the
 logic's lead is taken out without a slide too: otherwise the bands would jump by it where a hold ends (and they
 keep step with the camera's band and the sprites, which the original's floor and rooftops do not quite).
 
@@ -94,36 +97,58 @@ Illusion port shows its arenas.
 
 ## 3. Objects and sprites
 
-ROM patches (`wide_patches(E)`, code caves in bank 1's unused zero fill, `$7A00`-`$7B63`):
+Objects wake, stay awake and leave with the original's margins around the view as it is shown - the slide
+included, per side, per frame: the caves take their values from the module's PC hooks, computed from the logic's
+camera (the one the next frame shows). Objects entering from the right therefore act from as far before their
+place in the level comes into view as in the original, which is E + slide px of camera travel earlier than there
+(the minimum for them to be there when the view reaches them); nothing else acts earlier.
+
+ROM patches (`wide_patches(E)`, code caves in bank 1's unused zero fill, `$7A00`-`$7B5F`):
 
 | at | original | patched | purpose |
 |---|---|---|---|
-| `$3E50` | `ld hl,($C482)` | `call $7A00` | a waiting object (stages 0 1 5 7 8) that moves with the camera wakes K px earlier |
-| `$4151` | `call $41B3` | `call $7A40` | ... and is loaded K px further right (`$410D`): same place in the level |
-| `$3EC5` | `ld de,$0020` | `call $7A90` | it leaves (next record takes the slot) at x < -32 - E, up to E px further at the end |
-| `$3E25` / `$3E29` | `ld de,$0040` / `$0170` | `call $7B10` / `$7B30` | stages 2 3 4 6 9: awake while x in [-64 - 2E, 304 + 2E) |
+| `$3E50` | `ld hl,($C482)` | `call $7A00` | the wake test of a waiting object (stages 0 1 5 7 8): `wake_decide` (hook at `$7A0B`) |
+| `$3EC5` | `ld de,$0020` | `call $7A90` | it leaves (the next record takes the slot) once x + de < 0: hook at `$7AA3` |
+| bank `$12` `$B3D6` | `ld de,$0020` | `call $7A90` | the bird type `$3B` leaving by itself, the same test |
+| `$3E25` / `$3E29` | `ld de,$0040` / `$0170` | `call $7B10` / `$7B30` | stages 2 3 4 6 9: awake while x in [-64 - E + s, 304 + E + s) (hook at `$7B23`) |
 | `$3D86` / `$3D6B` | `ld (ix+$1D),0; ret` | `jp $7AD0` / `$7AF0` | sprite table full: skip the draw (see below) |
-| `$4AAEB` (bank `$12` `$AAEB`) | `ld a,h; or a; ret z` | `call $7B50` | rolling boulders come home off the view (below) |
+| bank `$12` `$AAEB` | `ld a,h; or a; ret z` | `call $7B50` | rolling boulders come home off the view (hook at `$7B54`) |
+| `$3D13`, `$425B`, bank `$12` `$B25A` | `ld b,$07` | `ld b,$0C` | the queue stages keep 12 objects (below) |
 
-The caves of the first five rows first test `$C104` (a demo playing: the original's behaviour), a second line of
-defence: while a demo plays the ROM holds none of these patches (below).
+The caves first test `$C104` (a demo playing: the original's behaviour), a second line of defence: while a demo
+plays the ROM holds none of these patches (below).
 
-* K = E, except that at a stage's start the view reaches the level's first 256 + 2E px: an object whose X is
-  within lo + 2E is awake from the start, placed X - lo px further right. K depends only on the object, so its
-  place and its wake agree whenever it loads or wakes; objects keep their world position and run their code up to
-  2E px earlier (as in the Castle of Illusion port). Objects defined in screen space (`+$20` = 0: stage 7's flyers
-  enter at x = -16 / -31, stage 1/8 screen objects) are left alone: they appear at their screen position, which can
-  be inside the left side (a known limitation).
-* The leave distance grows by the end slide: 32 + E + clamp(camera - (hi - E), 0, E), hi as `level_bounds` has it
-  (a PC hook at `$7AA8` puts it in de, so stages 0, 1 and 8 use their map's end).
-* A width change in the middle of a stage moves the waiting objects of stages 0 1 5 7 8 by the difference of K
-  (`configure`, module_state[7] = the width they were loaded for).
+* Waking (queue stages, `wake_decide`): the record's X (+`$28`) is the camera at which the original wakes it, at
+  its preset screen X (+`$02`, mostly 256). One that moves with the camera and waits at or beyond the right edge
+  (screen X ≥ 232) wakes once the view's right edge (256 + E + s) reaches it: when camera + E + s ≥ X, placed X -
+  camera px further right (its place in the level; one that comes late, as the original's sometimes do, at its own
+  X). At a stage's start (s = E) that is everything within lo + 2E, awake from the first frame where the view
+  shows it. One inside the original screen (stage 5's bursts of fire, stage 0's X 192) wakes when the original
+  wakes it, where it does. Objects are placed as they wake, not when loaded, so width changes need nothing.
+* A Whole New World's birds that fly in from the left (screen-space, `+$20` = 0: type `$46` at x = -16, 1 px every
+  4 frames; type `$3B` at -32, 1 px a frame) start as far beyond the view's left edge as the original's beyond its
+  own: E - s further out, and as much earlier as they take to fly that far (the carpet's camera moves 2 px a frame:
+  8 or 2 camera px per px). From then on they are where the original has them. One that the list loads too late
+  for that starts at the view's edge all the same and flies 3 px a frame more (PC hooks on their handlers, bank
+  `$12` `$B1FC` / `$B374`) until it is where the original starts it. The `$3B` leaves by itself once 32 px past the
+  screen's left edge (it drops off the bottom): past the view's, as everything else.
+* Leaving: 32 px past the view's left edge (de = 32 + E - s) - or, for an object that shows nowhere (all its
+  pieces above or below the screen: flown off the top, fallen off the bottom), where the original lets it go (de =
+  32), so its slot frees as in the original.
+* The queue's slots: the original keeps 7 objects of the list, loading the next record into the slot of one that
+  leaves. A wide view shows more at once, and with 7 the list could not keep up: at 21:9 in A Whole New World
+  objects woke late, up to 100 px inside the view. With 12 (`$CA00`-`$CCFF`, the free-scrolling stages' object RAM,
+  unused in these stages) it keeps up. A width change in the middle of a stage to or from 4:3 moves the objects
+  between 12 and 7 slots (`resize_queue`): more slots take the next records at once; fewer keep those awake, then
+  those waiting by their X, and send the rest back to the list (the record index `$C680` steps back: the lists are
+  in order of X, near enough). States of an earlier version (module_state[7] a width: their waiting objects were
+  placed when loaded) are converted on load (`unshift_old_state`).
 * The original's allocators (`$3D74`, `$3D5E`) put an object that does not fit in the 64 entries to sleep, but the
   draw call after them still writes its pieces beyond `$C3BF` — over the palette buffer `$C3C0` (seen as a magenta
   palette in stage 8) — and a sleeping object of the queue stages stops following the camera that frame. With more
-  objects awake this is common (stage 5 at E=102: ~150 object-frames in 1500). The patched path keeps the object
-  awake and skips the draw; a PC hook on the cave marks it (module_state[6]) and at the VBlank the module computes
-  its pieces (frame data in bank `$12`) into `SmsVdp::extra` — drawn after the table's 64, behind them.
+  objects awake this is common. The patched path keeps the object awake and skips the draw; a PC hook on the cave
+  marks it (module_state[6]) and at the VBlank the module computes its pieces (frame data in bank `$12`) into
+  `SmsVdp::extra` — drawn after the table's 64, behind them.
 * True X: PC hooks before the "off screen" test of each writer — Aladdin `$23C2`, the second figure `$3C63`
   (hl = the piece's 16-bit X, de = its table byte), objects `$0C99` (the table pointer on the stack) — record the
   piece's 256-px page (2 bits per entry) and, inside (-8 - 2E, 256 + 2E) (as far as the sliding view reaches),
@@ -135,8 +160,7 @@ defence: while a demo plays the ROM holds none of these patches (below).
 * The Caverns' and the Treasure Room's rolling boulders (type `$0A`, bank `$12` `$AADE`) roll left from their home,
   fall, and come back home once it is off the screen (hl = home - camera not within x 0..255): just past the
   original's left edge, under its blanked column, which put them out of nothing 70-100 px inside a wide view's left
-  side. They come back once it is off the view: not within [-2E - 32, 256 + 2E) (the keep window reaches 64 px
-  further, so they still do).
+  side. They come back once it is 32 px off the view: not within [-E + s - 32, 256 + E + s).
 * The attract mode's demos replay recorded input against the original game. Any change to the code they run
   changes their course: the windows above (objects act earlier), the cheats, and also the number of instructions,
   as the game's random numbers take the Z80's R register. At 2:1 square and wider the third demo (The Rooftops)
@@ -147,10 +171,13 @@ defence: while a demo plays the ROM holds none of these patches (below).
   sends it to the title as a demo that loses Aladdin goes (`$352C`). `sms_attract.py`: 60,000 frames from power-on
   (12 demos) at E = 0, 6, 22, 40, 74, 26, 44, 64, 102, also with all cheats: the work RAM is identical to the 4:3
   run in every frame.
-* Pop-in (`sms_popin.py`, objects whose first awake frame is inside the view, 1500 frames from the stage start):
-  stage 5: 5 at E = 0, 40 and 102 — the designed ones (fire bursts out of the lava), at their place; stage 0: none;
-  stage 7: 0 / 5 / 4, the screen-space flyers entering at x = -16. Objects drawn as extra sprites in those runs:
-  stage 5 0 / 22 / 207 object-frames, stage 7 0 / 0 / 306.
+* Measured (`sms_wakes.py 74 102`, every stage played for 4200 frames): objects that wake inside the view (more
+  than 8 px in) are only those present from a stage's first frame and those the original also wakes inside its
+  screen (stage 1's one 16 px inside the right edge, stage 3/4's three, stage 5's bursts of fire, stage 8's two):
+  none appears or vanishes inside the view otherwise. A Whole New World's wakes lie at the same distances from the
+  view's edges at 21:9 as at 4:3. Camera travel by which a record wakes earlier than at 4:3: E (± the camera's step)
+  for those entering from the right, 0 for those inside the original screen; the birds from the left by their
+  lead (up to 8 (E - s)).
 
 ## 4. Stage 7: section graphics and palettes
 
@@ -205,16 +232,16 @@ alone (`--no-ext`) gives wrong extra sprites for a frame (stage 5 at 102: 17 of 
 | rewind | `sms_rewind.py` (tool), app `--rewind 120` (hold R, achievements off) | identical pictures; app: no glitches while rewinding or after |
 | attract mode | `sms_attract.py`, 60,000 frames at every width, with and without cheats | RAM identical to 4:3 every frame; 12 demos, never a game over |
 | widescreen off | the module at E = 0 against the plain core: attract 20,000 frames, every stage 3,000 | RAM and picture identical |
-| object pop-in | `sms_popin.py 0 40 102` | section 3 |
+| object wakes / pop-in | `sms_wakes.py 74 102`, every stage 4200 frames; `sms_popin.py` | section 3: none inside the view but the original's own |
 | width changes | E 0 → 102 → 40 in stage 5 | waiting objects wake for the current E |
 | screens | `sms_wide_shots.py`, `sms_run_sheet.py` (whole stages 0 1 5 7 at 74 / 102), `sms_app_test.py` (16:9 and 21:9 CRT, 21:9 square) | reviewed: stages, ends, HUD, scenes |
 
 ## 8. Known limitations
 
-* Screen-space objects that enter and leave on the left (stage 7's companions, x = -16 / -31) appear and vanish
-  at that position, inside the left side of a view wider than 16:10.
-* Objects run their code up to 2E px earlier than in the original (as in the Castle of Illusion port). (The attract
-  demos don't: they run on the original ROM.)
+* Objects entering from the right act from E + slide px of camera travel earlier than in the original (as soon
+  as the view's edge is as near them as the original's is when it wakes them); A Whole New World's birds from the
+  left start correspondingly earlier, and one the list loads late catches up quickly. (The attract demos run on the
+  original ROM.)
 * Tiles the game animates with the camera (stage 0's far building and brick wall, stage 1's railings) show at the
   sides as they are now; at the start / end holds stage 0's far building keeps changing while the view holds still.
 * With the sprite limit on ("Remove Sprite Flicker" off), sprites in the sides count towards the 8 per line.

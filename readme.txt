@@ -432,8 +432,9 @@
   colour.
 
   Attract-mode demos are recorded button presses; in widescreen (where
-  enemies wake a little earlier) they can play out differently. With
-  widescreen off everything is exactly the original.
+  enemies wake a little earlier) they can play out differently -- the
+  Master System's play at 4:3, exactly as recorded. With widescreen off
+  everything is exactly the original.
 
 
 --------------------------------------------------------------------------------

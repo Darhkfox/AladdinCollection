@@ -252,9 +252,10 @@ gradlew assembleDebug
   switched off, so switch it off over solid ground. Attract demos are recorded inputs and can play out differently
   in widescreen.
 - Master System: the game's own camera is kept (Aladdin's position is an 8-bit screen coordinate), so near a
-  stage's ends the scenery holds still while Aladdin walks for the first stretch of camera travel. Objects run up
-  to twice the extra width earlier than in the original. In A Whole New World a few flyers that enter and leave on
-  the left appear and vanish inside the left side of views wider than 16:10. Tiles the game animates with the
+  stage's ends the scenery holds still while Aladdin walks for the first stretch of camera travel. Objects wake as
+  they come within the original's margins of the view as shown, so those entering from the right act as much
+  earlier as the extra width takes the camera to cover (and A Whole New World's birds from the left start
+  correspondingly earlier). Tiles the game animates with the
   camera (stage 0's distant building and brick wall, stage 1's railings) show their current state at the sides.
   Infinite Health keeps the gems, but the guards' grabs, the carpet's crashes, pits and lava still cost a life;
   Invincibility covers all but pits and lava. With Remove Sprite Flicker off, sprites in the sides count towards
