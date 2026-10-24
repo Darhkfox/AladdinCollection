@@ -54,8 +54,8 @@ lag frames 0.7% of gameplay at 4:3 and 1.5% at 21:9 (A Whole New World 12.0%), 0
 per level at 21:9, 1.7% -> 0.6%, A Whole New World 10.2% -> 0.1%, Jafar 7.6% -> 0.4%.) Every level runs its main loop
 once per frame when idle (none is built for less than 60 a second), Aladdin's position over 300 frames is identical
 with and without the option in Agrabah Market, the Carpet Escape, A Whole New World and Jafar, and the level-start
-music is identical. The first attract demo follows its path for ~25 s and then lands a few pixels off in places (its
-recorded input meets the removed lag frames).
+music is identical. The attract demos replay recorded input, lag frames included: Remove Slowdown stays off while one
+plays (`re_snes_wide.md` section 1); a first version let the first demo land a few pixels off after ~25 s.
 
 ## Engine
 

@@ -74,6 +74,13 @@ constexpr uint32_t kBandCount = 0x80C602, kBandBounds = 0x80C606;
 constexpr uint32_t kLavaTable = 0x7EF400;                             // the Lava Cavern's HDMA table (count, word)
 
 inline uint8_t rd8(const Snes& s, uint32_t a) { return s.wram[a & 0x1FFFF]; }
+// An attract demo playing (the game's own flag: input from its recording at $84:F700). Demos replay recorded input:
+// any change to the code they run (the wider spawn / keep ranges, the cheats, Remove Slowdown's timing) sends them off
+// their path, so while one plays the hooks change nothing, the turbo stays off and the demo is shown at 4:3.
+inline bool demo_playing(const Snes& s) { return s.wram[0x0331] == 2; }
+// A level index ($035E below $14; the screens - story scenes, which run the level-start object spawn too, STAGE CLEAR,
+// the title - are above) and no demo. (The title zeroes $035E while it waits for GAME START: AladdinWide::armed_.)
+inline bool playing_level(const Snes& s) { return s.wram[0x035E] < 0x14 && !demo_playing(s); }
 inline uint16_t rd16(const Snes& s, uint32_t a) { return (uint16_t)(s.wram[a & 0x1FFFF] | (s.wram[(a + 1) & 0x1FFFF] << 8)); }
 inline void wr8(Snes& s, uint32_t a, uint8_t v) { s.wram[a & 0x1FFFF] = v; }
 inline uint16_t rom16(const Snes& s, uint32_t a) { return s.peek16(a); }
@@ -133,6 +140,7 @@ public:
             return false;
         case kSpawnInit:
             respawn_ = false;   // (a level's start spawn: for the width set now)
+            armed_ = playing_level(s);
             return false;
         case kTaskYield:
             // Remove Slowdown ends wherever the level's main task gives the CPU back: its frame wait, the pause loop's,
@@ -140,10 +148,12 @@ public:
             s.turboActive = false;
             return false;
         case kLevelLoop:
-            s.turboActive = s.cpuTurbo > 1;   // Remove Slowdown: the frame's work runs faster up to the task's yield
+            // Remove Slowdown: the frame's work runs faster up to the task's yield (not in a demo: its input is a
+            // recording of frames, and its lag frames are part of it)
+            s.turboActive = s.cpuTurbo > 1 && active(s);
             loop_frame_ = s.frameCount();
             logic_done_ = band_taken_ = false;
-            if (respawn_) {
+            if (respawn_ && active(s)) {
                 // A width change mid-level: the spawner's edge columns move to the new margins, and the game's own
                 // level-start spawn runs again past its set-up, which would clear the spawned bits: objects already
                 // out are skipped by them, so the new margins get only theirs.
@@ -158,7 +168,7 @@ public:
         default:
             break;
         }
-        if (ext_ == 0) return false;
+        if (ext_ == 0 || !active(s)) return false;   // (a demo, a story scene, the title: the original ranges)
         int el, er;
         object_split(s, el, er);
         switch (pc) {
@@ -209,7 +219,8 @@ public:
         snes_ = &s;
         // (a frame the game's logic didn't finish in, slowdown: the main task is still running, its saved stack
         // is stale; the loop's top ran a moment ago)
-        level_ = in_level(s) || s.frameCount() - loop_frame_ <= 4;
+        if (!playing_level(s)) armed_ = false;
+        level_ = (in_level(s) || s.frameCount() - loop_frame_ <= 4) && active(s);   // (a demo: shown 4:3)
         // The view for the next frame. It stops at the level's ends where every layer can follow a view that doesn't
         // move with the game's camera (can_stop): the level (BG1), and the background at its parallax speed (modes
         // 0-8) or line by line as the game scrolls it itself (modes $0A-$14, band_adj). The span changes only at a
@@ -255,6 +266,11 @@ public:
     }
 
     bool level() const { return level_; }
+    // A level being played: from its own start spawn ($82:A72C with a level index and no demo) while the level index
+    // stays one (a story scene, STAGE CLEAR, the title, a demo end it). Only then do the hooks change what the game does
+    // (wider object ranges, the margins' spawn, Remove Slowdown); everything else runs the original code, the attract
+    // demos above all (they replay recorded input).
+    bool active(const Snes& s) const { return armed_ && playing_level(s); }
 
     // ---- PPU hooks
     void beginLine(Ppu& p, int row) override {
@@ -390,8 +406,9 @@ public:
     // of the frame in progress too: its OAM DMA comes after the load) and how long ago the level loop's top ran.
     std::vector<uint8_t> save_ext() const {
         std::vector<uint8_t> v;
-        v.push_back(3);   // version
-        v.push_back((uint8_t)((level_ ? 1 : 0) | (lim_valid_ ? 2 : 0) | (stop_ ? 4 : 0) | (respawn_ ? 16 : 0)));
+        v.push_back(4);   // version
+        v.push_back((uint8_t)((level_ ? 1 : 0) | (lim_valid_ ? 2 : 0) | (stop_ ? 4 : 0) | (respawn_ ? 16 : 0) |
+                              (armed_ ? 32 : 0)));
         const uint32_t since = snes_ ? snes_->frameCount() - loop_frame_ : 255;
         v.push_back((uint8_t)std::min<uint32_t>(since, 255));
         for (int x : {ext_, lim_lo_, lim_hi_, d_off_, last_cam_, reach_lo_, reach_hi_}) {
@@ -426,11 +443,14 @@ public:
         respawn_ = true;   // (a state without the module's data: the margins' objects)
         logic_done_ = band_taken_ = false;
         band_next_.valid = band_shown_.valid = false;
+        // (a state without it: a level being played if one is on screen)
+        armed_ = snes_ && playing_level(*snes_) && in_level(*snes_);
         const size_t need1 = 2 + 5 * 2 + 128 * 3, need2 = 3 + 7 * 2 + 2 * 128 * 3, need3 = need2 + 1 + 7 * 2;
-        if (n < 2 || d[0] < 1 || d[0] > 3 || (d[0] == 1 && n < need1) || (d[0] == 2 && n < need2) ||
-            (d[0] == 3 && n < need3))
+        if (n < 2 || d[0] < 1 || d[0] > 4 || (d[0] == 1 && n < need1) || (d[0] == 2 && n < need2) ||
+            (d[0] >= 3 && n < need3))
             return;
         level_ = (d[1] & 1) != 0;
+        if (d[0] >= 4) armed_ = (d[1] & 32) != 0;
         lim_valid_ = (d[1] & 2) != 0;
         size_t o = 2;
         stop_ = true;
@@ -485,6 +505,7 @@ private:
     GameConfig cfg_;
     int ext_ = 0, last_ext_ = -1;
     bool level_ = false, respawn_ = false;
+    bool armed_ = false;   // a level being played since its start spawn (active)
     uint32_t loop_frame_ = 0x80000000u;   // the frame the level loop's top last ran in
     bool lim_valid_ = false;
     int lim_lo_ = 0, lim_hi_ = 0, d_off_ = 0, last_cam_ = 0;   // where the view stops; its offset still to close
@@ -819,6 +840,8 @@ constexpr uint32_t kHitAlwaysRtl = 0x838007;
 constexpr uint32_t kHeartLost = 0x838010, kHeartLost2 = 0x838031;   // DEC $0367 in the two hit paths
 constexpr uint32_t kLifeLost = 0x81DC67, kLifeLost2 = 0x81E837;     // DEC $0364 (a life lost; game over at 0)
 constexpr uint32_t kAppleThrown = 0x81CE5C;    // STA $0369: one apple fewer
+// A game's start reads the debug flag for its 10 hearts / 99 apples (LDA $0009): the attract demos' start too.
+constexpr uint32_t kDebugStart = 0x8180ED, kDebugStart2 = 0x84AEFD;
 
 // ---- Sound (Capcom's driver; docs/re_snes_game.md, Sound). The CPU sends the APU one queued byte a frame from the
 // NMI ($80:B463; ring $03BF, 32 bytes). A sound effect: JSL $81:FA00 with A = its id (queued). A song: JSL $81:FA23
@@ -944,7 +967,7 @@ public:
         apply_patches(s, {});
         s.clearExecMarks();
         // Remove Slowdown: the CPU's speed for the game's frame work (turboActive is set from the top of the level's
-        // main loop to its frame wait, in the wide view's hooks).
+        // main loop to the task's yield, in a level being played - not a demo -, in the wide view's hooks).
         s.cpuTurbo = std::max(1, cfg.cpu_turbo);
         if (s.cpuTurbo == 1) s.turboActive = false;
         wide_.configure(s, cfg);
@@ -960,6 +983,7 @@ public:
         if (inf_health_) for (uint32_t pc : {kHeartLost, kHeartLost2}) s.markExec(pc, true);
         if (inf_lives_) for (uint32_t pc : {kLifeLost, kLifeLost2}) s.markExec(pc, true);
         if (inf_apples_) s.markExec(kAppleThrown, true);
+        if (debug) for (uint32_t pc : {kDebugStart, kDebugStart2}) s.markExec(pc, true);
         if (ls_.active) s.markExec(kLevelCompute, true);
         write_jukebox_stub(s);
         if (jb_park_) s.markExec(kJukeboxPark, true);
@@ -996,6 +1020,7 @@ public:
 
     bool exec_hook(Snes& s, uint32_t pc) override {
         CpuRegs& r = s.cpu.r;
+        const bool cheats = !demo_playing(s);   // (a demo plays as recorded: no cheat changes its course)
         switch (pc) {
         case kJukeboxPark:
             if (!jb_park_) break;
@@ -1003,27 +1028,35 @@ public:
             r.pc = (uint16_t)kJukeboxStub;
             return true;
         case kHit:          // as if blinking: the hit doesn't land (A negative, as the game's own skip returns it)
-            if (!invincible_) break;
+            if (!invincible_ || !cheats) break;
             r.a = (uint16_t)((r.a & 0xFF00) | 0x80);
             r.n = true;
             r.z = false;
             r.pc = (uint16_t)kHitSkip;
             return true;
         case kHitAlways:
-            if (!invincible_) break;
+            if (!invincible_ || !cheats) break;
             r.pc = (uint16_t)kHitAlwaysRtl;
             return true;
         case kHeartLost:    // the hit lands (knocked back, blinking) but no heart is lost
         case kHeartLost2:
-            if (!inf_health_) break;
+            if (!inf_health_ || !cheats) break;
             r.pc = (uint16_t)(pc + 3);
             return true;
         case kLifeLost:     // the DEC still runs (its flags decide the game over) on a count raised by one first
         case kLifeLost2:
-            if (inf_lives_) wr8(s, kLives, (uint8_t)(rd8(s, kLives) + 1));
+            if (inf_lives_ && cheats) wr8(s, kLives, (uint8_t)(rd8(s, kLives) + 1));
             break;
         case kAppleThrown:
-            if (!inf_apples_) break;
+            if (!inf_apples_ || !cheats) break;
+            r.pc = (uint16_t)(pc + 3);
+            return true;
+        case kDebugStart:   // (a demo starts as recorded: without the developer mode's hearts and apples)
+        case kDebugStart2:
+            if (cheats) break;
+            r.a &= 0xFF00;   // LDA $0009 (8-bit) read as 0
+            r.z = true;
+            r.n = false;
             r.pc = (uint16_t)(pc + 3);
             return true;
         case kLevelCompute:

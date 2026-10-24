@@ -10,7 +10,26 @@ A level is on screen while the main task waits in the level's main loop or its p
 address `$81:82E9` / `$81:83FA`), or the loop's top (`$81:82CF`, an exec hook) ran within the last 4 frames (a frame
 the game's logic doesn't finish in leaves the task running and its saved stack stale). Everything else - logos,
 title, OPTIONS, password, story scenes, STAGE CLEAR, the bonus wheel, continue, the ending and staff roll - is
-reported as no gameplay and pillarboxed. The attract demos are levels and widen too.
+reported as no gameplay and pillarboxed, and so is a level the game runs as an attract demo.
+
+**Attract demos** (`$0331` = 2: the pad read from the recording at `$84:F700`; their level index is the level's own,
+`$00` for Agrabah Market) replay recorded input against the original game: anything that changes the code they run
+sends them off their path - the wider draw / keep ranges and the margins' spawn, the cheats (the Debug Mode's start
+with 10 hearts and 99 apples: `$81:80ED` / `$84:AEFD` read `$0009`), and Remove Slowdown (the lag frames are part of
+the recording); even a hook that only answers a test in fewer cycles moves the scheduler's idle count (`$0329`). The
+demo's flag is set (`$81:8066`, from the title's timeout) before its level's start. While one plays the module
+changes nothing: every behaviour hook falls through to the original code, the turbo stays off, the cheats' hooks and
+the Infinite Gems write rest, the debug flag reads as 0 at those two starts, and the demo is reported as no gameplay
+(shown at 4:3 with the side bars). The hooks only act in a level being played (`AladdinWide::active`): armed by the
+level's own start spawn (`$82:A72C` with a level index below `$14` and no demo) and disarmed once the index is a
+screen's or a demo plays - the story scenes run that spawn too (index `$30`, `$35`), and the title zeroes the index
+while it waits for GAME START (`$80:9F70`). `tools/re/snes_attract.py`: 60,000 frames from power-on with no input -
+the logos, the opening story, the title and four demos (Agrabah Market and the Cave of Wonders twice each, 5,508 demo
+frames) - at 46, 106 and 140, with Remove Slowdown at 4:3, 46 and 140, and with the gameplay cheats (Invincibility,
+Infinite Health / Lives / Apples / Gems) at 4:3, 106 and 140 with Remove Slowdown: the work RAM equals the 4:3 run
+without them in every frame, and no demo frame is reported as gameplay. (The Debug Mode changes the title itself;
+`snes_attract_debug.py`: its demos play the same, frame by frame.) The launcher's preview (4:3, from the opening story)
+and the app's own attract mode show the demos 4:3 with side bars.
 
 ## 2. Background: drawn from the level's data
 
@@ -117,11 +136,12 @@ are mirrored about the level's edge (`Ppu::wideMirror`, `wideDimLo/Hi`; black in
 A state made at another width (or the width switched on from 4:3) shows its first frame where the view stops already
 (the level's extent at the camera), not centred.
 
-**Save states and rewind** (the app saves one every 2 frames while rewinding is possible): `save_ext` (version 3)
+**Save states and rewind** (the app saves one every 2 frames while rewinding is possible): `save_ext` (version 4)
 carries the view (span, offset, reach, whether it may stop), the sprites' recorded x - both the latched set and the one
 being built for the next OAM DMA - how many frames ago the level loop's top ran, so a state saved in a frame the game's
-logic didn't finish in still counts as a level, and the band routines' inputs (both snapshots, whether this logic
-frame's is taken, the ratchet's difference). `tools/re/snes_rewind.py` rewinds as the app does and compares every
+logic didn't finish in still counts as a level, the band routines' inputs (both snapshots, whether this logic frame's
+is taken, the ratchet's difference) and whether a level is being played (section 1; an older state: a level index, no
+demo and the main task in the level loop). `tools/re/snes_rewind.py` rewinds as the app does and compares every
 rewound picture with the straight run's: identical (also from near a level's end: its `state` argument).
 
 ## 4. Objects
