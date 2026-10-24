@@ -117,6 +117,8 @@ achievements of its own: *A Whole New World* (defeat Jafar in all three versions
   apples that appear when Aladdin has none) come in once, at the view's edge, as in the original. In a boss fight
   (the idol in the Cave of Wonders, Jafar) the wider view settles on the arena's centre instead of following Aladdin,
   so the extra width shows the arena rather than what lies beyond its far end; it eases in and out over about a second.
+  In widescreen the magic carpet comes as soon as the golden idol is beaten, unlike the original, where a win beside
+  the far pedestal makes you walk away and back before it appears (at 4:3 it stays the original's way).
   Abu's bonus rounds and the Rug Ride stay 4:3 (the Rug Ride sends its obstacles in at the 4:3 edge on a timer), and
   so do the title screens and the attract demos, which play exactly as recorded at every width and with any cheat.
 - **Level select**: all 13 entries in the game's own order (both of Abu's bonus rounds and the Rug Ride included),
