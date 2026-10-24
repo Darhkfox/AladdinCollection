@@ -186,6 +186,29 @@ rewound picture with the straight run's: identical (also from near a level's end
   margins get only theirs (`tools/qa` round 1, F1: no duplicates in any level after any widening; the margins hold
   what a level start there spawns). The request waits through screens that aren't the level loop yet (the
   Underground River's set-up) and is dropped when a level's own start spawn (`$82:A72C`) runs for the new width.
+- **Refused spawns.** The allocator (`$82:AA2B`) refuses an object when no slot is free or, for a type with graphics
+  of its own (`$82:AA61`, by `$82:B000`), no sprite VRAM bank is: four banks (`$15E9-$15EC` users, `$15ED-$15F0` the
+  type; a type takes 1-3 adjacent ones by `$7F:E900`, `$82:ABCE` / `AC10` / `AC34`, shared while loaded). Its spawned
+  bit stays clear, but the spawner comes back to a column only when an edge crosses it again. The margins meet objects
+  earlier and keep more alive: in the Market at Dusk Jasmine (`$56`, three banks), who ends the level, met the
+  margin's edge at 106 (her column 42 at camera ~970) while a `$20` and two `$4D` held banks 0 and 2 and was never
+  created - after the boss the game walked Aladdin to x 1616 and waited for her (every run of the check below at 106,
+  as reported). Some objects also delete themselves past the 4:3 screen (`$83:9738` / `$83:9749`: x < camera - `$20`
+  / > camera + `$120`) and so were gone for good once the margin had spawned them. So at each new edge column
+  (`$82:A7E3` / `$82:A7EB`, the JSR `$A89D`) the spawner first takes the original's edge columns, camera + `$120`
+  (left: - `$40`) and the one before it on that side (the original's crossings are up to 31 px off the 32-px grid),
+  where an object it would take now isn't out (`$82:A8C0`: spawned bits & `$81` clear, y in range): it gets its chance
+  at the original's moment; then the margin's own column. None pending (the usual case), the game's JSR runs as it is.
+  (Stubs at `$60:8020` / `$60:8028`; `$82:A780` with Y = 1 runs one column; an exec hook after it takes the next from
+  X, so a state saved mid-way needs nothing of the module's.)
+- **The sweep.** An event can delete every object (`$81:9D82`: the Market at Dusk's arena at camera `$400`, `$80:A176`;
+  other levels' events). The delete (`$83:96E2`) clears an object's spawned bits unless it is once only (bit 7, from
+  its list entry: kept at `$81`). Objects out in the margin ahead of the original went too, and a once-only one never
+  came back: the Market at Dusk's boss (`$57`, column 44) whenever its column reached the margin before the sweep
+  (at 140 in every run, at 106 depending on where the spawner's 32-px steps fall), and Jasmine when she had a bank. An object
+  whose list entry (`$82:8A7A` + `$006D` + (index - 1) * 6: type, flags, x, y) lies at or beyond the original's
+  spawn edge columns when the sweep reaches it (`$81:9D8E`, Y the slot) is left unspawned instead, for the spawner to
+  take when the original's edge gets there (above).
 - **Sprites:** the OAM builder (`$81:9309`) stores each piece's 16-bit screen x (`$81:938B`, flipped `$81:93F9`, X =
   OAM index * 4); recorded at those stores, latched at the NMI's OAM DMA (`$80:81B2`), the PPU places them by their
   true x (`objTrueX`). `tools/re/snes_oam_writers.py`: no other code writes sprite x in any level.
@@ -226,6 +249,16 @@ margins and, where the view is split, moved to the picture's middle (`(extR - ex
   77 / 126 / 191 / 251 stopped-view frames moving, and 76 / 75 / 82 / 95 pictures differing at the four widths.
   The Market and the Market at Dusk had none before either. Rewind from states high at both of the Rooftops' ends
   (106, 140, 46): identical.
+- `snes_dusk_end.py`: the Market at Dusk from its start through the boss to STAGE CLEAR, 24 runs a width (Remove
+  Slowdown off and on, three ways there, four ways to fight). Before the edge-column retry and the sweep's rule, at
+  106 none of the 12 runs that beat the boss could finish (Aladdin walked to x 1616, no Jasmine) and at 140 the boss
+  never fought (swept); now every width's runs end as the 4:3 run with the same input does (the boss beaten in 12 at
+  0, 46, 106 and 140 - the apples alone never beat him - and the level ended in all 12). The objects with the play
+  bot in all 19 levels (1,800 frames, the camera, Aladdin and every object's type and place compared frame by frame
+  with the module before): identical at 46; at 106 (Remove Slowdown off and on) and 140, 14 levels identical, and in
+  Agrabah Market and the Desert Ruins (a `$20` refused at the margin's edge), the Market at Dusk (Jasmine), Inside the
+  Lamp 2 (a `$79`) and Sultan's Dungeon 3 (its `$7D`s, which deleted themselves past camera + `$120` when the margin
+  spawned them) the first difference is an object the 4:3 game has there, now out.
 
 ## Known limitations
 

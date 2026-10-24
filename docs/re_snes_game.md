@@ -111,7 +111,7 @@ the last act of a stage (`$80:C6F2` set) goes to STAGE CLEAR, the others to `$30
 | 0 | 0-0 | `$00` | Agrabah Market | |
 | 1 | 0-1 | `$01` | Desert Ruins | |
 | 2 | 0-2 | `$02` | Agrabah Rooftops | climbs from the bottom row |
-| 3 | 0-3 | `$03` | Market at Dusk | boss in a camera-limited arena (`$1A42` = `$0400`, then `$0500`) |
+| 3 | 0-3 | `$03` | Market at Dusk | boss in a camera-limited arena (`$1A42` = `$0400`, then `$0500`); ends by an event (Jasmine, object `$56`) |
 | 4 | 1-0 | `$04` | Cave of Wonders | ends by an event (object `$6B`) |
 | 5 | 1-1 | `$05` | Underground River | ~80 frames of object set-up at its start |
 | 6 | 2-0 | `$06` | Lava Cavern | |
@@ -123,6 +123,14 @@ the last act of a stage (`$80:C6F2` set) goes to STAGE CLEAR, the others to `$30
 | 18 | 7-0 | `$11` | Jafar | Jafar, then his cobra (7 hit points, `+$11` of type `$73`) |
 
 (Stage 5 act 3 is also level `$11`; the game's progression never uses it.)
+
+**The Market at Dusk's end** (its event task, `$80:A141`; its exit table entry is empty, `$0FF0`). The camera stops at
+`$400` until Aladdin stands at x >= `$4F0`: the music fades, every object is deleted (`$81:9D82`), the camera pans to
+`$500` and is held there (`$1A40` = `$1A42` = `$500`); the boss (type `$57`, four hits: jumped on, the apples don't hurt
+him) and Jasmine (`$56`, hooded; she walks to x 1696) come out as it pans. With the boss beaten (`$00BD`) nothing happens
+until Aladdin walks to the arena's right wall (x `$5F0` = 1520, on the ground, at least 128 frames later): the camera is
+then let go (`$1A42` = `$7F00`) and the game walks Aladdin on to Jasmine with no input; she ends the level when he reaches
+her (`$00BE` = `$80`, `$83:D988`; STAGE CLEAR some 640 frames after the wall).
 
 **Level select** (`start_level`): power-on, START through the logos and story, GAME START on the title; the new
 game's first level computation (`$81:8157`, from `$81:8118`) gets the chosen stage / act - exactly what the game's own
