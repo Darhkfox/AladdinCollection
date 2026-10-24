@@ -10,7 +10,8 @@ stays inside the level), `md_wide_spawn.py` (where objects appear, against the s
 objects first seen well inside the slid view, and objects dropped for want of sprite tiles), `md_wide_stones.py` (the
 Cave's stepping stones: copies per block and stones missing from the view), `md_wide_boss.py` (the idol fight's
 framing: views at the arena's ends, lurches), `md_wide_carpet.py` (the carpet after the idol: when it spawns, shows and
-picks Aladdin up, beaten beside either pedestal), `md_attract.py` (the
+picks Aladdin up, beaten beside either pedestal), `md_wide_abu.py` (the Sultan's Palace's carpet over the hole, with
+Abu in his cage and freed), `md_attract.py` (the
 attract mode at every width, with and without cheats, against widescreen off), `md_apptest.py` (the real app's
 autotest on level states: HUD, pillarboxing as the player sees them), `md_wide_rug.py` (the Rug Ride at 4:3 and wide
 with the same input: RAM, lag, the 4:3 area of the picture, ghosts, achievements; `--states` its save states),
@@ -354,6 +355,14 @@ the idol on the far pedestal cut at the right edge; in Jafar's hall at the left 
     where the 4:3 game would bring it on a step right.
   - The Escape's carpet at the level's end (`$FB`, block 618,21, handler `$1B6BB2`: only with Aladdin's x ≥ `$2646`)
     follows no boss; from one state at 4:3 and 21:9 it spawns on the same frame and the level ends on the same frame.
+  - The Sultan's Palace's carpet lying in a hole in the floor (the room below the rope, right of Abu's cage) is the 4:3
+    game's own lid on the shaft to the level's exit: it is there until Abu has been freed (jump into the cage hanging over
+    the top corridor; re_md_game.md §1, `$FFF11C`), and does nothing but carry Aladdin's weight. The player's report at
+    21:9 ("the carpet blocks the hole", "it doesn't do anything") is the original's way. `md_wide_abu.py` from one state
+    in the corridor, 4:3 / 16:9 / 21:9 alike: Abu left in the cage, the carpet spawns at (2925, 596) on frame 216 as the
+    camera goes down the rope and Aladdin stands on it; Abu freed (frame 12), no carpet and Aladdin drops down the shaft
+    to y 1206 (the level ends 74 frames on to the right); and back up at the cage after standing on the carpet, it has
+    despawned, Abu freed, the way down open.
 
 ## 6. Gameplay and other screens
 
@@ -473,6 +482,7 @@ look-ahead would mean running the game ahead (the player decides the crashes) or
 | river foreground | plane A alone at 21:9 at the QA's spot (camera ≈ 2150) against 4:3 renders of the same map pixels (same CRAM) | 126,720 pixels identical, 0 different: the flat patches under the water line are the map's own art |
 | boss framing | `md_wide_boss.py 0 54 128`; Jafar's hall and the Rooftops' end walked wall to wall | views as in §5 (Boss fights); no frame moves the view more than 3 px further than the camera |
 | after the bosses | `md_wide_carpet.py 0 54 128`; the Rooftops' boss and Jafar (both forms) beaten from one state at 0 / 54 / 128 | see §5 (After the fight): in widescreen the carpet with the idol's kill from either pedestal, at 4:3 as the original; the other two end their level from the kill, nothing streamed |
+| the Palace's hole | `md_wide_abu.py 0 54 128` (Abu left in the cage / freed / freed after standing on the carpet) | the same at every width: the carpet in the hole from frame 216 while Abu is caged, none once he is free and Aladdin down the shaft (§5, After the fight) |
 | idol arena colours | the arena runs of §3 (Palette line 2) at 0 / 54 / 128, split into frames shown as play and the death-fade / fill frames (line 2 on the all-black `$128F12`) | in other colours on shown frames: 21:9 from the left 526 → 0 (the bat), from above 31 → 0 at 16:9 and 91 → 0 at 21:9; what remains are fade and fill frames (the run now falls into the river on its second life, as at 4:3) |
 | arena pop-in | `md_wide_popin.py`'s count on the idol arena in from the left / from above with a fight, and Jafar's hall | from above: 19 / 30 objects first seen inside the view and 4 / 20 dropped for want of tiles at 16:9 / 21:9 before, 9 / 7 and 0 now (rows coming in at the top on the flight, as at 4:3: 8); the rest as at 4:3 |
 | save states | a state saved with a load held / in the middle of a statue's map scan / while a boss framing eases in, holds, eases out / on each of the 13 frames around the idol's kill (16:9, 21:9), run on in a fresh instance | identical to the run it came from (RAM, VRAM, CRAM, `module_state`, picture; the first frame after a load now has the 10-bit sprite X set as `post_frame` sets it - before, a sprite past VDP X 511 showed wrong for that frame) |
