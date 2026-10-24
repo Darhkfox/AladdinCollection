@@ -146,9 +146,11 @@ achievements of its own: *A Whole New World* (defeat Jafar in all three versions
   by line — its parallax, and the raster bands, phases and objects the game scrolls it with in seven levels, worked
   out as the game's own code would place them with its camera at the picture's middle — so every layer moves as on
   the console. The Carpet Escape's wave and A Whole New World widen too. Objects appear, act and are drawn across the
-  whole width; the HUD and the PAUSE / ACTION texts are re-anchored. Boss arenas (the Market at Dusk, the end of
-  Sultan's Dungeon, Jafar) keep the original camera with the unreachable sides dimmed. The attract demos stay in
-  their original shape and play exactly as recorded at every width, with Remove Slowdown and cheats on too.
+  whole width; the HUD and the PAUSE / ACTION texts are re-anchored. Boss arenas and events (the Market at Dusk,
+  the end of the Cave of Wonders, Sultan's Dungeon and Jafar's Palace, Jafar) keep the original camera; their sides
+  show the level at full brightness, dimmed only past the level's ends and beside Jafar's fire floor. The attract
+  demos stay in their original shape and play exactly as recorded at every width, with Remove Slowdown and cheats
+  on too.
 - **Level select**: all 19 levels in the order the game plays them, A Whole New World included, started through
   GAME START with the game's own hidden stage select.
 - **Cheats**: invincibility, infinite health, lives, apples and gems, and Capcom's developer mode (10 hearts and 99
@@ -283,8 +285,8 @@ gradlew assembleDebug
 - SNES: the attract demos play at 4:3 and without Remove Slowdown or cheats: they replay recorded input (lag frames
   included), which only stays on its path with the original code. Invincibility and infinite health don't prevent
   pits, crushes or being left behind by the scrolling. Infinite Gems keeps the counter at 99, so every gem completes
-  a hundred (an extra heart, then an extra life). The dimmed sides of a boss arena show the level as stored, not
-  what the fight paints on it (Jafar's fire floor stays in the 4:3 area). In the levels with a half-speed
+  a hundred (an extra heart, then an extra life). Jafar's fire floor stays in the 4:3 area (the game paints it
+  only there): beside it the room's floor is shown dimmed. In the levels with a half-speed
   background, up to about 70 px of that background is shown mirrored at a level's start at 21:9 (the level itself
   is real to the edge). In Agrabah Rooftops the far hills behind the palace can show a seam in the left side area:
   the game never scrolls that far into them, so their picture doesn't join up there. The staff roll stays 4:3. The

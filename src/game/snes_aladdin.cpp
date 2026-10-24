@@ -34,7 +34,6 @@ constexpr uint32_t kGems = 0x036B;                                    // BCD ($0
 constexpr uint32_t kCamX = 0x1773, kCamY = 0x1777;                   // the camera (BG1 struct + $3B / $3F)
 constexpr uint32_t kCamCentre = 0x1A44;                               // camera + $80 (objects' range tests)
 constexpr uint32_t kCamMaxX = 0x1A04, kCamMaxY = 0x1A06;              // the level's last camera x (width - 256), y
-constexpr uint32_t kCamLimLo = 0x1A40, kCamLimHi = 0x1A42;            // a zone's camera limits (boss arenas)
 constexpr uint32_t kCamHoldX = 0x1A10, kCamHoldY = 0x1A12;            // nonzero: the camera doesn't follow in x / y
 constexpr uint32_t kBg1Shown = 0x19ED, kBg2Shown = 0x19F5;            // the scroll the NMI writes (+ shake $1A18)
 constexpr uint32_t kBgMode = 0x083F;                                  // the background's mode ($81:C781): its speed
@@ -111,6 +110,11 @@ public:
     static constexpr int kHudLeftEnd = 152;       // lives and hearts (up to 10) left of this, apples and gems right
     static constexpr int kSlide = 4;              // px a frame the view moves to a new place
     static constexpr int kHdmaRows = 3;           // an HDMA table's second entry: rows after the line HDMA goes on
+    // Jafar's cobra (level $11): the fire floor the game paints into the map's 32 columns on its screen only (BG1's map
+    // rows 21-31 at $4000) under the spiked arch, a picture on BG2's map at $4800 (rows 22-28) that it switches to in
+    // the same frame.
+    static constexpr int kJafarLevel = 0x11;
+    static constexpr int kFireRoom = 0x4000, kFireArch = 0x4800, kFireRow = 21;
 
     void configure(Snes& s, const GameConfig& cfg) {
         snes_ = &s;
@@ -294,10 +298,9 @@ public:
         // level's start, when its width changes or an arena holds the camera; then the view's offset closes only as
         // fast as the camera moves (it never pans by itself while the game's picture holds still).
         if (level_ && ext_ > 0) {
-            const int cam = (int16_t)rd16(s, kCamX), camy = (int16_t)rd16(s, kCamY);
+            const int cam = (int16_t)rd16(s, kCamX);
             int lo, hi;
             span(s, cam, lo, hi);
-            reach(s, cam, camy, reach_lo_, reach_hi_);
             const bool stop = can_stop(s);
             const bool jump = !lim_valid_ || std::abs(cam - last_cam_) >= 64;
             if (!jump && (lo != lim_lo_ || hi != lim_hi_ || stop != stop_)) {
@@ -344,13 +347,31 @@ public:
         if (row == 0) frame_start(p);
         if (!level_ || ext_ == 0 || !snes_) return;
         const Snes& s = *snes_;
+        // The layer structs' positions as the frame starts: the game's logic moves them during the frame, a byte at a
+        // time and past the level's edge before it clamps them (Inside the Lamp 3: x $00FD for part of a line, then
+        // $FFFD, then 0), while the registers hold the frame's scroll throughout.
+        if (row == 0) {
+            for (int k = 0; k < 2; k++) {
+                near_x_[k] = (int16_t)rd16(s, kLayer[k] + 0x3B);
+                near_y_[k] = (int16_t)rd16(s, kLayer[k] + 0x3F);
+            }
+        }
         // The layers drawn from the level's data: world position of this line.
         for (int l = 0; l < 2; l++) {
             LineLayer& ll = line_[l];
             ll.decode = false;
-            const uint32_t b = kLayer[l];
-            if (!rd8(s, b + 0x4F) || p.bgMapBase(l) != rd16(s, b + 0x2E) || p.bgMapSize(l) != 1) continue;
-            const int sx = (int16_t)rd16(s, b + 0x3B), sy = (int16_t)rd16(s, b + 0x3F);
+            // The struct whose map the layer shows. In an arena also the other layer's, and one the game has stopped
+            // streaming (flags 0): Jafar's room, once held, keeps its data (identical to VRAM where the map holds it)
+            // while BG1 is pointed at its map; from the level's data the margins show the room at any width (the
+            // map's 64 columns hold 240 px beside the screen). Not BG2 holding an object's picture (mode $12: the
+            // cobra's arch).
+            const uint16_t map = p.bgMapBase(l);
+            int k = l;
+            if (arena_ && map != rd16(s, kLayer[l] + 0x2E) && map == rd16(s, kLayer[1 - l] + 0x2E)) k = 1 - l;
+            const uint32_t b = kLayer[k];
+            if ((!rd8(s, b + 0x4F) && !arena_) || map != rd16(s, b + 0x2E) || p.bgMapSize(l) != 1) continue;
+            if (l == 1 && rd16(s, kBgMode) == 0x12) continue;
+            const int sx = near_x_[k], sy = near_y_[k];
             const int wx = unwrap10(p.bgHofs(l), sx), wy = unwrap10(p.bgVofs(l), sy);
             // Agrabah's bands (world_bands) scroll a picture that repeats every 512 px: every band's line is drawn
             // from that repeat (x mod 512). Their VRAM map holds it only where the game has streamed it: the column
@@ -404,8 +425,15 @@ public:
             const int h = unwrap10(p.bgHofs(1), (int16_t)rd16(s, kBg2Shown));
             obj_lo_ = h == 256 ? 0 : -h;
             obj_hi_ = h == 256 ? 0 : 256 - h;
+            // (Jafar's arch, scrolled with the camera at 512: on the game's screen only, not its repeat at 21:9)
+            if (paint_row_ < 0x10000) {
+                obj_lo_ = 0;
+                obj_hi_ = 256;
+            }
         }
         // The level's extent on this line (BG1's page row): past it the level is mirrored and dimmed (or black).
+        // Everywhere else the margins show the level as the game stores it at full brightness, also where the game's
+        // camera can't go now (a zone's limits, an arena, pages it can't enter at its height): it is the level.
         int lo = -kMaxExt, hi = 256 + kMaxExt;
         if (line_[0].decode) {
             const int wy = line_[0].wy;
@@ -440,8 +468,14 @@ public:
                 rm.seg[0] = {(int16_t)mid_, (int16_t)(256 + mid_), 0, 0};
             }
         }
-        p.wideDimLo = std::max(dim_lo_, std::min(0, p.wideShowLo));
-        p.wideDimHi = std::min(dim_hi_, std::max(256, p.wideShowHi));
+        p.wideDimLo = std::min(0, p.wideShowLo);
+        p.wideDimHi = std::max(256, p.wideShowHi);
+        // Lines where the game has painted on its screen what the level's data beside it doesn't hold (Jafar's fire
+        // floor): the margins show the room as stored there, dimmed.
+        if (row >= paint_row_) {
+            p.wideDimLo = 0;
+            p.wideDimHi = 256;
+        }
         p.wideDimSpare = row < kHudLines ? 0x04 : 0;
     }
 
@@ -484,7 +518,7 @@ public:
                               (armed_ ? 32 : 0)));
         const uint32_t since = snes_ ? snes_->frameCount() - loop_frame_ : 255;
         v.push_back((uint8_t)std::min<uint32_t>(since, 255));
-        for (int x : {ext_, lim_lo_, lim_hi_, d_off_, last_cam_, reach_lo_, reach_hi_}) {
+        for (int x : {ext_, lim_lo_, lim_hi_, d_off_, last_cam_, 0, 0}) {   // (two words a dimmed range once held)
             v.push_back((uint8_t)x);
             v.push_back((uint8_t)(x >> 8));
         }
@@ -536,8 +570,6 @@ public:
         int v[7] = {};
         for (int i = 0; i < count; i++, o += 2) v[i] = (int16_t)(d[o] | (d[o + 1] << 8));
         lim_lo_ = v[1]; lim_hi_ = v[2]; d_off_ = v[3]; last_cam_ = v[4];
-        reach_lo_ = d[0] >= 2 ? v[5] : lim_lo_;
-        reach_hi_ = d[0] >= 2 ? v[6] : lim_hi_;
         // the margins' objects: spawned again for a state made at another width (or saved with that pending)
         respawn_ = v[0] != ext_ || (d[0] >= 2 && (d[1] & 16));
         auto get = [&](int16_t* x, bool* set) {
@@ -587,13 +619,14 @@ private:
     bool lim_valid_ = false;
     int lim_lo_ = 0, lim_hi_ = 0, d_off_ = 0, last_cam_ = 0;   // where the view stops; its offset still to close
     bool stop_ = true;                    // the view may stop at the level's ends (can_stop)
-    int reach_lo_ = 0, reach_hi_ = 0;     // where the game's camera can show now (beyond: dimmed)
     int el_ = 0, er_ = 0, mid_ = 0;
     int bg2_ratio_ = 0;      // this frame: BG2's x speed against the camera (8.8), 0 = scrolled by the game itself
     bool obj_bg2_ = false;   // this line: BG2 holds an object's picture (obj_lo_ / obj_hi_: its own copy on screen)
     int obj_lo_ = 0, obj_hi_ = 0;
-    int dim_lo_ = -kMaxExt, dim_hi_ = 256 + kMaxExt;
+    bool arena_ = false;            // this frame: an arena holds the game's camera (arena)
+    int paint_row_ = 0x10000;       // this frame: the first line the game has painted on its screen only (dimmed beside)
     LineLayer line_[2];
+    int near_x_[2] = {}, near_y_[2] = {};   // this frame: the layer structs' x / y at its first line
     // A background the game scrolls itself ($083F modes $0A-$14): the inputs of its scroll the module can't read off
     // the screen, taken when a frame's logic is done (band_next_) and used while that frame is shown (band_shown_).
     struct BandSnap {
@@ -709,8 +742,8 @@ private:
     // Where the view stops: the level's ends (level_extent); an arena holding the camera, the picture around its
     // screen - centred on it, kept inside the level where the level is as wide as the picture (an arena at a level's
     // end: the Cave of Wonders' last event), else centred. (Not the zones' limits nor the pages the camera can't enter
-    // at its height: they change as the camera goes, and the view would have to pan by itself; past them the margins
-    // are dimmed / mirrored instead.)
+    // at its height: they change as the camera goes, and the view would have to pan by itself; the margins show the
+    // level there.)
     void span(const Snes& s, int cam, int& lo, int& hi) const {
         level_extent(s, lo, hi);
         if (arena(s)) {
@@ -842,25 +875,22 @@ private:
         return dh - (v - c);
     }
 
-    // Where the game's camera can show now (beyond: dimmed): the level, the zone's camera limits, an arena, and the
-    // pages the camera may enter in the rows its screen covers (bit 15: a page it may not).
-    static void reach(const Snes& s, int cam, int camy, int& lo, int& hi) {
-        level_extent(s, lo, hi);
-        if (arena(s)) {
-            lo = cam;
-            hi = cam + 256;
+    // The first line on which the game has painted on its screen what the level beside it doesn't show (0x10000:
+    // none). Jafar's cobra: from the frame its room's map ($4000, on BG1) and the arch's ($4800, on BG2) are switched
+    // to, the fire floor (BG1's map from row kFireRow) and the arch (BG2's map from its first row that isn't empty).
+    static int painted_row(const Snes& s, const Ppu& p) {
+        if (rd8(s, kLevel) != kJafarLevel || p.bgMapBase(0) != kFireRoom || p.bgMapBase(1) != kFireArch) return 0x10000;
+        // (a line shows map y = scroll + row + 1)
+        int row = kFireRow * 8 - 1 - (p.bgVofs(0) & 0xFF);
+        for (int r = 0; r < 32; r++) {
+            bool any = false;
+            for (int c = 0; c < 32 && !any; c++) any = p.vram[(kFireArch + r * 32 + c) & 0x7FFF] != 0;
+            if (any) {
+                row = std::min(row, (r * 8 - 1 - p.bgVofs(1)) & 0xFF);
+                break;
+            }
         }
-        const int lmin = (int16_t)rd16(s, kCamLimLo), lmax = (int16_t)rd16(s, kCamLimHi);
-        lo = std::max(lo, std::min(cam, lmin));
-        hi = std::min(hi, std::max(cam, lmax) + 256);
-        const int r0 = camy >> 8, r1 = (camy + 255) >> 8;
-        int p = std::max(0, cam >> 8);
-        while (p > 0 && !barrier(s, p - 1, r0) && !barrier(s, p - 1, r1)) p--;
-        lo = std::max(lo, p * 256);
-        p = std::max(0, (cam + 255) >> 8);
-        while (p < 126 && !barrier(s, p + 1, r0) && !barrier(s, p + 1, r1)) p++;
-        hi = std::min(hi, (p + 1) * 256);
-        if (hi < lo + 256) hi = lo + 256;
+        return std::max(row, 0);
     }
 
     // One line's extent: the pages of its row the camera may enter, around the game's screen.
@@ -891,15 +921,14 @@ private:
     void frame_start(Ppu& p) {
         el_ = er_ = ext_;
         mid_ = 0;
-        dim_lo_ = -kMaxExt;
-        dim_hi_ = 256 + kMaxExt;
+        arena_ = false;
+        paint_row_ = 0x10000;
         band_on_ = false;
         hdma_line_ = -1;   // (the IRQ comes after the first lines)
         if (level_ && ext_ > 0 && snes_) {
             const Snes& s = *snes_;
             // the camera on screen: BG1's scroll register, completed from the NMI's copy
             const int cam = unwrap10(p.bgHofs(0), (int16_t)rd16(s, kBg1Shown));
-            int rlo = reach_lo_, rhi = reach_hi_;
             if (lim_valid_) {
                 el_ = split_left(cam);
             } else {
@@ -907,12 +936,11 @@ private:
                 int lo, hi;
                 span(s, cam, lo, hi);
                 el_ = std::clamp(cam - target_v(cam, lo, hi, can_stop(s)), 0, 2 * ext_);
-                reach(s, cam, (int16_t)rd16(s, kCamY), rlo, rhi);
             }
             er_ = 2 * ext_ - el_;
             mid_ = (er_ - el_) / 2;
-            dim_lo_ = rlo - cam;
-            dim_hi_ = rhi - cam;
+            arena_ = arena(s);
+            paint_row_ = painted_row(s, p);
             // the band routine's inputs for the frame on screen (the one its logic finished for this camera)
             if (band_next_.valid && band_next_.cam == cam) band_shown_ = band_next_;
             band_on_ = band_mode(rd16(s, kBgMode));
