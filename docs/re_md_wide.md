@@ -7,7 +7,8 @@ Scripts: `tools/re/md_wide_util.py` (map access, the plane checker), `md_wide_de
 through the module, `md_out/wide_<E>.png`; `caves` disassembles the patched code), `md_shots.py` (one level, a
 script of inputs), `md_wide_edges.py` (every level's start and right end, slid, with a per-frame check that the view
 stays inside the level), `md_wide_spawn.py` (where objects appear, against the slid view), `md_wide_popin.py` (map
-objects first seen inside the slid view, and the sprite-tile allocation failures), `md_apptest.py` (the real app's
+objects first seen well inside the slid view, and objects dropped for want of sprite tiles), `md_attract.py` (the
+attract mode at every width, with and without cheats, against widescreen off), `md_apptest.py` (the real app's
 autotest on level states: HUD, pillarboxing as the player sees them). `md_util.start_play` starts a level through the
 module's level select and skips its story card (START) until the first frame of play.
 
@@ -18,11 +19,11 @@ module's level select and skips its story card (START) until the first frame of 
    game's camera is untouched. Plane B slides by what the level's own scroll routine gives for the moved camera; the
    slide follows the scroll line by line (§5).
 3. Objects are part of the map and spawn when their block column / row is streamed: caves spawn the columns the slid
-   view reaches too, the despawn window follows the slid view, an object short of sprite tiles takes them from one
-   out of view, and the sprite clip covers ±2E (§3).
+   view reaches too, the despawn window follows the slid view, an object short of an object slot or sprite tiles gets
+   room from objects out of sight (the tile pool compacted), and the sprite clip covers ±2E (§3).
 4. HUD sprites are moved to the screen edges and kept still while the view slides (`sprite_xoff`, §4).
 5. Gameplay = a level fading in, or the gameplay or pause loop ran in the last 4 frames (PC hooks); Abu's bonus rounds
-   and the Rug Ride are shown 4:3 (§6).
+   and the Rug Ride are shown 4:3. The attract mode (title, demos) runs on the original ROM, cheats off (§6).
 
 ## 1. Camera and streaming
 
@@ -83,17 +84,36 @@ drawing there.
 * **Despawn** (`$1ADE84`): x outside [camX − `$50`, camX + `$190`] → [camX − `$50` − 16kl, camX + `$190` + 16kr]
   (`$1ADEB6` → `jsr $7380.w`, carry = out): the original's 80-px margin outside the view as slid. A wider window (±2E
   on both sides, as before) kept objects far outside the view alive, holding sprite tiles a new one needed.
-* **Sprite tiles**: every object takes a run of consecutive slots from one pool (`$1AD3E8`: `$74` slots at
-  `$FFF008`); when none is long enough the object is dropped and its map entry restored (`$1AD406` `bsr
-  $1AE6DE`) — it comes back when its column is streamed again, i.e. at the 4:3 edge, well inside the widened view (the
-  QA's F1: Desert / Dungeon guards `$11`, Jafar's Palace statue `$3C`). The widened view keeps more objects alive than
-  the pool was sized for. `$1AD406` → `jsr $7400.w`: the first object (slots 1-31, holding tiles, not screen-fixed, not
-  one the game never despawns: +`$3C` bit 1) whose x lies 32 px or more outside the slid view is despawned the game's
-  way (`$1AE0B0`: tiles freed, map entry back) and the allocation tried again; with none, the original failure path.
-  `md_wide_popin.py` counts what is still first seen inside: none in the Desert and Jafar's Palace at any width, none
-  in Sultan's Dungeon up to 2:1 and at square 21:9; at 21:9 (CRT) the Dungeon's guards can still fail on a fragmented
-  pool (e.g. 24 slots free in runs of at most 13 where a guard needs 15) with every object inside the view — they then
-  appear up to ~75 px inside the left extension on the way back.
+* **Room for objects.** The widened view keeps more objects alive than the game was sized for, and two of its
+  resources can run out where the 4:3 game's never do; an object that finds no room then shows up late, well inside
+  the view (the QA's F1: Desert / Dungeon guards `$11`, Jafar's Palace statue `$3C`, the Market's apples at 21:9).
+  * *Object slots*: 32 at `$FF7E40` (`$42` bytes); each kind looks for a free one in its own range (`$1AE262` slots
+    3-22, `$1AE27A` 1-24, `$1AE292` 24-1, `$1AE2AA` 20-1, `$1AE2C2` 1-31, `$1AE2DA` 25-30: Z set and a5 the slot at
+    their `rts`). None free: the spawn is skipped and its map block stays (it comes at a later column step).
+  * *Sprite tiles*: every object takes a run of consecutive slots from one pool (`$1AD3E8`: `$74` one-byte slots at
+    `$FFF008`, `$FF` = taken; slot k = 4 tiles at VRAM `$8600` + `$80`k, table `$11F500`; +`$29` the run's length −
+    1, +`$2A` its first byte, +`$2E` its VRAM address). First fit, so the free slots get scattered (a guard needing 16
+    can find 24 free in runs of 13 and 11); when no run is long enough the object is dropped and its map block put back
+    (`$1AD406` `bsr $1AE6DE`).
+  * The module's PC hooks (with the widescreen ROM only): at a failed free-slot search's `rts`, and at `$1AD406`. Room
+    comes from objects the view doesn't show — alive, ones the game brings back from their map block (+6 bit 5,
+    +`$34`), not screen-fixed (+6 bit 3), not never-despawned (+`$3C` bit 1), not in a0-a6, farther outside the slid
+    view than the one asking (a slot search: past the spawn band) and either 32 px out (the spawn band reaches 31) or
+    with no piece in the sprite table being shown — the farthest first, despawned the game's way (`$1AE0B0`,
+    mirrored in C++: cleared, tiles freed, map block back, the same for its +`$3E` object). For tiles, once enough
+    slots are free in all, allocations are moved to make a run (the fewest slots into free ones, else all packed to
+    the start) and the asker gets it as `$1AD3E8` would (+`$2A`, +`$2E`, `pc = $1AD62C`). The allocation pass runs
+    before the VBlank wait, while the frame is drawn, and the frame's uploads (a DMA queue at `$FF769A`, 14 bytes an
+    entry, count `$FFEFEE`) and sprite table follow it, so a move copies the tiles in VRAM at once and points the
+    sprite table being shown and the queued uploads at them (else the moved objects showed garbage for a frame).
+  * `md_wide_popin.py` (the QA's walk through every wide level at every width, objects counted well inside the view on
+    a shown frame): 0 everywhere but the Escape, whose lava rocks are spawned again over a rock already risen (an
+    exact overlap, nothing changes on screen; the 4:3 game does the same at its edge). The QA's `t_popin.py` also
+    counts objects born while a respawn is rebuilt behind black, ones thrown or dropped by others (Rooftops; as at
+    4:3), and a first frame's stale position (the frame can end inside the spawn code). No object is dropped for want
+    of tiles any more but one at Jafar's Palace at 21:9 (CRT): a knife thrown from the left extension that needs a
+    larger run as it hits, when every object holding tiles is in view (and the same object drop as the 4:3 game's own
+    in Jafar's Quarters).
 * **Sprite clip** (`$1ABA0A`): map objects' pieces need VDP X in [0, `$1BF`) — now [−o, 448 + 2E) with
   o = max(0, 2E − 96) (`$1ABAD0` → `jsr $7180.w`: the compare runs on a biased copy on the stack, so the X written is
   the piece's own, negative left of X 0); screen-fixed objects (+6 bit 3) [0, 448 + 2E) (`$1ABA8C` → `jsr $71C0.w`).
@@ -102,9 +122,8 @@ drawing there.
 * The clip caves mark the entry: map objects clear bit 15 of the size / link word the builder writes (d1), screen-
   fixed ones set it (bit 7 of the SAT entry's size byte, which the VDP ignores) — `sprite_xoff` keeps those (messages
   such as FIND THE SCARAB, HIT STATUES, PAUSED) where the game puts them on the screen while the view slides.
-* Caves: the `$FF` fill at `$69E0-$FFFF` is unreferenced and reachable with `jsr abs.w`; `$7000-$74FF` is used
-  (left / right / row spawn `$7000` / `$7100` / `$7200`, clips `$7280` / `$72C0`, reach `$7300`, despawn `$7380`,
-  tile eviction `$7400`).
+* Caves: the `$FF` fill at `$69E0-$FFFF` is unreferenced and reachable with `jsr abs.w`; `$7000-$73FF` is used
+  (left / right / row spawn `$7000` / `$7100` / `$7200`, clips `$7280` / `$72C0`, reach `$7300`, despawn `$7380`).
 
 ## 4. HUD
 
@@ -157,8 +176,8 @@ already be the next frame's — and, when it differs from the one the slide in f
 ## 6. Gameplay and other screens
 
 * Wide: frames in which the gameplay loop `$1A8C16` or the pause loop `$1A9230` ran within the last 4 frames;
-  not after `$1A8E5C` (level over), `$1A8F82` (death screen), `$1A902E` (fell off the map). The attract demos
-  are gameplay too (recorded input: with the wider spawning they can play out differently).
+  not after `$1A8E5C` (level over), `$1A8F82` (death screen), `$1A902E` (fell off the map), and not in the attract
+  mode (below).
 * Also wide: a level's fade-in, from its call to the palette fade (`$1A8BFC` `bsr $1AE1A0` at a level's start,
   `$1A91B8` after a life lost) to the gameplay loop. The picture is already the level's, so it is shown wide and slid
   from its first frame; before, it faded in 4:3 with the game's own camera and jumped by the slide on the first frame
@@ -169,6 +188,17 @@ already be the next frame's — and, when it differs from the one the slide in f
   (a 336-px room: 8 px a side more) and the **Rug Ride**: its obstacles are sent in at the 4:3 view's right edge
   (screen x 320) on a timer — wider, they would pop up in the middle of the right extension, and sending them in
   earlier would change the ride.
+* **Attract mode**: the demos replay recorded input (`$F57C` = 1, the recording at (`$F576`), table `$4B04`, five
+  demos), so anything that changes the code they run - the widescreen patches' spawning, a cheat's patch or RAM write
+  - changes their course. From power-on through the title routine and while a demo plays, the ROM is the original
+  and no cheat writes RAM; the demos are shown 4:3. Told without state: the main entry (`$1A8A4A`) sets SP to
+  `$FFEFD8` and calls the set-up and the title from that top level, so while they run their return address at
+  `$FFEFD4` is `$1A8A58` … `$1A8B32` (the title's); the first call of a game overwrites it (before the main entry the
+  word is still 0, power-on). The ROM switches at the first frame boundary where it is safe (`patches_safe`): between a
+  game's start and its level lie the instructions and the story card, between the demo flag and the demo's level the
+  title's fade. The cheats (Developer Cheat Mode's `$7E20` included) apply in a game only. `md_attract.py`: 40,000
+  frames from power-on (the five entries of the demo table) at every width, with and without all cheats, 68000 and Z80
+  RAM identical to widescreen off on every frame.
 * Width changes mid-level: the patches change at a frame where no changed word is at the PC or on the stack
   (`patches_safe`); the extension is drawn from the map at once. Objects in the newly shown columns appear when the
   view next streams their column or row.
@@ -186,6 +216,7 @@ already be the next frame's — and, when it differs from the one the slide in f
 | every level, 16:9 and 21:9 | `md_apptest.py … 2,4` (the app) and `md_wide_demo.py 54 128` | reviewed: extension, HUD, slide at the level starts, sprites at both edges |
 | 16:10, 2:1, 4:3 levels | `md_apptest.py … 1,3,4 1,8,3,5` | HUD in place in the 4:3 levels, wide levels right |
 | caves | `md_wide_demo.py caves` | disassemble as intended |
-| pop-in (QA F1) | `md_wide_popin.py 54/108/128` (every wide level: walk right, jump, back) | see §3 (Sprite tiles) |
+| pop-in (QA F1) | `md_wide_popin.py 0,20,32,40,54,64,80,108,128` (the QA's walk through every wide level) | see §3 (Room for objects) |
+| attract demos | `md_attract.py --cheats …` (40,000 frames from power-on at every width) | RAM identical to widescreen off every frame, with and without cheats |
 | lag frames, shake (QA F3 / F4) | QA `t_tear_all.py`, `t_jitter.py`, `t_shake.py` | held picture still on every frame of the slide zones (Rooftops 10 → 0, Jafar's Quarters 4 → 0 frames moved at 21:9); the Escape shakes as at 4:3 (cliff edge 43/42/41/40 at a constant slide, sprites with it) |
 | level start / respawn (QA F2) | QA `t_app_levelstart.py`, `t_app_respawn.py`; per-frame trace of a respawn | fade-in frames wide and slid, no jump into play; the masks open while the picture is still dark |

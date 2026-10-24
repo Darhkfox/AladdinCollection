@@ -132,6 +132,9 @@ after three throws, continues 1 → 1 after a continue.
   frame).
 * The port's cheats **Developer Cheat Mode** and **Developer Map View** set `$7E20` / `$7273` while on and clear
   them once when switched off; leaving map view puts Aladdin back (`$7E40 = $83`) where the view's point is.
+* All the port's cheats apply in a game only: from power-on through the title routine and while an attract demo plays
+  the ROM is the original and they write nothing, so the demos replay their recordings as the game was made
+  (`docs/re_md_wide.md` §6, `tools/re/md_attract.py`).
 
 ## 4. Sound (GEMS)
 

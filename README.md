@@ -110,8 +110,11 @@ achievements of its own: *A Whole New World* (defeat Jafar in all three versions
   lives, apples, gems) is moved to the screen edges. Near a level's ends the picture slides instead of showing
   black: the view starts at the level's first pixel and Aladdin walks across still scenery until the camera moves
   on (the game's own camera, and so how Aladdin moves, stays the original); the parallax background is shifted
-  row by row with the level's own scroll routine, so it holds still with the level.
-  Abu's bonus rounds and the Rug Ride stay 4:3 (the Rug Ride sends its obstacles in at the 4:3 edge on a timer).
+  row by row with the level's own scroll routine, so it holds still with the level. When the wider view fills the
+  console's object slots or sprite memory, room is made from objects out of sight (the sprite memory is compacted,
+  and objects past the edge are put back on the map to return later), so nothing appears late inside the view.
+  Abu's bonus rounds and the Rug Ride stay 4:3 (the Rug Ride sends its obstacles in at the 4:3 edge on a timer), and
+  so do the title screens and the attract demos, which play exactly as recorded at every width and with any cheat.
 - **Level select**: all 13 entries in the game's own order (both of Abu's bonus rounds and the Rug Ride included),
   on Practice, Normal or Difficult. Each level starts with its own story card, as after the one before.
 - **Cheats**: invincibility, infinite health, lives, apples, gems and continues, and three of the developers'
@@ -246,12 +249,9 @@ gradlew assembleDebug
 - Mega Drive: near a level's ends the scenery holds still while Aladdin walks for the first stretch of camera
   travel (54 px at 16:9, 128 px at 21:9), and the level's start shows less behind Aladdin and more ahead, as the
   game's own camera is kept. After a mid-level width change, objects in the newly shown columns appear when the
-  view next scrolls over them. In Sultan's Dungeon at 21:9 with CRT pixels a guard can still appear up to 75 px
-  inside the left edge when the wider view has filled the console's sprite memory. Invincibility covers hits only:
-  pits, lava and
-  the Rug Ride's walls still cost a life. Developer Map View puts Aladdin back where the view is when it's
-  switched off, so switch it off over solid ground. Attract demos are recorded inputs and can play out differently
-  in widescreen.
+  view next scrolls over them. Invincibility covers hits only: pits, lava and the Rug Ride's walls still cost a
+  life. Developer Map View puts Aladdin back where the view is when it's switched off, so switch it off over solid
+  ground. The cheats apply in a game, not on the title screen or in the attract demos.
 - Master System: the game's own camera is kept (Aladdin's position is an 8-bit screen coordinate), so near a
   stage's ends the scenery holds still while Aladdin walks for the first stretch of camera travel. Objects wake as
   they come within the original's margins of the view as shown, so those entering from the right act as much

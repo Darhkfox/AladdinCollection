@@ -7,6 +7,7 @@
 #include <cstring>
 #include <iterator>
 #include <memory>
+#include <vector>
 
 using namespace md_game;
 
@@ -46,6 +47,9 @@ constexpr uint32_t PC_PIT = 0x1A902E;         // fell below the map: a life lost
 constexpr uint32_t PC_FADE_IN = 0x1A8BFC;     // a level set up: its palette fades in ($1AE1A0), then play
 constexpr uint32_t PC_RESPAWN_FADE = 0x1A91B8;  // the same after a life lost (the level rebuilt at the restart point)
 constexpr uint32_t PC_LEVEL_LOAD = 0x1A8B50;  // the level loop: the level's story card, then its set-up
+constexpr uint32_t TITLE_RET = 0xFFEFD4;      // the return address of the main entry's calls (the title's while it runs)
+constexpr uint32_t PC_MAIN_ENTRY = 0x1A8A4A;  // power-on, and after a game: SP = $FFEFD8, the set-up, the title
+constexpr uint32_t PC_TITLE_RET = 0x1A8B32;   // the title routine returns here: a game starts (or a demo)
 constexpr uint32_t PC_LEVEL_INIT = 0x1AA484;  // level init (after the story card)
 
 // module_state: [0] frame (+1) the gameplay loop last ran in, 0 after it was left; [1] the developer flags the cheats
@@ -107,8 +111,7 @@ const std::vector<RomPatch> kLevelSkip = {{0x00412A, {0x0010}, {0xFF00}}};
 // the caves spawn the columns the slid view reaches as well; the despawn window and the sprite clip cover +-2E.
 constexpr uint32_t CAVE = 0x7000;   // the $FF fill at $69E0-$FFFF (no references), reachable with jsr abs.w
 constexpr uint32_t CAVE_LSPAWN = CAVE, CAVE_RSPAWN = CAVE + 0x100, CAVE_ROWSPAWN = CAVE + 0x200, CAVE_CLIP = CAVE + 0x280,
-                   CAVE_SCRCLIP = CAVE + 0x2C0, CAVE_REACH = CAVE + 0x300, CAVE_DESPAWN = CAVE + 0x380,
-                   CAVE_EVICT = CAVE + 0x400;
+                   CAVE_SCRCLIP = CAVE + 0x2C0, CAVE_REACH = CAVE + 0x300, CAVE_DESPAWN = CAVE + 0x380;
 
 // The 4:3 view only ever shows map x [16, W*16 - 18): camX in [0, W*16 - 354] (the camera's clamps, docs section 1).
 constexpr int VIEW_LEFT = 16, VIEW_RIGHT_GAP = 18, CAM_SPAN_GAP = 354;
@@ -235,48 +238,6 @@ std::vector<RomPatch> wide_patches(int E) {
     despawn.land(d_out1);
     despawn.land(d_out2);
     despawn << std::initializer_list<uint16_t>{0x4CDF, 0x0006, 0x003C, 0x0001, 0x4E75};   // out: carry set
-    // An object that can't get sprite tiles ($1AD3E8: the pool of $74 slots at $FFF008, shared by every object, fails
-    // at $1AD406 and the object is dropped until its column comes again) - the widened view shows more objects than the
-    // 4:3 one, so in busy places (Sultan's Dungeon's guards at 21:9) the pool can run out where the original's never
-    // does. Then an object entirely outside the view as slid (32 px past it, not the one asking, nor one the game never
-    // despawns) is despawned the game's way ($1AE0B0: frees its tiles, its map entry back) and the allocation tried
-    // again; with none left, the original failure path.
-    Asm evict;
-    evict << std::initializer_list<uint16_t>{0x48E7, 0x38B0,               // movem.l d2-d4/a0/a2-a3, -(a7)
-                                             0x4EB8, (uint16_t)CAVE_REACH,
-                                             0xE948, 0x0640, 0x0020, 0x4440,   // d0 = camX - 16kl - 32 (left limit)
-                                             0xD079, 0x00FF, 0x7DF6,
-                                             0xE949, 0x0641, 0x0160,           // d1 = camX + 16kr + 352 (right limit)
-                                             0xD279, 0x00FF, 0x7DF6,
-                                             0x45F9, 0x00FF, 0x7E82,           // lea $FF7E82, a2 (slot 1: not Aladdin)
-                                             0x781E};                          // moveq #30, d4 (slots 1-31)
-    const size_t e_loop = evict.here();
-    evict << std::initializer_list<uint16_t>{0x4A12};                          // tst.b (a2)
-    const size_t e_n1 = evict.branch(0x6700);
-    evict << std::initializer_list<uint16_t>{0xB5C9};                          // cmpa.l a1, a2 (the one asking)
-    const size_t e_n2 = evict.branch(0x6700);
-    evict << std::initializer_list<uint16_t>{0x4AAA, 0x002A};                  // tst.l $2A(a2) (holds tiles)
-    const size_t e_n3 = evict.branch(0x6700);
-    evict << std::initializer_list<uint16_t>{0x082A, 0x0003, 0x0006};          // btst #3, 6(a2) (screen-fixed)
-    const size_t e_n4 = evict.branch(0x6600);
-    evict << std::initializer_list<uint16_t>{0x082A, 0x0001, 0x003C};          // btst #1, $3C(a2) (never despawned)
-    const size_t e_n5 = evict.branch(0x6600);
-    evict << std::initializer_list<uint16_t>{0x342A, 0x0002, 0xB440};          // d2 = x; cmp.w d0, d2
-    const size_t e_go1 = evict.branch(0x6D00);                                 // blt.s evict
-    evict << std::initializer_list<uint16_t>{0xB441};                          // cmp.w d1, d2
-    const size_t e_go2 = evict.branch(0x6E00);                                 // bgt.s evict
-    for (size_t at : {e_n1, e_n2, e_n3, e_n4, e_n5}) evict.land(at);
-    evict << std::initializer_list<uint16_t>{0xD4FC, 0x0042, 0x51CC};          // next: adda.w #$42, a2; dbra d4, loop
-    evict << std::initializer_list<uint16_t>{(uint16_t)(((int)e_loop - (int)evict.here()) * 2)};
-    evict << std::initializer_list<uint16_t>{0x4CDF, 0x0D1C,                   // none: restore,
-                                             0x4EF9, 0x001A, 0xE6DE};          //   jmp $1AE6DE (the replaced call)
-    evict.land(e_go1);
-    evict.land(e_go2);
-    evict << std::initializer_list<uint16_t>{0x2F09, 0x224A,                   // evict: move.l a1, -(a7); a1 = it
-                                             0x4EB9, 0x001A, 0xE0B0,           //   jsr $1AE0B0 (despawn)
-                                             0x225F, 0x4CDF, 0x0D1C,           //   a1 back; restore
-                                             0x588F, 0x4CDF, 0x0003,           //   drop our return; d0-d1 as saved
-                                             0x4EF9, 0x001A, 0xD3E8};          //   jmp $1AD3E8 (allocate again)
     // a streamed row spawns blocks [L/16 - kl, L/16 + 22 + kr] inside the map instead of [L/16, L/16 + 22]: the loop's
     // a0 (map pointer), d6 (x), d4 (count - 1), a1, a2
     std::vector<uint16_t> rowspawn = {
@@ -323,9 +284,6 @@ std::vector<RomPatch> wide_patches(int E) {
                    {0x4EB8, (uint16_t)CAVE_DESPAWN, 0x6400, 0x002A, 0x6000, 0x0016, 0x4E71, 0x4E71, 0x4E71, 0x4E71,
                     0x4E71, 0x4E71, 0x4E71, 0x4E71, 0x4E71, 0x4E71}},
         {CAVE_DESPAWN, ff(despawn.w.size()), despawn.w},
-        // a sprite-tile allocation that fails ($1AD406 bsr $1AE6DE) evicts an object outside the view first
-        {0x1AD406, {0x6100, 0x12D6}, {0x4EB8, (uint16_t)CAVE_EVICT}},
-        {CAVE_EVICT, ff(evict.w.size()), evict.w},
         // sprite clip: map objects (sub.w d7, d3; cmpi.w #$1BF, d3 -> jsr CAVE_CLIP; nop) and screen-fixed ones
         // (subi.w #$80, d3; cmpi.w #$1BF, d3 -> jsr CAVE_SCRCLIP; nop; nop), the bcc after them unchanged
         {0x1ABAD0, {0x9647, 0x0C43, 0x01BF}, {0x4EB8, (uint16_t)CAVE_CLIP, 0x4E71}},
@@ -335,13 +293,23 @@ std::vector<RomPatch> wide_patches(int E) {
     };
 }
 
-// The gameplay loop ran lately (in play or paused).
-bool in_play(const MegaDrive& md) {
-    return md.module_state[MS_PLAY] != 0 && (uint32_t)md.frame_count + 1 - md.module_state[MS_PLAY] <= 4;
+// The attract mode: from power-on (or the main entry after a game) through the title routine (logos, title, OPTIONS,
+// the debug screen), and a demo playing. The main entry ($1A8A4A) sets SP to $FFEFD8 and calls the set-up and then the
+// title from that top level, so while they run their return address lies at $FFEFD4: $1A8A58 ... $1A8B32 (the title's).
+// The first call after the title (a game) overwrites it; before the main entry the word is still 0 (a game is never
+// under way in the first seconds). Stateless, so a save state of any version tells it.
+bool attract(const MegaDrive& md) {
+    const uint32_t ret = md.ram32(TITLE_RET);
+    return md.ram8(DEMO) != 0 || (ret > PC_MAIN_ENTRY && ret <= PC_TITLE_RET) || (ret == 0 && md.frame_count < 120);
 }
 
-// A level on screen: in play, or fading in (its first frames, before the gameplay loop runs).
-bool in_gameplay(const MegaDrive& md) { return md.module_state[MS_FADE] != 0 || in_play(md); }
+// The gameplay loop ran lately (in play or paused), in a game.
+bool in_play(const MegaDrive& md) {
+    return md.module_state[MS_PLAY] != 0 && (uint32_t)md.frame_count + 1 - md.module_state[MS_PLAY] <= 4 && !attract(md);
+}
+
+// A level on screen in a game: in play, or fading in (its first frames, before the gameplay loop runs).
+bool in_gameplay(const MegaDrive& md) { return (md.module_state[MS_FADE] != 0 && !attract(md)) || in_play(md); }
 
 // Gameplay shown wide: all but Abu's bonus rounds (a 336-px room) and the Rug Ride, whose obstacles are sent in at the
 // 4:3 view's right edge on a timer (wider, they would pop up in the middle of the right extension). Those stay 4:3.
@@ -588,6 +556,252 @@ void pre_line_hook(void* host, int line) {
     if (c != w.cam) apply_slide(w, c, line);
 }
 
+// ---------------------------------------------------------------------------------------------------------------------
+// Room for objects. The widened view keeps more objects alive than the game was sized for: its object slots (32 at
+// $FF7E40, $42 bytes; each kind of object looks for a free one in its own range) and its sprite-tile pool (below) can
+// run out where the 4:3 game's never do. An object that finds no room is not spawned (a free-slot search fails: its
+// map block stays, and it comes at a later column step) or dropped (no tiles: its block is put back) - by then it can
+// be well inside the view (or, an object already in view that needs new tiles for its next animation, vanish). So
+// when room runs out, the module takes it from objects the view doesn't show: alive, farther outside the view as slid
+// than the one asking (an object to be placed by a free-slot search: past the spawn band), and either at least 32 px
+// out (the spawn band reaches 31 px) or with no sprite piece in the sprite table being shown; one the game would bring
+// back from its map block (+6 bit 5, +$34: despawned, it returns when its column or row is streamed again), not
+// screen-fixed (+6 bit 3), not one the game never despawns (+$3C bit 1) and not one the code at hand works on (a0-a6)
+// - the farthest first, despawned the game's way ($1AE0B0, mirrored: object cleared, tiles freed, map block back, the
+// same for its linked object at +$3E). Inside the view nothing changes.
+constexpr uint32_t OBJECTS = 0xFF7E40, OBJ_TYPES = 0xFFAE87;
+constexpr int OBJ_SIZE = 0x42, ROOM_MARGIN = 32;
+
+// how far an object lies outside the view as slid (0: inside or touching it)
+int outside_view(const MegaDrive& md, uint32_t o) {
+    const int E = md.vdp.ext, s = md.vdp.view_shift;
+    const int x = (int16_t)md.ram16(o + 2) - (int16_t)md.ram16(CAM_X) - 16;
+    const int y = (int16_t)md.ram16(o + 4) - (int16_t)md.ram16(CAM_Y) - 240;
+    return std::max({-E + s - x, x - (320 + E + s), -y, y - 224, 0});
+}
+
+// Whether any of the object's sprite tiles is in the sprite table being shown (the builder leaves out what's off the
+// view, so a piece there is a piece on screen).
+bool on_screen(const MegaDrive& md, uint32_t o) {
+    const uint32_t lo = md.ram32(o + 0x2E), hi = lo + (md.ram8(o + 0x29) + 1u) * 0x80;
+    if (!lo) return false;
+    const VDP& v = md.vdp;
+    const uint32_t sat = (uint32_t)(v.reg[5] & 0x7E) << 9;
+    for (int e = 0, n = 0; n < 80; n++) {
+        const uint32_t t = (uint32_t)(v.vram16(sat + e * 8 + 4) & 0x7FF) * 32;
+        if (t >= lo && t < hi) return true;
+        e = v.vram[(sat + e * 8 + 3) & 0xFFFF] & 0x7F;
+        if (!e) break;
+    }
+    return false;
+}
+
+// An object that may be despawned to make room for one `than` px outside the view (0: inside it): farther out than
+// that, and either 32 px out (past the spawn band) or with nothing of it on screen.
+bool evictable(const MegaDrive& md, uint32_t o, int than) {
+    if (o == OBJECTS || !md.ram8(o)) return false;
+    const uint8_t f6 = md.ram8(o + 6);
+    if ((f6 & 8) || !(f6 & 0x20) || !md.ram8(o + 0x34) || (md.ram8(o + 0x3C) & 2)) return false;
+    for (int r = 8; r < 15; r++) if ((md.cpu.r[r] & 0xFFFFFF) == o) return false;
+    const uint32_t link = md.ram32(o + 0x3E) & 0xFFFFFF;
+    for (int r = 8; r < 15; r++) if (link && (md.cpu.r[r] & 0xFFFFFF) == link) return false;
+    const int out = outside_view(md, o);
+    return out > than && (out >= ROOM_MARGIN || (out > 0 && !on_screen(md, o) && !(link && on_screen(md, link))));
+}
+
+void free_tiles(MegaDrive& md, uint32_t o) {   // $1AE372
+    const uint32_t p = md.ram32(o + 0x2A) & 0xFFFFFF;
+    if (!p) return;
+    md.set_ram32(o + 0x2A, 0);
+    md.set_ram32(o + 0x2E, 0);
+    const int n = md.ram8(o + 0x29) + 1;
+    md.set_ram8(o + 0x29, 0);
+    for (int k = 0; k < n; k++) md.set_ram8(p + k, 0);
+}
+
+void despawn(MegaDrive& md, uint32_t o) {   // $1AE0B0
+    auto one = [&](uint32_t a) {
+        md.set_ram8(a, 0);
+        free_tiles(md, a);
+        if ((md.ram8(a + 6) & 0x20) && md.ram8(a + 0x34))   // $1AE0D4: the map block back
+            md.set_ram8(OBJ_TYPES + (uint32_t)(int16_t)md.ram16(a + 0x32), md.ram8(a + 0x34));
+    };
+    one(o);
+    const uint32_t link = md.ram32(o + 0x3E) & 0xFFFFFF;
+    if (link) one(link);
+}
+
+// The farthest evictable object among slots [first, first + count) (that holds tiles, if `tiles`), or 0.
+uint32_t eviction_candidate(const MegaDrive& md, int first, int count, bool tiles, int than) {
+    uint32_t best = 0;
+    int far = -1;
+    for (int i = first; i < first + count && i < 32; i++) {
+        const uint32_t o = OBJECTS + (uint32_t)(i * OBJ_SIZE);
+        if (!evictable(md, o, than) || (tiles && !(md.ram32(o + 0x2A) & 0xFFFFFF))) continue;
+        const int d = outside_view(md, o);
+        if (d > far) far = d, best = o;
+    }
+    return best;
+}
+
+// The free-slot searches ($1AE262 ...): a5 walks a range of slots; at their rts Z is set (and a5 the free slot) or not.
+// Not found: an evictable object of the range makes room, a5 = its slot, Z set.
+struct SlotSearch { uint32_t rts; int first, count; };
+const SlotSearch kSlotSearches[] = {
+    {0x1AE278, 3, 20}, {0x1AE290, 1, 24}, {0x1AE2A8, 1, 24}, {0x1AE2C0, 1, 20}, {0x1AE2D8, 1, 31}, {0x1AE2F0, 25, 6},
+};
+
+void slot_search_done(MegaDrive& md, const SlotSearch& ss) {
+    if (md.cpu.get_sr() & 4) return;   // found
+    // (the object to come isn't placed yet: only what lies past the spawn band)
+    const uint32_t o = eviction_candidate(md, ss.first, ss.count, false, ROOM_MARGIN - 1);
+    if (!o) return;
+    despawn(md, o);
+    md.cpu.r[13] = o;                  // a5
+    md.cpu.set_sr((uint16_t)(md.cpu.get_sr() | 4));
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The sprite-tile pool. Every object takes a run of consecutive slots ($1AD3E8: $74 slots at $FFF008, one byte each,
+// $FF = taken; slot k = 4 tiles at VRAM $8600 + $80k, table $11F500): +$29 the run's length - 1, +$2A its first byte,
+// +$2E its VRAM address, which the animation pass ($1AC7D2) uploads a frame's tiles to (a DMA queue at $FF769A, 14
+// bytes an entry, count $FFEFEE, flushed after the sprite table is built) and the sprite builder takes the pattern
+// from. First fit: objects come and go in any order and the free slots get scattered, and the wider view keeps more
+// objects alive than the pool was sized for, so a guard ($11: 16 slots) can find 24 free in runs of 13 and 11 - and
+// is dropped until its column comes again, by then inside the view. When the allocation fails ($1AD406) the module
+// makes room: with too few slots free at all, it evicts objects the view can't show (above) until there are; then it
+// moves allocations to make a run - the fewest slots moved into free ones, or failing that all packed to the pool's
+// start - and the asker gets the run as the allocator would give it (with no room to be had, the original failure). Objects keep their state and nothing on screen
+// changes. The pass runs while the frame is being drawn (before the VBlank wait; the sprite table and the uploads
+// follow it), so the moved tiles are copied in VRAM at once and the sprite table in VRAM - the one being shown - is
+// pointed at them, as are this frame's queued uploads and +$2A / +$2E; then the pool and the picture agree at every
+// moment (and in a save state taken before the frame's uploads).
+constexpr uint32_t POOL = 0xFFF008, POOL_TILES = 0x11F500, DMA_QUEUE = 0xFF769A, DMA_COUNT = 0xFFEFEE;
+constexpr int POOL_SLOTS = 0x74;
+constexpr uint32_t PC_TILES_FULL = 0x1AD406, PC_ALLOC_DONE = 0x1AD62C;
+
+bool tile_pool_make_room(MegaDrive& md) {
+    const uint32_t asker = md.cpu.r[9] & 0xFFFFFF;   // a1
+    const int need = md.ram8(asker + 0x29) + 1;
+    for (;;) {   // too few free at all: evict
+        int free_slots = 0;
+        for (int k = 0; k < POOL_SLOTS; k++) free_slots += md.ram8(POOL + k) == 0;
+        if (free_slots >= need) break;
+        const uint32_t o = eviction_candidate(md, 1, 31, true, outside_view(md, asker));
+        if (!o || o == asker) return false;
+        despawn(md, o);
+    }
+    struct Run { uint32_t obj; int start, size, to; };
+    std::vector<Run> runs;
+    bool used[POOL_SLOTS];
+    int taken = 0, owned = 0;
+    for (int k = 0; k < POOL_SLOTS; k++) taken += (used[k] = md.ram8(POOL + k) != 0);
+    const uint32_t vram_lo = md.rom32(POOL_TILES), vram_hi = vram_lo + POOL_SLOTS * 0x80;
+    for (int i = 0; i < 32; i++) {
+        const uint32_t o = 0xFF7E40 + i * 0x42;
+        if (o == asker) continue;
+        const uint32_t p = md.ram32(o + 0x2A) & 0xFFFFFF, v = md.ram32(o + 0x2E);
+        if (!p) {
+            if (v >= vram_lo && v < vram_hi) return false;   // (tiles in the pool without a run: not understood)
+            continue;
+        }
+        const int start = (int)p - (int)POOL, size = md.ram8(o + 0x29) + 1;
+        if (start < 0 || start + size > POOL_SLOTS || v != md.rom32(POOL_TILES + 4 * start)) return false;
+        for (int k = start; k < start + size; k++) if (!used[k]) return false;
+        runs.push_back({o, start, size, start});
+        owned += size;
+    }
+    if (owned != taken || POOL_SLOTS - taken < need || runs.empty()) return false;
+    // the uploads queued this frame (to be redirected with the runs they write to)
+    const int queued = md.ram16(DMA_COUNT);
+    if (queued > 64) return false;
+    auto queue_dest = [&](int e) {
+        const uint32_t q = DMA_QUEUE + 14 * e;
+        return (uint32_t)((md.ram16(q + 10) & 0x3FFF) | ((md.ram16(q + 12) & 3) << 14));
+    };
+    // The window for the asker: the one whose runs fit into the free slots elsewhere with the fewest slots moved
+    std::sort(runs.begin(), runs.end(), [](const Run& a, const Run& b) { return a.start < b.start; });
+    int best = -1, best_cost = POOL_SLOTS + 1;
+    std::vector<int> best_to;
+    for (int s = 0; s + need <= POOL_SLOTS; s++) {
+        std::vector<int> over;
+        int cost = 0;
+        for (int j = 0; j < (int)runs.size(); j++)
+            if (runs[j].start < s + need && runs[j].start + runs[j].size > s) { over.push_back(j); cost += runs[j].size; }
+        if (cost >= best_cost) continue;
+        bool free2[POOL_SLOTS];
+        for (int k = 0; k < POOL_SLOTS; k++) free2[k] = !used[k] && (k < s || k >= s + need);
+        std::sort(over.begin(), over.end(), [&](int a, int b) { return runs[a].size > runs[b].size; });
+        std::vector<int> to(runs.size(), -1);
+        bool ok = true;
+        for (int j : over) {
+            int at = -1;
+            for (int k = 0, len = 0; k < POOL_SLOTS && at < 0; k++) {
+                len = free2[k] ? len + 1 : 0;
+                if (len == runs[j].size) at = k - len + 1;
+            }
+            if (at < 0) { ok = false; break; }
+            for (int k = at; k < at + runs[j].size; k++) free2[k] = false;
+            to[j] = at;
+        }
+        if (!ok) continue;
+        best = s, best_cost = cost, best_to = to;
+    }
+    if (best >= 0) {
+        for (size_t j = 0; j < runs.size(); j++) if (best_to[j] >= 0) runs[j].to = best_to[j];
+    } else {   // all packed to the start, the asker's run after them (moving down, in order: memmove is enough)
+        int at = 0;
+        for (Run& r : runs) { r.to = at; at += r.size; }
+        best = at;
+    }
+    // tiles, queued uploads, slots, objects
+    VDP& v = md.vdp;
+    auto tiles = [&](int slot) { return md.rom32(POOL_TILES + 4 * slot); };
+    for (int e = 0; e < queued; e++) {
+        const uint32_t d = queue_dest(e);
+        for (const Run& r : runs) {
+            const uint32_t lo = tiles(r.start), hi = lo + r.size * 0x80;
+            if (r.to == r.start || d < lo || d >= hi) continue;
+            const uint32_t nd = d - lo + tiles(r.to), q = DMA_QUEUE + 14 * e;
+            md.set_ram16(q + 10, (uint16_t)((md.ram16(q + 10) & 0xC000) | (nd & 0x3FFF)));
+            md.set_ram16(q + 12, (uint16_t)((md.ram16(q + 12) & ~3) | (nd >> 14)));
+            break;
+        }
+    }
+    // the sprite table being shown: patterns in a moved run follow it
+    const uint32_t sat = (uint32_t)(v.reg[5] & 0x7E) << 9;
+    for (int e = 0; e < 80; e++) {
+        const uint32_t a = (sat + e * 8 + 4) & 0xFFFF;
+        const uint16_t w = v.vram16(a);
+        const uint32_t t = (uint32_t)(w & 0x7FF) * 32;
+        for (const Run& r : runs) {
+            const uint32_t lo = tiles(r.start);
+            if (r.to == r.start || t < lo || t >= lo + r.size * 0x80) continue;
+            const uint16_t nw = (uint16_t)((w & 0xF800) | ((t - lo + tiles(r.to)) / 32));
+            v.vram[a] = (uint8_t)(nw >> 8);
+            v.vram[a + 1] = (uint8_t)nw;
+            break;
+        }
+    }
+    for (const Run& r : runs) {   // (ascending: a packed run moves down, over nothing still to be read)
+        if (r.to == r.start) continue;
+        std::memmove(&v.vram[tiles(r.to) & 0xFFFF], &v.vram[tiles(r.start) & 0xFFFF], (size_t)r.size * 0x80);
+        for (int k = r.start; k < r.start + r.size; k++) md.set_ram8(POOL + k, 0);
+    }
+    for (const Run& r : runs) {
+        if (r.to == r.start) continue;
+        for (int k = r.to; k < r.to + r.size; k++) md.set_ram8(POOL + k, 0xFF);
+        md.set_ram32(r.obj + 0x2A, POOL + r.to);
+        md.set_ram32(r.obj + 0x2E, tiles(r.to));
+    }
+    for (int k = best; k < best + need; k++) md.set_ram8(POOL + k, 0xFF);
+    md.set_ram32(asker + 0x2A, POOL + best);
+    md.set_ram32(asker + 0x2E, tiles(best));
+    md.cpu.r[14] = POOL_TILES;   // (a6, as the allocator's success path leaves it)
+    md.cpu.pc = PC_ALLOC_DONE;   // movem.l (a7)+, d0-d1; rts
+    return true;
+}
+
 int sprite_xoff_hook(void* host, int index, uint16_t attr, int x, int y) {
     const Wide& w = *(Wide*)host;
     return w.active ? sprite_xoff(*w.md, index, attr, x, y) : 0;
@@ -699,10 +913,20 @@ public:
         return p;
     }
 
-    bool can_configure(const MegaDrive& md, const GameConfig& cfg) const override { return patches_safe(md, patch_list(cfg)); }
+    // The attract mode's demos replay recorded input against the original game: the widescreen patches and the
+    // cheats would change their course (objects spawn and despawn elsewhere, Aladdin survives a hit). While the title
+    // routine runs or a demo plays the ROM is the original, no cheat touches RAM and the picture is 4:3; the ROM
+    // switches at the first frame boundary where it is safe (pre_frame) - the title's own screens lie between a game's
+    // start and its first level, and between the demo flag and the demo's level.
+    static std::vector<RomPatch> rom_for(const MegaDrive& md, const GameConfig& cfg) {
+        return attract(md) ? std::vector<RomPatch>() : patch_list(cfg);
+    }
+
+    bool can_configure(const MegaDrive& md, const GameConfig& cfg) const override { return patches_safe(md, rom_for(md, cfg)); }
 
     void configure(MegaDrive& md, const GameConfig& cfg) override {
-        apply_patches(md, patch_list(cfg));
+        apply_patches(md, rom_for(md, cfg));
+        rom_attract_ = attract(md);
         md.clear_pc_hooks();
         auto play = [](MegaDrive& m) { m.module_state[MS_PLAY] = (uint32_t)m.frame_count + 1; m.module_state[MS_FADE] = 0; };
         auto leave = [](MegaDrive& m) { m.module_state[MS_PLAY] = 0; m.module_state[MS_FADE] = 0; };
@@ -715,6 +939,12 @@ public:
         md.add_pc_hook(PC_FADE_IN, fade);
         md.add_pc_hook(PC_RESPAWN_FADE, fade);
         const bool wide = cfg.ext > 0;
+        // (with the widescreen patches only: in the attract mode and at 4:3 the pool is the original's)
+        if (wide) {
+            md.add_pc_hook(PC_TILES_FULL, [this](MegaDrive& m) { if (!rom_attract_) tile_pool_make_room(m); });
+            for (const SlotSearch& ss : kSlotSearches)
+                md.add_pc_hook(ss.rts, [this, &ss](MegaDrive& m) { if (!rom_attract_ && in_play(m)) slot_search_done(m, ss); });
+        }
         wide_->md = &md;
         md.vdp.line_hook = wide ? line_hook : nullptr;
         md.vdp.pre_line_hook = wide ? pre_line_hook : nullptr;
@@ -732,10 +962,20 @@ public:
     }
 
     void pre_frame(MegaDrive& md, const GameConfig& cfg) override {
-        // The developers' debug-screen options: set while the cheat is on, cleared once when it is switched off.
+        if (attract(md) != rom_attract_) {
+            const std::vector<RomPatch> rom = rom_for(md, cfg);
+            if (patches_safe(md, rom)) {   // (else a later frame)
+                apply_patches(md, rom);
+                rom_attract_ = !rom_attract_;
+            }
+        }
+        // The developers' debug-screen options: set while the cheat is on in a game, cleared once when it is switched
+        // off or the attract mode comes (its demos play as recorded).
         uint32_t& dev = md.module_state[MS_DEV];
-        if (cfg.cheat("dev_cheat")) { md.set_ram8(DEV_CHEAT, 0xFF); dev |= 1; }
+        const bool game = !attract(md);
+        if (game && cfg.cheat("dev_cheat")) { md.set_ram8(DEV_CHEAT, 0xFF); dev |= 1; }
         else if (dev & 1) { md.set_ram8(DEV_CHEAT, 0); dev &= ~1u; }
+        if (!game && (dev & 2)) { md.set_ram8(DEV_MAP_VIEW, 0); dev &= ~2u; }
         if (!in_play(md)) return;
         // Map view takes Aladdin out of play every frame ($1A9C9A clears his object); switched off, he is put back
         // where the view is.
@@ -946,6 +1186,7 @@ public:
 
 private:
     std::unique_ptr<Wide> wide_{new Wide};
+    bool rom_attract_ = false;   // the ROM is the attract mode's (original)
 
     // The GEMS command FIFO in Z80 RAM ($1B40, 64 bytes, write index at $0036): $FF, command, arguments ($1E57F4).
     static void gems_command(MegaDrive& md, std::initializer_list<uint8_t> bytes) {
