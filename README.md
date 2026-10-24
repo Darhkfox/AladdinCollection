@@ -286,8 +286,9 @@ gradlew assembleDebug
   a hundred (an extra heart, then an extra life). The dimmed sides of a boss arena show the level as stored, not
   what the fight paints on it (Jafar's fire floor stays in the 4:3 area). In the levels with a half-speed
   background, up to about 70 px of that background is shown mirrored at a level's start at 21:9 (the level itself
-  is real to the edge). The staff roll stays 4:3. The level select starts with new-game stats (3 lives, 3 hearts,
-  10 apples).
+  is real to the edge). In Agrabah Rooftops the far hills behind the palace can show a seam in the left side area:
+  the game never scrolls that far into them, so their picture doesn't join up there. The staff roll stays 4:3. The
+  level select starts with new-game stats (3 lives, 3 hearts, 10 apples).
 - Save states made by a newer version may not load in an older one.
 
 ## Credits and licences

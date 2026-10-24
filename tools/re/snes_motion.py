@@ -21,7 +21,8 @@ are listed too (a drifting or animated band - the lava - can measure wrong there
   bg1   : BG1 doesn't move with the view (w1 != g1 + del; g1 measured in the wide picture's game screen, so a frame
           of lag between the runs doesn't count)
   bg2   : BG2 (or a band of it) doesn't (|w2 - expected| > 1)
-A camera jump (a life lost, a restart) and the frame after it are skipped.
+A camera jump (a life lost, a restart) and the frame after it are skipped, and so is a band whose sampled row was in
+another band the frame before (the camera moving in y).
 Writes tools/qa/snes/motion_<ext>.txt (motion_<ext>_<state>.txt from a state)."""
 import os
 import sys
@@ -35,7 +36,13 @@ frames = int(sys.argv[3]) if len(sys.argv) > 3 else 900
 start = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] != '-' else None
 hover = len(sys.argv) > 5 and sys.argv[5] == 'hover'   # (an auto-scroller: Aladdin held in the air on the screen)
 RATIO = {0: 0.5, 6: 0.5, 8: 0.5, 2: 1.0, 4: 1.0, 0x12: 1.0, 0x14: 1.0}
-ROW0 = 11   # an HDMA table's second entry's first row (the IRQ at line 8 switches the channel on)
+HDMA_ON = 0x808345   # the IRQ's STA $420C: HDMA switched on at this line (8; the Rooftops' $1C7D: 12)
+ROW0 = {}            # per emulator: this frame's first row of an HDMA table's second entry (that line + 3)
+BAND_AT = {}         # per emulator: this frame's band per row (bands())
+
+
+def row0(s):
+    return ROW0.get(id(s), 11)
 
 
 def make(e, mask):
@@ -43,6 +50,7 @@ def make(e, mask):
     s.module('snes')
     s.configure(e, True, 'invincible')
     s.layers(mask)
+    s.bp(HDMA_ON)
     return s
 
 
@@ -74,25 +82,32 @@ def bands(s, mode, sub):
     camera; 'k': mode $0A's ratchet, scaled by 1 / 2^factor. From the game's tables, as its band routines build the
     HDMA tables ($81:C84B, $81:C7E7)."""
     out = {}
+    BAND_AT[id(s)] = {}
     if mode in (0x0A, 0x0E):
         idx = 2 if mode == 0x0A else 0
         n = s.r16(0x80C602 + idx) >> 1
         base = 0x80C606 + s.r16(0x80C606 + idx)
         b = [s.r16(base + 2 * k) for k in range(n + 1)]
-        camy = s.r16(0x1777)
+        # (the frame shown: BG2's vertical scroll, the camera y its table was built from - RAM has the next one's)
+        near = s.s16(0x1777)
+        camy = near + ((((s.line_regs()[100][3] - near) & 0x3FF) + 0x200) & 0x3FF) - 0x200
         if mode == 0x0A:
             kinds = [('k', 0), ('k', 1), ('k', 2), ('k', 3), ('r', 0.5), ('r', 1.25)]
         else:
-            kinds = [('r', 0.5), ('r', 0.25)] + [('r', 0.5)] * (n - 2)
+            # ($81:C952: camera / 2^(n-k) from the bottom band up, the first two the drifting sum / 2, / 4)
+            kinds = [('r', 0.5), ('r', 0.25)] + [('r', 1.0 / (1 << (n - k))) for k in range(2, n)]
         for r in range(48, 208):
-            y = camy + 8 + max(0, r - ROW0)
+            y = camy + 8 + max(0, r - row0(s))
             k = 0
             while k + 1 < n and y >= b[k + 1]:
                 k += 1
             out.setdefault(k, []).append(r)
+        BAND_AT[id(s)] = {r: k for k, rows in out.items() for r in rows}
         return [(rows, kinds[k][0], kinds[k][1]) for k, rows in sorted(out.items())]
     if mode == 0x0C:   # the Lava Cavern: every band drifts on its own but band 9, which moves with the camera
-        return [(rows, 'r', 1.0 if k == 9 else 0.0) for k, rows in sorted(lava_rows(s).items())]
+        lr = lava_rows(s)
+        BAND_AT[id(s)] = {r: k for k, rows in lr.items() for r in rows}
+        return [(rows, 'r', 1.0 if k == 9 else 0.0) for k, rows in sorted(lr.items())]
     if mode == 0x10:
         cam = s.r16(0x1773)
         return [(list(range(48, 208)), 'r', 0.5 if sub and cam >= 0x1000 else 1.0)]
@@ -100,7 +115,7 @@ def bands(s, mode, sub):
 
 
 def lava_rows(s):
-    """The Lava Cavern's table: band per row (entry 0 up to ROW0, then by the entries' line counts)."""
+    """The Lava Cavern's table: band per row (entry 0 up to row0, then by the entries' line counts)."""
     rows = {}
     e = 1
     cnts = []
@@ -111,10 +126,10 @@ def lava_rows(s):
         cnts.append(c)
         e += 1
     for r in range(48, 208):
-        if r < ROW0:
+        if r < row0(s):
             k = 0
         else:
-            k, acc = len(cnts), ROW0
+            k, acc = len(cnts), row0(s)
             for i, c in enumerate(cnts):
                 if r < acc + c:
                     k = i + 1
@@ -168,6 +183,7 @@ for lv in levels:
     prev_el = None
     prev_cam = None
     prev_regs = None
+    prev_band_at = {}
     prev_camw = None
     skip = 0
     pixel_notes = []
@@ -186,6 +202,8 @@ for lv in levels:
                 s.w16(0x8EA, s.r16(0x1777) + 100)
             s.hold(script(f) if not hover else 0)
             s.run(1)
+            hits = s.bp_hits()
+            ROW0[id(s)] = hits[-1]['line'] + 3 if hits else 1 << 20
         pics = {k: grab_np(s) for k, s in em.items()}
         el = em['w1'].view_left()
         cam = em['n2'].r16(0x1773)
@@ -218,6 +236,8 @@ for lv in levels:
                     if rows is not None and len(rows) < 6:
                         continue
                     row = rows[len(rows) // 2] if rows else 128
+                    if rows is not None and prev_band_at.get(row) != BAND_AT.get(id(em['w2']), {}).get(row):
+                        continue   # (the camera moved in y: this row was in another band last frame)
                     now, last = regs['w2'][row], prev_regs['w2'][row]
                     own = -wrap(now[2] - last[2])
                     w2 = -wrap(now[2] + now[5] - last[2] - last[5]) + de
@@ -246,6 +266,9 @@ for lv in levels:
                     bad['bg2'] += 1
                     notes.append('f%d bg2 (mode %02X, unmodelled): d2 %d del %d w2 %d' % (f, mode, d2, de, w2))
         prev_regs = regs
+        if mode >= 0x0A:
+            bands(em['w2'], mode, em['w2'].r16(0x841))
+        prev_band_at = dict(BAND_AT.get(id(em['w2']), {}))
         prev = pics
         prev_el = el
         prev_cam = cam

@@ -6,13 +6,14 @@
 // Widescreen. Capcom's engine streams two BG layers (BG1 the level, BG2 the background; structs at $1738 / $188E)
 // from the level's data in RAM: a page table at $7FF000 (256x256-px pages), each page a 16x16 map of 16-px blocks in
 // bank $7F, each block four tile entries in ROM. The margins are drawn straight from that data (fetchWideTile), so
-// nothing of the game's own streaming changes, any width works and a width change mid-level needs no redraw. Layers
-// the game scrolls on its own (a background a raster band scrolls, a fully loaded repeating picture) keep their
-// VRAM map, which holds the whole repeating picture. The view stops at every level's ends; the background then
-// moves line by line as the game's own code would move it with its camera at the picture's middle (its parallax,
-// raster bands, phases, an object: band_adj). Objects: the draw-list and keep-alive range tests and the
-// level-object spawner follow the wider view; sprites are placed by their true 16-bit x. The status bar (BG3, the top
-// 40 lines) is split to the picture's edges; the game's centred texts (PAUSE) stay at the picture's middle.
+// nothing of the game's own streaming changes, any width works and a width change mid-level needs no redraw. Agrabah's
+// raster bands are drawn from their picture's 512-px repeat; other layers the game scrolls on its own (the lava's
+// bands, a fully loaded repeating picture) keep their VRAM map, which holds the whole repeating picture. The view
+// stops at every level's ends; the background then moves line by line as the game's own code would move it with its
+// camera at the picture's middle (its parallax, raster bands, phases, an object: band_adj). Objects: the draw-list
+// and keep-alive range tests and the level-object spawner follow the wider view; sprites are placed by their true
+// 16-bit x. The status bar (BG3, the top 40 lines) is split to the picture's edges; the game's centred texts (PAUSE)
+// stay at the picture's middle.
 #include "game.h"
 #include "snes_common.h"
 #include "../core/snes.h"
@@ -82,6 +83,9 @@ constexpr uint32_t kLevelLoop = 0x8182CF, kLevelWait = 0x8182E6, kTaskYield = 0x
 // The band routines' tables ($81:C84B): by routine (0: Agrabah Rooftops, 2: Agrabah Market) the band count * 2 and the
 // offset of its bands' world-y bounds from $80:C606.
 constexpr uint32_t kBandCount = 0x80C602, kBandBounds = 0x80C606;
+// The IRQ ($80:8332) switches HDMA on (STA $420C) at the line its NMI armed: 8, the level's own ($1C7D: 12 in Agrabah
+// Rooftops) or a few lines after an NMI that ran past the frame's top.
+constexpr uint32_t kHdmaOn = 0x808345;
 constexpr uint32_t kLavaTable = 0x7EF400;                             // the Lava Cavern's HDMA table (count, word)
 
 inline uint8_t rd8(const Snes& s, uint32_t a) { return s.wram[a & 0x1FFFF]; }
@@ -106,7 +110,7 @@ public:
     static constexpr int kHudLines = 40;          // the status bar: BG3 rows 1-4
     static constexpr int kHudLeftEnd = 152;       // lives and hearts (up to 10) left of this, apples and gems right
     static constexpr int kSlide = 4;              // px a frame the view moves to a new place
-    static constexpr int kBandRow0 = 11;          // the first row of an HDMA table's second entry (band_adj)
+    static constexpr int kHdmaRows = 3;           // an HDMA table's second entry: rows after the line HDMA goes on
 
     void configure(Snes& s, const GameConfig& cfg) {
         snes_ = &s;
@@ -124,7 +128,7 @@ public:
         if (ext_ > 0)
             for (uint32_t pc : {kDrawTest, kKeepTest, kSpawnInitCam, kSpawnInitRight, kSpawnInitLeft, kSpawnInitCount,
                                 kSpawnFrameCam, kSpawnRowX, kSpawnEdgeLeft, kSpawnEdgeRight, kStubRetryR + 4,
-                                kStubRetryL + 4, kSweepDelete})
+                                kStubRetryL + 4, kSweepDelete, kHdmaOn})
                 s.markExec(pc, true);
         write_stub(s);
     }
@@ -149,6 +153,9 @@ public:
             return false;
         case kLevelWait:
             logic_done_ = true;
+            return false;
+        case kHdmaOn:   // (only watched: where this frame's band tables start on the screen, band_adj)
+            hdma_line_ = s.vPos();
             return false;
         case kSpawnInit:
             respawn_ = false;   // (a level's start spawn: for the width set now)
@@ -345,7 +352,11 @@ public:
             if (!rd8(s, b + 0x4F) || p.bgMapBase(l) != rd16(s, b + 0x2E) || p.bgMapSize(l) != 1) continue;
             const int sx = (int16_t)rd16(s, b + 0x3B), sy = (int16_t)rd16(s, b + 0x3F);
             const int wx = unwrap10(p.bgHofs(l), sx), wy = unwrap10(p.bgVofs(l), sy);
-            if (std::abs(wx - sx) > 64 || std::abs(wy - sy) > 64) continue;   // scrolled on its own: VRAM
+            // Agrabah's bands (world_bands) scroll a picture that repeats every 512 px: every band's line is drawn
+            // from that repeat (x mod 512). Their VRAM map holds it only where the game has streamed it: the column
+            // before x = 0 keeps the border column's page from the level's start until the camera passes x 480.
+            const bool rep = l == 1 && world_bands(rd16(s, kBgMode));
+            if ((!rep && std::abs(wx - sx) > 64) || std::abs(wy - sy) > 64) continue;   // scrolled on its own: VRAM
             ll.decode = true;
             ll.wx = wx;
             ll.wy = wy + row + 1;
@@ -353,6 +364,7 @@ public:
             ll.bank = rd8(s, b + 0x4C);
             ll.lo = -0x8000;
             ll.hi = 0x7FFF;
+            ll.rep = rep;
             if (l == 1 && bg2_ratio_ != 0x100 && bg2_ratio_ != 0) {
                 // A background at another speed than the level (parallax): where the view stops at a level edge
                 // while the game's camera goes on, it is drawn where the game would have it with its camera at the
@@ -375,7 +387,7 @@ public:
         // game's own code would scroll it with its camera at the picture's middle (band_adj), so where the view stops
         // at a level's end it holds still with the picture and moves exactly as the game moves it.
         if (band_on_) {
-            const int adj = band_adj(p, row, line_[1].hi);
+            const int adj = band_adj(p, row, line_[1]);
             if (adj != 0) {
                 p.bgHofsAdj[1] = (int16_t)adj;
                 if (line_[1].decode) {
@@ -439,6 +451,7 @@ public:
         if (layer > 1 || !level_ || !snes_ || !line_[layer].decode) return kWideVram;
         const LineLayer& ll = line_[layer];
         int x = ll.wx + screenX;
+        if (ll.rep) x &= 0x1FF;
         uint16_t flip = 0;
         if (x < ll.lo) { x = 2 * ll.lo - 1 - x; flip = 0x4000; }          // (mirrored about the layer's ends)
         else if (x >= ll.hi) { x = 2 * ll.hi - 1 - x; flip = 0x4000; }
@@ -554,6 +567,7 @@ private:
         bool decode = false;
         int wx = 0, wy = 0;   // world x of the game's screen's left edge and world y on this line
         int lo = 0, hi = 0;   // the layer's extent (mirrored beyond)
+        bool rep = false;     // drawn from the picture's first 512 px, its repeat (world_bands)
         uint16_t off = 0;
         uint8_t bank = 0;
     };
@@ -593,6 +607,7 @@ private:
     bool band_taken_ = false;      // band_next_ is this logic frame's
     bool band_on_ = false;         // this frame: BG2 corrected per line (band_adj)
     int band_cam_ = 0, band_vcam_ = 0;
+    int hdma_line_ = -1;           // this frame: the line the IRQ switched HDMA on at (-1: not yet)
     int16_t build_x_[128] = {}, oam_x_[128] = {};
     bool build_set_[128] = {}, oam_set_[128] = {};
 
@@ -722,6 +737,22 @@ private:
     // Market at Dusk, $0C the Lava Cavern, $0E Agrabah Rooftops), by phases ($10 Jafar's Palace 3), an object ($12 the
     // Carpet Escape's wave), with the camera but moving in y by itself ($14 Sultan's Dungeon 3).
     static bool band_mode(int mode) { return (mode & 1) == 0 && mode >= 0x0A && mode <= 0x14; }
+    // Agrabah's: bands by world y over a picture that repeats every 512 px (the VRAM map's width: a band at another
+    // speed than BG2's struct shows the map's repeat), the routines $81:C952 ($0E) and $81:C98C ($0A).
+    static bool world_bands(int mode) { return mode == 0x0A || mode == 0x0E; }
+    // Their band k of n ($7E:F600 + 2k): a shift of the drifting sum t = $1A30 + camera (mode $0A's first four, which
+    // also ratchet: band_d_; mode $0E's first two, t / 2 and t / 4), else a function of the camera x: mode $0A's
+    // camera / 2 and camera * 5/4; mode $0E fills its bands from the bottom up, each half the one below it, camera /
+    // 2^(n-k) (the Rooftops: / 32, / 16, / 8, / 4, / 2 below the sky).
+    static int band_sum_shift(int mode, int k) { return mode == 0x0A ? (k <= 3 ? k : -1) : (k <= 1 ? k + 1 : -1); }
+    static int band_cam(int mode, int n, int k, int x) {
+        if (mode == 0x0A) return k == 5 ? x + (x >> 2) : x >> 1;
+        return x >> (n - k);
+    }
+    // The first row of this frame's HDMA tables' second entry: the IRQ switches the channel on (its NMI set the table's
+    // start and a line count of 1), the first entry's line follows, then the second reaches the screen (kHdmaRows).
+    // Before the IRQ (or in a frame without one) every line has the NMI's scroll, the first entry's.
+    int hdma_row0() const { return hdma_line_ >= 0 ? hdma_line_ + kHdmaRows : 0x10000; }
 
     // Mode $10's x: the camera, at half speed past $1000 once Jafar's Palace 3 reaches its last part ($81:CA55).
     static int phase_x(int sub, int x) { return sub == 0 || x < 0x1000 ? x : ((x - 0x1000) >> 1) + 0x1000; }
@@ -747,53 +778,52 @@ private:
     // One line of a background the game scrolls itself: the scroll its code would give with the camera at the
     // picture's middle (v) against the one it gave (c, on screen: the PPU's register), as a shift of the line on top of
     // the view's (v - c). The bands' values and their lines, as the band routines ($81:C84B, $81:C7E7) build the HDMA
-    // tables: Agrabah's by world y from camera y + 8 (bounds $80:C606), the lava's fixed; the channel is switched on
-    // by the IRQ at line 8 (its NMI sets the table's start and a line count of 1), so the table's second entry
-    // reaches row 11. A line whose register isn't the band's value as worked out (a frame the logic didn't finish
-    // in) takes it from the register (a sum's low bits unknown: within 1 px). A half-speed line drawn from the level's
-    // data shows a little before its first column there: the page table's border column, which Agrabah's levels fill
-    // with their background's repeat (and past the end its row goes on), so nothing is mirrored; Jafar's Palace 3's
-    // background at half speed is mirrored past what the game shows of it (`hi`: BG2's extent, decoded lines).
-    int band_adj(const Ppu& p, int row, int& hi) const {
+    // tables: Agrabah's by world y from camera y + 8 (bounds $80:C606), the lava's fixed; the second entry's first row
+    // from the line the IRQ switched the channel on at this frame (hdma_row0: row 11 from line 8, the Rooftops' row
+    // 15 from line 12). A line whose register isn't the band's value as worked out (a frame the logic didn't finish
+    // in) takes it from the register (a sum's low bits unknown: within 1 px). Agrabah's band lines are drawn from
+    // their picture's 512-px repeat (world_bands), also before BG2's first column where the view stops at a level's
+    // start (the page table's border column isn't that repeat in every row: the Rooftops' palace and bottom rows, the
+    // Market's sky); Jafar's Palace 3's background at half speed is mirrored past what the game shows of it (the line's
+    // extent, `ll`).
+    int band_adj(const Ppu& p, int row, LineLayer& ll) const {
         const Snes& s = *snes_;
         const int mode = rd16(s, kBgMode);
         const int c = band_cam_, v = band_vcam_, h = p.bgHofs(1) & 0x3FF;
         int dh = v - c;   // (a layer moving with the camera: no shift)
-        if (mode == 0x0A || mode == 0x0E) {
+        if (world_bands(mode)) {
             const uint32_t idx = mode == 0x0A ? 2 : 0;
             const int n = rom16(s, kBandCount + idx) >> 1;
             const uint32_t bounds = kBandBounds + rom16(s, kBandBounds + idx);
             const int camy = unwrap10(p.bgVofs(1), (int16_t)rd16(s, kCamY));
-            const int y = camy + 8 + std::max(0, row - kBandRow0);
+            const int y = camy + 8 + std::max(0, row - hdma_row0());
             int k = 0;
             while (k + 1 < n && y >= rom16(s, bounds + 2 * (k + 1))) k++;
-            // band k: a shift of the sum t (or of the camera), its value for the camera c
+            // band k's value for the camera c (-1: a sum not known for this frame)
             const bool known = band_shown_.valid && band_shown_.cam == c;
-            auto shift_of = [&](int band) { return mode == 0x0A ? (band <= 3 ? band : -1) : (band <= 1 ? band + 1 : -1); };
             auto value = [&](int band) -> int {
-                const int sh = shift_of(band);
-                if (sh >= 0) return (band_shown_.t >> sh) & 0x3FF;
-                if (mode == 0x0A && band == 5) return (c + (c >> 2)) & 0x3FF;
-                return (c >> 1) & 0x3FF;
+                const int sh = band_sum_shift(mode, band);
+                if (sh >= 0) return known ? (band_shown_.t >> sh) & 0x3FF : -1;
+                return band_cam(mode, n, band, c) & 0x3FF;
             };
-            if (known && value(k) != h) {   // (a few lines off at a band's edge)
+            const int vk = value(k);
+            if (vk >= 0 && vk != h) {   // (a frame the game's logic didn't finish in)
                 if (k > 0 && value(k - 1) == h) k--;
                 else if (k + 1 < n && value(k + 1) == h) k++;
             }
-            const int sh = shift_of(k);
+            const int sh = band_sum_shift(mode, k);
             if (sh >= 0) {
-                const int low = known && value(k) == h ? band_shown_.t & ((1 << sh) - 1) : 0;
+                const int low = value(k) == h ? band_shown_.t & ((1 << sh) - 1) : 0;
                 dh = floor_shr(low + (v - c) + (mode == 0x0A ? band_d_ : 0), sh);
-            } else if (mode == 0x0A && k == 5) {
-                dh = (v + (v >> 2)) - (c + (c >> 2));
             } else {
-                dh = (v >> 1) - (c >> 1);
+                dh = band_cam(mode, n, k, v) - band_cam(mode, n, k, c);
             }
         } else if (mode == 0x0C) {
             // the Lava Cavern: every band drifts at its own speed but one, which moves with the camera (band 9)
             int band = 0;
-            if (row >= kBandRow0) {
-                int start = kBandRow0;
+            const int row0 = hdma_row0();
+            if (row >= row0) {
+                int start = row0;
                 for (int e = 1; e < 16; e++) {
                     const int cnt = rd8(s, kLavaTable + 3 * e) & 0x7F;
                     if (cnt == 0) break;
@@ -807,7 +837,7 @@ private:
             const int sub = rd16(s, kBgSub);
             dh = phase_x(sub, v) - phase_x(sub, c);
             // (past what the game shows of it at the level's end its last pages hold other data: mirrored there)
-            if (sub != 0) hi = phase_x(sub, (int16_t)rd16(s, kCamMaxX)) + 256;
+            if (sub != 0) ll.hi = phase_x(sub, (int16_t)rd16(s, kCamMaxX)) + 256;
         }
         return dh - (v - c);
     }
@@ -864,6 +894,7 @@ private:
         dim_lo_ = -kMaxExt;
         dim_hi_ = 256 + kMaxExt;
         band_on_ = false;
+        hdma_line_ = -1;   // (the IRQ comes after the first lines)
         if (level_ && ext_ > 0 && snes_) {
             const Snes& s = *snes_;
             // the camera on screen: BG1's scroll register, completed from the NMI's copy
