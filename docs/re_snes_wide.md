@@ -52,9 +52,13 @@ screen pixel (the layer's scroll register completed from its struct, per line). 
 changes, any width up to the PPU's limit works, and a width change in the middle of a level needs no redraw.
 `tools/re/snes_mapdecode.py` checks the decode against VRAM over the game's own screen in every level: identical.
 
-A layer is drawn from VRAM instead where it doesn't follow its struct: a band of a background scrolled in raster
-bands by HDMA at another speed than its struct's (`$083F` modes `$0A-$0E`: Agrabah's skyline, the lava cavern's), or
-a fixed / fully loaded repeating picture - their VRAM map holds the whole 512-px repeat, so the wrap is right.
+A layer is drawn from VRAM instead where it doesn't follow its struct: a band of the lava cavern's background (scrolled
+in raster bands by HDMA at its own speeds, `$083F` mode `$0C`), or a fixed / fully loaded repeating picture. Their VRAM
+map holds the whole 512-px repeat, so the wrap is right. Agrabah's raster bands (modes `$0A`, `$0E`) are drawn from the
+level's data at every band's scroll, from their picture's first 512 px (x mod 512: section 2). The game's VRAM map
+doesn't hold the whole repeat: the column before x = 0 keeps what the level's start loaded there (the border column's
+page) until the camera passes x 480. The 4:3 screen never shows that column, but the margin did: 8 px of that page in
+the Rooftops' hills and town, left of the game's screen.
 
 **Parallax.** BG2's speed by `$083F` (`$81:C781`): modes 0 / 6 / 8 half the camera's x, 2 / 4 the camera's. Where the
 view stops at a level edge while the game's camera moves on (below), a half-speed background would slide against the
@@ -78,12 +82,18 @@ the game moves it; where the view is centred, v = camera and nothing changes. H 
   the top four bands hold still while the camera moves right and move with it (1, 1/2, 1/4, 1/8) while it moves left.
   With the camera at v the game would have dropped `$1A30` by v's moves instead: `band_d_` keeps that difference (mod
   4096, a multiple of the 512-px map), updated once per logic frame.
-- `$0E` Agrabah Rooftops (`$81:C952`): seven bands (bounds `$80:C60A`): (`$1A30` + camera) / 2 and / 4 (the sky
-  drifting), then camera / 2.
+- `$0E` Agrabah Rooftops (`$81:C952`): seven bands (bounds `$80:C60A`: 0, `$CA`, `$D8`, `$148`, `$150`, `$160`,
+  `$178`). The routine fills them from the bottom up, each half the one below it, camera / 2^(7-k): the palace band
+  camera / 32, then the town's / 16, / 8, / 4 and the bottom / 2 (BG2's struct). It then sets the first two to
+  (`$1A30` + camera) / 2 and / 4 (the sky drifting).
 - `$0A` / `$0E` build their HDMA table by world y from camera y + 8 (`$81:C84B`; double-buffered, `$80:C628`, BG2HOFS
-  on channel 4): the first entry one line, then the bands on screen. HDMA starts from the IRQ at line 8
-  (`re_snes_game.md`, core fix), so the second entry reaches row 11 (`kBandRow0`). Each line's band is found from BG2's
-  vertical scroll (camera y) and checked against the register (a band's neighbour at its edge).
+  on channel 4): the first entry is one line, then come the bands on screen. HDMA starts from the IRQ
+  (`re_snes_game.md`, core fix) at the line its NMI arms: 8, or the level's own `$1C7D` if set (12 in Agrabah
+  Rooftops: every split there is 4 lines lower), or 4 lines after an NMI that ran past line 4 (`$80:8291`). The
+  module watches the IRQ's `STA $420C` (`$80:8345`, an exec hook that only reads the line). The table's second entry
+  reaches the screen 3 rows later (`hdma_row0`: row 11 from line 8, row 15 in the Rooftops); until then every line
+  has the NMI's scroll, which is the first entry's. Each line's band is found from BG2's vertical scroll (camera y)
+  and checked against the register: a band's neighbour at its edge, in a frame the game's logic didn't finish in.
 - `$0C` the Lava Cavern (`$81:C7E7`): eleven bands in a fixed screen table (`$7E:F400`, counts from `$80:B992`, rewritten
   in place by the logic, so mid-frame), each a 24.8 accumulator with its own speed (`$7E:F800` + `$7E:F900`): they drift
   whatever the camera does, but band 9, which is the camera: every line holds still (H independent of the camera),
@@ -97,13 +107,25 @@ the game moves it; where the view is centred, v = camera and nothing changes. H 
 The sums S (and `$1A30` + camera for `$0E`) whose low bits the shifts need are taken when the frame's logic is done (the
 level loop reached its frame wait `$81:82E6` since its top: `logic_done_`) and used for the frame that shows that
 camera (`band_next_` / `band_shown_`); in a frame the game's logic didn't finish in, a line whose register isn't the
-worked-out value takes the sum from the register (its low bits unknown: within 1 px). A half-speed band drawn from
-the level's data shows up to ext / 2 px before its first column at the level's start: these levels fill the page
-table's border column (page -1) with their background's repeat (Agrabah Market's town: `$1800`, `$1600`, `$1800`, ...;
-the Market at Dusk's `$0200`, `$0000`, `$0200`, ...), so it is drawn from there, not mirrored as the parallax levels'
-(whose border column is empty in places: Desert Ruins); at the right end their page rows go on past what the game
-shows. `tools/re/snes_motion.py` checks every band against the game's own move of it, from the registers
-(`Ppu::lineRegs`, `snt.py line_regs`).
+worked-out value takes the sum from the register (its low bits unknown: within 1 px).
+
+These three levels' BG2 page rows alternate two pages over the level, so their background repeats every 512 px, the
+VRAM map's width (a band at another speed than BG2's struct shows the map's repeat). Every band line is drawn from the
+level's data at x mod 512 (`world_bands`, `LineLayer::rep`), not from VRAM and not mirrored. Near the level's start,
+where a band shows a little before BG2's first column (a half-speed band up to ext / 2 px), it shows the repeat. That
+part is not drawn from the page table's border column (page -1), which isn't the repeat in every row. Agrabah Market's
+town row is (`$1800` before `$1600`, `$1800`, ...) and so is the Market at Dusk's (`$0200`), but their sky rows hold
+`$0000` there. So do the Rooftops' palace and town row (before `$0000`, `$4400`, ...) and their bottom row (before
+`$4800`, `$4800`, ...): page `$0000` is the one with the palace, so a second palace showed in the margin. Past the
+level's right end the page rows run out a page or two later (the Market at Dusk's town row at x 1280); mod 512 holds
+there too. `tools/re/snes_motion.py` checks every band against the game's own move of it, from the registers
+(`Ppu::lineRegs`, `snt.py line_regs`), and `snes_bands.py` checks every line against the routines (section 6).
+
+(A first version took the Rooftops' five lower bands at camera / 2 and every band table from row 11. Where the view
+stops at the level's ends (camera x below ext at its start, above `$1A04` - ext at its end), the palace and the town
+slid against the still picture: the palace by ~0.47 px per px of the camera, 48 px from camera x 4 to 100 at 21:9
+CRT. Each split was 4 lines off, and a second palace showed in the margin from the border column. Bands drawn from
+VRAM also showed the stale column described above.)
 
 ## 3. The view
 
@@ -195,16 +217,30 @@ margins and, where the view is split, moved to the picture's middle (`(extR - ex
   Jafar's room, narrower than the picture at 21:9 (pictures `tools/qa/snes/edges_<ext>_<level>.png`).
 - `snes_rewind.py 140 all` (and 106 in the seven levels, 140 from their end states): every rewound picture identical.
   The app's own rewind (`R` held in an autotest script, achievements off) shows the same.
+- `snes_bands.py <ext> [levels] [turbo]`: Agrabah's three band levels on a tour that carries Aladdin to both ends and
+  the middle at three heights and across both ends. On every line it checks the module's BG2 shift against the ROM
+  routines' with the camera at the picture's middle (the line's band from where this frame's HDMA started), that the
+  camera's bands hold still while the view is stopped, and the centred picture against the bare core's. At 46, 72,
+  106 and 140, with and without Remove Slowdown: no line off, no stopped-view frame moving, no picture differing in
+  any of the three. Before this fix the Rooftops had 63,122 / 69,247 / 77,505 / 96,429 lines off (of ~943,000),
+  77 / 126 / 191 / 251 stopped-view frames moving, and 76 / 75 / 82 / 95 pictures differing at the four widths.
+  The Market and the Market at Dusk had none before either. Rewind from states high at both of the Rooftops' ends
+  (106, 140, 46): identical.
 
 ## Known limitations
 
 - Objects that only exist where the game's camera is (scripted events, bosses) appear as in the original; enemies
   can be seen waiting at the margins' edge before they wake (they act as on the console once in range).
 - In the levels whose background moves at half speed (modes 0, 6, 8), where the view stops at a level's start the
-  background shows a mirror image of itself before its first column (up to ext / 2 px) wherever it is seen there; the
-  levels the game scrolls itself draw that from the page table's border column (section 2).
-- The bands' lines follow the core's HDMA timing (the table's second entry at row 11): a few lines off the console's
-  if that timing is (the band's value is checked against the register at its edges).
+  background shows a mirror image of itself before its first column (up to ext / 2 px) wherever it is seen there;
+  Agrabah's three band levels draw it from their background's 512-px repeat instead (section 2).
+- Agrabah Rooftops' palace band (camera / 32) and the one below it (camera / 16) never show their picture's 512-px
+  wrap in the game (x 0-383 and 0-511). The repeat joins with a seam in the far hills, which shows in the left margin
+  (at x 0 of the band, a little left of the game's screen). Mirrored there instead, the palace showed a second time
+  at the picture's left edge at 21:9.
+- The bands' lines follow the core's HDMA timing (the table's second entry 3 rows after the line the IRQ switches HDMA
+  on at): if the console's timing differs, they are a line or so off (the band's value is checked against the register
+  at its edges).
 - Where Jafar's room grows and the camera is then held, the view keeps its place (the offset only closes while the
   camera moves), so the arena isn't centred in the picture; its unreachable sides are dimmed.
 - The dimmed sides of an arena show the level's data, not what the game draws there during the fight (Jafar's cobra
