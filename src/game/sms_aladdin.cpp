@@ -125,29 +125,26 @@ const std::vector<RomPatch> kDevMenu = {{0x4BC4, {0x0E, 0x0F}, {0x0E, 0x01}}};
 // level map (map_entry); parallax bands repeat every 256 px and wrap. Near a level's ends the picture slides
 // (view_slide: the game's camera stays the original's) so the view shows the level from its first / to its last
 // pixel: it then reaches up to 2E px past the original 256-px screen on one side. Objects live in screen coordinates:
-// the windows that wake / keep them and the per-piece sprite clipping are widened to that; the true X of a sprite
-// beyond the 8-bit table X is recorded by PC hooks on the three sprite writers (sprite_x).
+// they wake, stay awake and leave with the original's margins around the view as it is shown (the slide included,
+// per side, per frame: PC hooks in the caves below give the values); the true X of a sprite beyond the 8-bit table
+// X is recorded by PC hooks on the three sprite writers (sprite_x).
 constexpr uint16_t GAME_OVER_ENTRY = 0x7270, DEMO_END = 0x352C;
-// The attract mode's demos replay recorded input: they keep the original's windows (every cave first tests $C104,
-// DEMO_TEST) and are shown at 4:3 (in_stage), or they drift off their path.
+// The attract mode's demos replay recorded input: they run on the original ROM (demo_patch_list) and are shown at
+// 4:3 (in_stage); as a second line of defence every cave first tests $C104 and does what the original does.
 // Code caves in bank 1's unused zero fill ($7943-$7DFF).
-constexpr uint16_t CAVE_WAKE = 0x7A00, CAVE_LOAD = 0x7A40, CAVE_GONE = 0x7A90, CAVE_FULL_A = 0x7AD0,
-                   CAVE_FULL_B = 0x7AF0, CAVE_KEEP_A = 0x7B10, CAVE_KEEP_B = 0x7B30, CAVE_BOULDER = 0x7B50;
-constexpr uint16_t CAVE_GONE_MAX = CAVE_GONE + 24;   // (CAVE_GONE's `or a` after `ld de,($C480)`)
+constexpr uint16_t CAVE_WAKE = 0x7A00, CAVE_GONE = 0x7A90, CAVE_FULL_A = 0x7AD0, CAVE_FULL_B = 0x7AF0,
+                   CAVE_KEEP_A = 0x7B10, CAVE_KEEP_B = 0x7B30, CAVE_BOULDER = 0x7B50;
+// the caves' last instructions, where the module's hooks put the values for the view of the frame (see configure)
+constexpr uint16_t CAVE_WAKE_DECIDE = CAVE_WAKE + 11, CAVE_GONE_DE = CAVE_GONE + 19, CAVE_KEEP_A_DE = CAVE_KEEP_A + 19,
+                   CAVE_BOULDER_DE = CAVE_BOULDER + 4;
 constexpr uint16_t CAVE_FULL_A_WIDE = CAVE_FULL_A + 16, CAVE_FULL_B_WIDE = CAVE_FULL_B + 16;   // (their wide paths)
+constexpr uint8_t QUEUE_SLOTS = 7, QUEUE_WIDE = 12;   // the queue stages' object slots: original, wide (see below)
+constexpr uint16_t QUEUE_LOOP_COUNT = 0x3D14, RECORD_INDEX = 0xC680;
 
 std::vector<RomPatch> wide_patches(int E) {
     auto zeros = [](size_t n) { return std::vector<uint8_t>(n, 0x00); };
     auto lo = [](int a) { return (uint8_t)a; };
     auto hi = [](int a) { return (uint8_t)(a >> 8); };
-    // Stages 0/1/5/7/8 keep 7 objects from the stage's list ($410D loads the next one into a free slot): a waiting
-    // object wakes when the camera reaches its X (+$28, $3E50 `ld hl,($C482)`) at its preset screen X (mostly 256,
-    // the right edge). An object that moves with the camera (+$20) is placed K px further right when loaded and wakes
-    // K px earlier, so it appears at the same place of the level at the view's right edge: K = E, except that the
-    // view at a stage's start (the camera within E px of its left end, $C4B9) reaches the level's first 256 + 2E px:
-    // there an object whose X is within lo + 2E is awake from the start, placed (X - lo) px further right. K depends
-    // only on the object, so the place and the wake agree whenever it loads or wakes.
-    // CAVE_WAKE: hl = the camera + K for the test (`sbc hl,de` with de = X), $FFFF = awake.
     // (a demo playing: carry set; a and the flags change)
     const std::vector<uint8_t> demo_test = {
         0x3A, 0x04, 0xC1,        // ld a,($C104)        the demo's mode (2..$B), else 0 or $FF
@@ -160,64 +157,18 @@ std::vector<RomPatch> wide_patches(int E) {
         return head;
     };
     const int E2 = 2 * E;
+    // Stages 0/1/5/7/8 keep 7 objects from the stage's list ($410D loads the next one into a free slot): a waiting
+    // object wakes when the camera reaches its X (+$28, $3E46: $3E50 `ld hl,($C482)`, then hl - X >= 0). CAVE_WAKE
+    // gives hl = $FFFF (wake) or 0 (not yet) from the module's hook (wake_decide), which also places the object.
     const std::vector<uint8_t> wake = with_demo_test({
-        0xDD, 0x7E, 0x20,        // ld a,(ix+$20)
-        0xB7,                    // or a
-        0x2A, 0x82, 0xC4,        // ld hl,($C482)
-        0xC8,                    // ret z               (screen-space objects: the original test)
+        0x2A, 0x82, 0xC4,        // ld hl,($C482)       (the original)
     }, {                         // (demo test)
         0xD8,                    // ret c               (a demo: the original test)
-        0xDD, 0x5E, 0x28,        // ld e,(ix+$28)
-        0xDD, 0x56, 0x29,        // ld d,(ix+$29)
-        0xE5,                    // push hl
-        0x2A, 0xB9, 0xC4,        // ld hl,($C4B9)
-        0x01, lo(E2), hi(E2),    // ld bc,2E
-        0x09,                    // add hl,bc
-        0xB7,                    // or a
-        0xED, 0x52,              // sbc hl,de           lo + 2E - X
-        0xE1,                    // pop hl
-        0x38, 0x04,              // jr c,far
-        0x21, 0xFF, 0xFF,        // ld hl,$FFFF         X within lo + 2E: awake
-        0xC9,                    // ret
-        0x01, lo(E), hi(E),      // far: ld bc,E
-        0x09,                    // add hl,bc
-        0xC9,                    // ret
+        0xC9,                    // ret                 CAVE_WAKE_DECIDE: hl from wake_decide
     });
-    // CAVE_LOAD (instead of `call $41B3` at $4151, the record just loaded): X += K
-    const std::vector<uint8_t> load = with_demo_test({
-        0xE5,                    // push hl
-    }, {                         // (demo test)
-        0x38, 0x34,              // jr c,done           (a demo: as loaded)
-        0xDD, 0x7E, 0x20,        // ld a,(ix+$20)
-        0xB7,                    // or a
-        0x28, 0x2E,              // jr z,done
-        0xDD, 0x6E, 0x28,        // ld l,(ix+$28)
-        0xDD, 0x66, 0x29,        // ld h,(ix+$29)
-        0xED, 0x5B, 0xB9, 0xC4,  // ld de,($C4B9)
-        0xB7,                    // or a
-        0xED, 0x52,              // sbc hl,de           X - lo
-        0x30, 0x03,              // jr nc,pos
-        0x21, 0x00, 0x00,        // ld hl,0
-        0x11, lo(E2 + 1), hi(E2 + 1),   // pos: ld de,2E+1
-        0xB7,                    // or a
-        0xED, 0x52,              // sbc hl,de
-        0x38, 0x05,              // jr c,near           X - lo <= 2E
-        0x11, lo(E), hi(E),      // ld de,E
-        0x18, 0x02,              // jr add
-        0x19,                    // near: add hl,de     X - lo
-        0xEB,                    // ex de,hl
-        0xDD, 0x6E, 0x02,        // add: ld l,(ix+$02)
-        0xDD, 0x66, 0x03,        // ld h,(ix+$03)
-        0x19,                    // add hl,de
-        0xDD, 0x75, 0x02,        // ld (ix+$02),l
-        0xDD, 0x74, 0x03,        // ld (ix+$03),h
-        0xE1,                    // done: pop hl
-        0xC3, 0xB3, 0x41,        // jp $41B3
-    });
-    // ... and an object leaves (the next one of the list takes the slot) once past the view's left edge: x < -32 - E,
-    // and up to E px further near the stage's right end, where the view slides left (the camera within E px of its
-    // limit). CAVE_GONE returns de = the distance for `add hl,de` at $3EC8 (x + de < 0: gone). The limit is $C480 or
-    // the map's end if that comes first (level_bounds): the module's hook at CAVE_GONE_MAX puts it in de.
+    // An object leaves (the next one of the list takes the slot) once 32 px past the view's left edge: CAVE_GONE gives
+    // the distance for `add hl,de` at $3EC8 (x + de < 0: gone), the hook at CAVE_GONE_DE 32 + E - the slide (32, as
+    // the original, for one above or below the screen).
     const std::vector<uint8_t> gone = with_demo_test({
         0xF5,                    // push af
     }, {                         // (demo test)
@@ -226,27 +177,8 @@ std::vector<RomPatch> wide_patches(int E) {
         0x11, 0x20, 0x00,        // ld de,$0020         (a demo: the original distance)
         0xC9,                    // ret
         0xF1,                    // wide: pop af
-        0xE5,                    // push hl
-        0x2A, 0x82, 0xC4,        // ld hl,($C482)
-        0xED, 0x5B, 0x80, 0xC4,  // ld de,($C480)
-        0xB7,                    // or a
-        0xED, 0x52,              // sbc hl,de           cam - max
-        0x11, lo(E), hi(E),      // ld de,E
-        0x19,                    // add hl,de           cam - (max - E): the slide
-        0xCB, 0x7C,              // bit 7,h
-        0x28, 0x03,              // jr z,pos
-        0x21, 0x00, 0x00,        // ld hl,0
-        0x11, lo(E + 1), hi(E + 1),     // pos: ld de,E+1
-        0xB7,                    // or a
-        0xED, 0x52,              // sbc hl,de
-        0x38, 0x03,              // jr c,ok             slide <= E
-        0x21, 0xFF, 0xFF,        // ld hl,-1
-        0x19,                    // ok: add hl,de       the slide, 0..E
         0x11, lo(32 + E), hi(32 + E),   // ld de,32+E
-        0x19,                    // add hl,de
-        0xEB,                    // ex de,hl
-        0xE1,                    // pop hl
-        0xC9,                    // ret
+        0xC9,                    // ret                 CAVE_GONE_DE: 32 + E - the slide
     });
     // The sprite slot allocators ($3D74 / $3D5E) put an object that no longer fits in the 64 entries to sleep, but
     // the draw call after them still writes its pieces past the table (over the palette buffer at $C3C0), and a
@@ -268,45 +200,62 @@ std::vector<RomPatch> wide_patches(int E) {
         });
     };
     const std::vector<uint8_t> full_a = full(0x3D39), full_b = full(0x3CE4);
-    // The other stages keep all their objects: one is awake while its x is in [-64, 304) ($3E1F); widened by 2E on
-    // both sides (as far as the sliding view reaches): CAVE_KEEP_A / _B instead of `ld de,$0040` / `ld de,$0170`
-    auto keep = [&](int original, int wide) {
-        return with_demo_test({
-            0xF5,                    // push af
-        }, {                         // (demo test)
-            0x11, lo(wide), hi(wide),           // ld de,wide
-            0x30, 0x03,                         // jr nc,done
-            0x11, lo(original), hi(original),   // ld de,original      (a demo)
-            0xF1,                    // done: pop af
-            0xC9,                    // ret
-        });
-    };
-    const std::vector<uint8_t> keep_a = keep(0x40, 0x40 + E2), keep_b = keep(0x170, 0x170 + 2 * E2);
+    // The other stages keep all their objects: one is awake while its x is in [-64, 304) ($3E1F: x + $40 < $170);
+    // in a wide view [-64 - E + s, 304 + E + s) for the slide s: x + 64 + E - s < 368 + 2E. CAVE_KEEP_A / _B
+    // instead of `ld de,$0040` / `ld de,$0170`; the hook at CAVE_KEEP_A_DE gives 64 + E - s.
+    const std::vector<uint8_t> keep_a = with_demo_test({
+        0xF5,                    // push af
+    }, {                         // (demo test)
+        0x30, 0x05,              // jr nc,wide
+        0xF1,                    // pop af
+        0x11, 0x40, 0x00,        // ld de,$0040         (a demo)
+        0xC9,                    // ret
+        0xF1,                    // wide: pop af
+        0x11, lo(64 + E), hi(64 + E),   // ld de,64+E
+        0xC9,                    // ret                 CAVE_KEEP_A_DE: 64 + E - the slide
+    });
+    const std::vector<uint8_t> keep_b = with_demo_test({
+        0xF5,                    // push af
+    }, {                         // (demo test)
+        0x11, lo(368 + E2), hi(368 + E2),   // ld de,368+2E
+        0x30, 0x03,              // jr nc,done
+        0x11, 0x70, 0x01,        // ld de,$0170         (a demo)
+        0xF1,                    // done: pop af
+        0xC9,                    // ret
+    });
     // The Caverns' and the Treasure Room's rolling boulders (type $0A, bank $12 $AADE) come back to their home once
     // it is off the screen (`ld a,h; or a; ret z` with hl = home - camera: not within x 0..255) - just past the
     // original's left edge, under its blanked column, they popped up inside a wide view's left side. Off the view
-    // now: not within [-2E - 32, 256 + 2E) (the keep window reaches 64 px further, so they still come back).
+    // now: not within [-E + s - 32, 256 + E + s) (the keep window reaches 32 px further, so they still come back).
     const std::vector<uint8_t> boulder = {
         0xE5,                    // push hl
-        0x11, lo(E2 + 32), hi(E2 + 32),             // ld de,2E+32
-        0x19,                    // add hl,de
-        0x11, lo(256 + 2 * E2 + 32), hi(256 + 2 * E2 + 32),   // ld de,256+4E+32
+        0x11, lo(E + 32), hi(E + 32),               // ld de,E+32
+        0x19,                    // add hl,de           CAVE_BOULDER_DE: de = E - the slide + 32
+        0x11, lo(256 + E2 + 32), hi(256 + E2 + 32), // ld de,256+2E+32
         0xB7,                    // or a
-        0xED, 0x52,              // sbc hl,de           x + 2E + 32 < 256 + 4E + 32: in the view
+        0xED, 0x52,              // sbc hl,de           in the view (or 32 px left of it)
         0xE1,                    // pop hl
         0xD0,                    // ret nc              (back: come home)
         0xD1,                    // pop de              (the call's return)
         0xAF,                    // xor a
         0xC9,                    // ret                 (as the original `ret z`: not yet)
     };
+    // Stages 0/1/5/7/8 keep 7 objects of their list at a time ($3D13 the objects' loop, $425B the stage's first
+    // loads; bank $12 $B25A a thrower's search for its stone). A wide view shows more at once: with 7 the list
+    // could not keep up, and objects woke late, inside the view (A Whole New World at 21:9). QUEUE_WIDE slots
+    // (their RAM up to $CCFF is the free-scrolling stages' objects', unused here).
     return {
+        {0x3D13, {0x06, QUEUE_SLOTS}, {0x06, QUEUE_WIDE}},
+        {0x425B, {0x06, QUEUE_SLOTS}, {0x06, QUEUE_WIDE}},
+        {0x4B25A, {0x06, QUEUE_SLOTS}, {0x06, QUEUE_WIDE}},
         {0x4AAEB, {0x7C, 0xB7, 0xC8}, {0xCD, lo(CAVE_BOULDER), hi(CAVE_BOULDER)}},
         {CAVE_BOULDER, zeros(boulder.size()), boulder},
         {0x3E50, {0x2A, 0x82, 0xC4}, {0xCD, lo(CAVE_WAKE), hi(CAVE_WAKE)}},
         {CAVE_WAKE, zeros(wake.size()), wake},
-        {0x4151, {0xCD, 0xB3, 0x41}, {0xCD, lo(CAVE_LOAD), hi(CAVE_LOAD)}},
-        {CAVE_LOAD, zeros(load.size()), load},
         {0x3EC5, {0x11, 0x20, 0x00}, {0xCD, lo(CAVE_GONE), hi(CAVE_GONE)}},
+        // A Whole New World's companion that flies in from the left (type $3B, bank $12 $B3BD) leaves by itself once
+        // 32 px past the screen's left edge (x + $20 < 0: off the bottom): past the view's, as everything else
+        {0x4B3D6, {0x11, 0x20, 0x00}, {0xCD, lo(CAVE_GONE), hi(CAVE_GONE)}},
         {CAVE_GONE, zeros(gone.size()), gone},
         {0x3E25, {0x11, 0x40, 0x00}, {0xCD, lo(CAVE_KEEP_A), hi(CAVE_KEEP_A)}},
         {CAVE_KEEP_A, zeros(keep_a.size()), keep_a},
@@ -319,8 +268,9 @@ std::vector<RomPatch> wide_patches(int E) {
     };
 }
 
-// The shift a waiting object of the queue stages is placed with (CAVE_LOAD): its X (camera) and the stage's left end.
-int wake_shift(int x, int lo, int E) {
+// Before this version a waiting object of the queue stages was placed when loaded, by the width of the time
+// (module_state[7] = that width): a state from then has them placed so.
+int old_wake_shift(int x, int lo, int E) {
     const int d = std::max(0, x - lo);
     return d <= 2 * E ? d : E;
 }
@@ -428,8 +378,10 @@ void level_bounds(const Sms& s, int& lo, int& hi) {
 // module_state: [0..3] each sprite table entry's 256-px page as displayed (2 bits each, see sprite_x), [4] the
 // camera X at the last VBlank (the view of the next frame; bits 16-23 the frame counter $C20E then), [5] the same
 // for the frame being drawn, [6] the objects ($CA00 table) the slot allocator had no room for this frame (bit per
-// object), [7] the extension the waiting objects of the queue stages were loaded for (wide_patches).
-constexpr int MS_CAM_NEXT = 4, MS_CAM = 5, MS_UNDRAWN = 6, MS_LOADED_E = 7;
+// object), [7] PLACED_AT_WAKE (the waiting objects of the queue stages are placed as they wake, wake_decide); a
+// state of an earlier version has the width they were placed for when loaded (old_wake_shift) instead.
+constexpr int MS_CAM_NEXT = 4, MS_CAM = 5, MS_UNDRAWN = 6, MS_PLACEMENT = 7;
+constexpr uint32_t PLACED_AT_WAKE = 0x40000000;
 int shown_cam(const Sms& s) { return (int)(s.module_state[MS_CAM] & 0xFFFF); }
 // The camera a line of the camera's band was drawn with: the one whose low byte its scroll register (-camera) has,
 // next to the frame's (a line interrupt can load it from the next frame's logic)
@@ -451,6 +403,54 @@ int view_slide(const Sms& s, int cam, int E) {
     const int end = hi + 256, vw = 256 + 2 * E;
     const int left = end - lo >= vw ? std::clamp(cam - E, lo, end - vw) : lo + (end - lo - vw) / 2;
     return left - (cam - E);
+}
+
+// A waiting object of the queue stages (ix = o) at the wake test ($3E46, CAVE_WAKE_DECIDE): hl = $FFFF to wake,
+// 0 not yet; the object is placed for the view of the frame (the logic's camera; s = its slide):
+// * one that moves with the camera and waits beyond the right edge (screen X 232 or more, mostly 256): it wakes
+//   once the view's right edge, E + s px past the original's, reaches its X - at the same place of the level (its X
+//   moved by X - camera; one that comes late, as the original's do, at its own X).
+// * one inside the original screen (stage 5's bursts of fire, ...): when the original wakes it, where it does.
+// * A Whole New World's birds that fly in from the left (screen-space, x -16 / -32; 1 px every 4 frames / every
+//   frame) start as far beyond the view's left edge as the original's beyond its own (E - s further out), as much
+//   earlier as they take to fly that far (the carpet's camera moves 2 px a frame): from then on they are where the
+//   original has them. One the list loads too late for that starts at the view's edge all the same and catches up
+//   (bird_catch_up).
+// * other screen-space objects: as the original.
+int left_entry_frames_per_px(int type) { return type == 0x46 ? 4 : type == 0x3B ? 1 : 0; }
+
+// A Whole New World's birds from the left (types $46 / $3B, bank $12 $B1FC / $B374; still flying in: +$3E / +$2F
+// = 0, screen-space) that are not yet where the original starts them (x -16 / -32) when the original would have
+// (the camera at their X): 3 px a frame more until they are. (A PC hook on their handlers.)
+void bird_catch_up(Sms& m, int start_x, uint8_t state) {
+    if (m.bank[2] != 0x12 || !in_stage(m) || m.ram8(STAGE) != 7) return;
+    const uint16_t o = m.z80.ix;
+    if (m.ram8((uint16_t)(o + state)) || m.ram8((uint16_t)(o + 0x20))) return;
+    const int x = (int16_t)m.ram16((uint16_t)(o + 2));
+    if (x < start_x && m.ram16(CAM_X) >= m.ram16((uint16_t)(o + 0x28)))
+        m.set_ram16((uint16_t)(o + 2), (uint16_t)(x + std::min(3, start_x - x)));
+}
+
+void wake_decide(Sms& m) {
+    const uint16_t o = m.z80.ix;
+    const int cam = m.ram16(CAM_X), X = m.ram16((uint16_t)(o + 0x28)), E = m.vdp.ext;
+    const int x0 = (int16_t)m.ram16((uint16_t)(o + 2));
+    const int s = view_slide(m, cam, E);
+    auto place = [&](int x) { m.set_ram16((uint16_t)(o + 2), (uint16_t)x); };
+    m.z80.hl = (uint16_t)cam;   // (the original test)
+    if (m.ram8((uint16_t)(o + 0x20))) {
+        if (x0 < 232) return;
+        if (cam + E + s < X) { m.z80.hl = 0; return; }
+        if (X > cam) place(x0 + (X - cam));
+        m.z80.hl = 0xFFFF;
+        return;
+    }
+    const int fpp = left_entry_frames_per_px(m.ram8((uint16_t)(o + 0x15))), speed = 2;
+    if (x0 >= 0 || !fpp || m.ram8(STAGE) != 7) return;
+    const int ahead = speed * fpp;   // camera px per px it flies
+    if (cam + ahead * (E - s) < X) { m.z80.hl = 0; return; }
+    place(x0 - (E - s));
+    m.z80.hl = 0xFFFF;
 }
 
 // Increments of a band that moves 1 px on the frames whose counter c has (c & mask) == 0, over the next n frames
@@ -487,6 +487,20 @@ void extra_sprites(Sms& s) {
             v.extra[v.extra_count++] = {(int16_t)x, (uint8_t)(y - 1), bank_rd8(s, 0x12, (uint16_t)(p + 2))};
         }
     }
+}
+
+// Whether all of an object's pieces are above or below the screen (its frame as $0C45 draws it; not for a frame
+// without pieces): it shows nowhere in the view, whatever its X.
+bool off_screen_vertically(const Sms& s, uint16_t o) {
+    const int oy = (int16_t)s.ram16(o);
+    const uint16_t fp = s.ram16((uint16_t)(o + 0x0F));
+    const int n = bank_rd8(s, 0x12, fp);
+    if (n == 0 || n > 32) return false;
+    for (int k = 0; k < n; k++) {
+        const int y = oy + (int8_t)bank_rd8(s, 0x12, (uint16_t)(fp + 1 + 3 * k));
+        if (y > -16 && y < 192) return false;
+    }
+    return true;
 }
 
 // A sprite table entry's 256-px page (module_state[0..3], see sprite_x)
@@ -538,26 +552,69 @@ public:
         if (demo_playing(s) == demo_rom_) return;
         const std::vector<RomPatch> rom = rom_for(s, cfg);
         if (!patches_safe(s, rom)) return;   // (a later frame)
-        apply_patches(s, rom);
+        apply_rom(s, rom, false);   // (between the title and a stage: no objects to keep)
         demo_rom_ = !demo_rom_;
     }
 
-    void configure(Sms& s, const GameConfig& cfg) override {
-        apply_patches(s, rom_for(s, cfg));
-        demo_rom_ = demo_playing(s);
-        // A width change in a queue stage: the objects waiting for the camera were placed for the old width
-        // (wake_shift; none at all without widescreen)
-        if (in_stage(s) && queue_objects(s.ram8(STAGE))) {
-            const int was = (int)s.module_state[MS_LOADED_E], lo = s.ram16(CAM_MIN);
-            for (int i = 0; i < 7 && was != cfg.ext; i++) {
-                const uint16_t o = (uint16_t)(OBJECTS + i * OBJ_SIZE);
-                if (s.ram8((uint16_t)(o + 0x14)) || s.ram8((uint16_t)(o + 0x1D)) || !s.ram8((uint16_t)(o + 0x20))) continue;
-                const int x = s.ram16((uint16_t)(o + 0x28));
-                const int delta = (cfg.ext ? wake_shift(x, lo, cfg.ext) : 0) - (was ? wake_shift(x, lo, was) : 0);
-                s.set_ram16((uint16_t)(o + 2), (uint16_t)(s.ram16((uint16_t)(o + 2)) + delta));
+    // The ROM for a configuration; the queue stages' slots follow their number (QUEUE_WIDE / QUEUE_SLOTS) in the
+    // middle of a stage.
+    static void apply_rom(Sms& s, const std::vector<RomPatch>& rom, bool keep_objects = true) {
+        const int was = s.rom8(QUEUE_LOOP_COUNT);
+        apply_patches(s, rom);
+        const int now = s.rom8(QUEUE_LOOP_COUNT);
+        if (keep_objects && was != now && in_stage(s) && queue_objects(s.ram8(STAGE)))
+            resize_queue(s, was, now);
+    }
+
+    // More slots: the new ones take the next records of the list at once (left behind the view: $3EB8 loads the
+    // next one). Fewer: the objects move into the first slots - those awake first, then those waiting, earliest
+    // first; any that don't fit go back to the list (the latest loaded: the record index steps back), and slots
+    // left over load the next ones.
+    static void resize_queue(Sms& s, int was, int now) {
+        auto slot = [](int i) { return (uint16_t)(OBJECTS + i * OBJ_SIZE); };
+        auto empty = [&](int i) {
+            for (int b = 0; b < OBJ_SIZE; b++) s.set_ram8((uint16_t)(slot(i) + b), 0);
+            s.set_ram8((uint16_t)(slot(i) + 0x14), 1);
+            s.set_ram16((uint16_t)(slot(i) + 2), 0x8000);
+        };
+        if (now > was) {
+            for (int i = was; i < now; i++) empty(i);
+            return;
+        }
+        std::vector<std::vector<uint8_t>> awake, waiting;
+        std::vector<int> wait_x;
+        for (int i = 0; i < was; i++) {
+            const uint16_t o = slot(i);
+            if (s.ram8((uint16_t)(o + 0x14))) continue;
+            std::vector<uint8_t> rec(OBJ_SIZE);
+            for (int b = 0; b < OBJ_SIZE; b++) rec[b] = s.ram8((uint16_t)(o + b));
+            if (s.ram8((uint16_t)(o + 0x1D))) awake.push_back(rec);
+            else waiting.push_back(rec);
+        }
+        std::stable_sort(waiting.begin(), waiting.end(), [](const std::vector<uint8_t>& a, const std::vector<uint8_t>& b) {
+            return (a[0x28] | a[0x29] << 8) < (b[0x28] | b[0x29] << 8);
+        });
+        std::vector<std::vector<uint8_t>> keep = awake;
+        if ((int)keep.size() > now) keep.resize(now);
+        int back = 0;
+        for (const auto& r : waiting) {
+            if ((int)keep.size() < now) keep.push_back(r);
+            else back++;
+        }
+        s.set_ram16(RECORD_INDEX, (uint16_t)(s.ram16(RECORD_INDEX) - back));
+        for (int i = 0; i < QUEUE_WIDE; i++) {
+            if (i < (int)keep.size()) {
+                for (int b = 0; b < OBJ_SIZE; b++) s.set_ram8((uint16_t)(slot(i) + b), keep[i][b]);
+            } else if (i < now) {
+                empty(i);
             }
         }
-        s.module_state[MS_LOADED_E] = (uint32_t)cfg.ext;
+    }
+
+    void configure(Sms& s, const GameConfig& cfg) override {
+        apply_rom(s, rom_for(s, cfg));
+        demo_rom_ = demo_playing(s);
+        unshift_old_state(s);
         sms_ = &s;
         hud_anchor_ = cfg.hud_anchor;
         s.clear_pc_hooks();
@@ -614,11 +671,18 @@ public:
             const int i = (m.z80.ix - OBJECTS) / OBJ_SIZE;
             if (i >= 0 && i < MAX_OBJECTS) m.module_state[MS_UNDRAWN] |= 1u << i;
         };
-        s.add_pc_hook(CAVE_GONE_MAX, [](Sms& m) {
-            int lo, hi;
-            level_bounds(m, lo, hi);
-            m.z80.de = (uint16_t)hi;
+        // the objects' margins around the view of the frame (the logic's camera: the one the next frame shows)
+        auto slide_now = [](const Sms& m) { return view_slide(m, m.ram16(CAM_X), m.vdp.ext); };
+        s.add_pc_hook(CAVE_WAKE_DECIDE, [](Sms& m) { wake_decide(m); });
+        s.add_pc_hook(0xB1FC, [](Sms& m) { bird_catch_up(m, -16, 0x3E); });   // (types $46 / $3B, bank $12)
+        s.add_pc_hook(0xB374, [](Sms& m) { bird_catch_up(m, -32, 0x2F); });
+        // (one that shows nowhere - flown off the top, fallen off the bottom - leaves where the original lets it go,
+        // freeing its slot for the next of the list as there)
+        s.add_pc_hook(CAVE_GONE_DE, [slide_now](Sms& m) {
+            m.z80.de = (uint16_t)(off_screen_vertically(m, m.z80.ix) ? 32 : 32 + m.vdp.ext - slide_now(m));
         });
+        s.add_pc_hook(CAVE_KEEP_A_DE, [slide_now](Sms& m) { m.z80.de = (uint16_t)(64 + m.vdp.ext - slide_now(m)); });
+        s.add_pc_hook(CAVE_BOULDER_DE, [slide_now](Sms& m) { m.z80.de = (uint16_t)(32 + m.vdp.ext - slide_now(m)); });
         s.add_pc_hook(CAVE_FULL_A_WIDE, undrawn);
         s.add_pc_hook(CAVE_FULL_B_WIDE, undrawn);
         // the VBlank's sprite table upload ($02D9): in reverse order on odd frames (the game's flicker)
@@ -673,6 +737,7 @@ public:
 
     void load_ext(const uint8_t* d, size_t n) override {
         if (!sms_) return;
+        unshift_old_state(*sms_);
         SmsVdp& v = sms_->vdp;
         if (n < 67 || d[0] != EXT_VERSION || n < 67u + 4u * d[66] || d[66] > SmsVdp::kMaxExtra) {
             // (a state without them: as after a width change)
@@ -853,6 +918,25 @@ public:
     }
 
 private:
+    // A state of an earlier version (module_state[7] = a width, or 0: also a 4:3 one, or the tools' raw states): its
+    // waiting objects were placed when loaded, by that width - they are put back where the original loads them
+    // (wake_decide places them as they wake) - and it kept 7 slots: with more in the ROM, the others take the next
+    // records of the list.
+    static void unshift_old_state(Sms& s) {
+        const uint32_t was = s.module_state[MS_PLACEMENT];
+        if (!(was & PLACED_AT_WAKE) && in_stage(s) && queue_objects(s.ram8(STAGE))) {
+            const int lo = s.ram16(CAM_MIN);
+            for (int i = 0; i < QUEUE_SLOTS && was > 0 && was <= 255; i++) {
+                const uint16_t o = (uint16_t)(OBJECTS + i * OBJ_SIZE);
+                if (s.ram8((uint16_t)(o + 0x14)) || s.ram8((uint16_t)(o + 0x1D)) || !s.ram8((uint16_t)(o + 0x20))) continue;
+                const int k = old_wake_shift(s.ram16((uint16_t)(o + 0x28)), lo, (int)was);
+                s.set_ram16((uint16_t)(o + 2), (uint16_t)(s.ram16((uint16_t)(o + 2)) - k));
+            }
+            if (s.rom8(QUEUE_LOOP_COUNT) > QUEUE_SLOTS) resize_queue(s, QUEUE_SLOTS, s.rom8(QUEUE_LOOP_COUNT));
+        }
+        s.module_state[MS_PLACEMENT] = PLACED_AT_WAKE;
+    }
+
     Sms* sms_ = nullptr;
     bool hud_anchor_ = true;
     static constexpr uint8_t EXT_VERSION = 1;   // (save_ext's layout)
@@ -864,6 +948,9 @@ private:
     // frame counter at the camera's last move (stage 1's bands move on its phase; kept in save states)
     int band_start_[3] = {999, 999, 999};
     int cam_band_ = 0;
+    // each line's band as drawn: a band starts where its line interrupt writes the scroll - one the game takes late
+    // (its logic holding interrupts off) starts a few lines lower than $C499.. say (line_shift)
+    int8_t line_band_[SmsVdp::kMaxLines] = {};
     int moved_at_ = 0;
     bool wide_ = false;   // (configured with widescreen: the hooks keep page_ and the extra sprites)
     bool demo_rom_ = false;   // the ROM holds the demos' patches (demo_patch_list), not patch_list
@@ -920,12 +1007,17 @@ private:
     // the frame counter's phase at the camera's last move). The logic's lead is taken out without a slide too, so
     // the bands don't jump by it where a hold ends (and keep step with the camera's band and the sprites).
     static int line_shift(void* host, int line) {
-        const SmsAladdin& mod = *(const SmsAladdin*)host;
+        SmsAladdin& mod = *(SmsAladdin*)host;
         const Sms& s = *mod.sms_;
         const int vs = s.vdp.sprite_shift;
         const bool banded = mod.band_start_[0] < 999;   // (stages 0 and 1)
+        // (the band: the scroll writes since the frame's first line - the VBlank wrote the first band's)
+        int k = mod.band_of(line);
+        if (banded && line >= 0 && line < SmsVdp::kMaxLines)
+            k = std::min(3, s.vdp.line_hscroll_writes[line] - s.vdp.line_hscroll_writes[0]);
+        if (line >= 0 && line < SmsVdp::kMaxLines) mod.line_band_[line] = (int8_t)k;
         if ((vs == 0 && !banded) || line < 16 || line >= 176) return 0;
-        const int k = mod.band_of(line), cam = shown_cam(s);
+        const int cam = shown_cam(s);
         if (k == mod.cam_band_) return vs - (band_camera(s, s.vdp.reg[8]) - cam);
         const int live = (int16_t)(s.ram16(CAM_X) - cam);    // how far the logic has moved the camera since
         if (s.ram8(STAGE) == 0) return (k == 1 ? 2 : 3) * (vs - live);
@@ -958,7 +1050,7 @@ private:
         if (vrow < 2) return v.name_entry(0, vrow) & 0x1FFF;
         if (vrow >= 22) return -1;
         const SmsAladdin& mod = *(const SmsAladdin*)host;
-        if (mod.band_of(line) != mod.cam_band_) return -1;   // a parallax band: it repeats every 256 px
+        if (mod.line_band_[line % SmsVdp::kMaxLines] != mod.cam_band_) return -1;   // a parallax band: it repeats every 256 px
         const int hs = v.reg[8];
         int wx = band_camera(s, hs) + hs + vcol * 8;
         if (s.ram8(STAGE) == ARENA_STAGE) {   // past the arena's ends: its pillars carry on (dimmed by post_frame)
