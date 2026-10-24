@@ -57,7 +57,7 @@ constexpr uint32_t PC_FRAME_WAIT = 0x1B249E;  // the frame wait (VBlank), the ga
 // iteration hasn't reached its frame wait yet (in_play); [1] the developer flags the cheats set (bit 0 cheat mode,
 // bit 1 map view), to clear them when they are switched off, and in bits 2-23 the boss framing (boss_frame: bit 2 a
 // fight framed, 3-13 its arena's block column sum, 14-23 the easing remainder, signed; 0 in older states: none), bit 24
-// the spawn band to be spawned whole once, the Cave's idol just beaten (BAND_RETRY, band_refresh);
+// the Cave's carpet due, its idol just beaten (CARPET_DUE, carpet_due);
 // [2] a level's fade-in is running (shown as play: the picture is already the level's, so it starts wide and slid
 // instead of jumping when play begins); [3..6] boss tunes held back (boss_tune_held); [7] palette line 2 loads held
 // back (line2_held)
@@ -119,7 +119,7 @@ const std::vector<RomPatch> kLevelSkip = {{0x00412A, {0x0010}, {0xFF00}}};
 constexpr uint32_t CAVE = 0x7000;   // the $FF fill at $69E0-$FFFF (no references), reachable with jsr abs.w
 constexpr uint32_t CAVE_LSPAWN = CAVE, CAVE_RSPAWN = CAVE + 0x100, CAVE_ROWSPAWN = CAVE + 0x200, CAVE_CLIP = CAVE + 0x280,
                    CAVE_SCRCLIP = CAVE + 0x2C0, CAVE_REACH = CAVE + 0x300, CAVE_DESPAWN = CAVE + 0x380,
-                   CAVE_REFRESH = CAVE + 0x400;
+                   CAVE_REFRESH = CAVE + 0x400, CAVE_CARPET = CAVE + 0x480;
 
 // The 4:3 view only ever shows map x [16, W*16 - 18): camX in [0, W*16 - 354] (the camera's clamps, docs section 1).
 constexpr int VIEW_LEFT = 16, VIEW_RIGHT_GAP = 18, CAM_SPAN_GAP = 354;
@@ -318,6 +318,27 @@ std::vector<RomPatch> wide_patches(int E) {
     refresh.back(0x6F00, col);                                                    // ble.s column
     refresh.land(none);
     refresh << std::initializer_list<uint16_t>{0x4E75};
+    // One map block spawned as the column spawner would spawn it (the Cave's carpet at the idol's kill, carpet_due):
+    // entered from the module's hook at $1A8CE8 with the return past the replaced jsr and the block pushed (long: the
+    // address of its map word; words: 16c, then 16r on top); the column spawner's loop ($1AE44A) for that block alone
+    // (its handler gets x = 16c - 16, y = 16r + 240 from $FF7DB0 / $FF7DB2 and $FFF150 / $FFF152), all registers kept;
+    // then the replaced call.
+    const std::vector<uint16_t> carpet = {
+        0x48E7, 0xFFFE,                    // movem.l d0-d7/a0-a6, -(a7)
+        0x2F39, 0x00FF, 0xF150,            // move.l $FFF150, -(a7)
+        0x33FC, 0xFFF0, 0x00FF, 0xF150,    // move.w #-16, $FFF150
+        0x33FC, 0x00F0, 0x00FF, 0xF152,    // move.w #$F0, $FFF152
+        0x33EF, 0x0042, 0x00FF, 0x7DB0,    // move.w 66(a7), $FF7DB0 (16c)
+        0x3C2F, 0x0040,                    // move.w 64(a7), d6 (16r)
+        0x206F, 0x0044,                    // movea.l 68(a7), a0 (the map word)
+        0x43F8, 0x4154,                    // lea $4154.w, a1
+        0x45F9, 0x00FF, 0xAE87,            // lea $FFAE87, a2
+        0x7800, 0x7A00,                    // moveq #0, d4 (one block); moveq #0, d5
+        0x4EB9, 0x001A, 0xE44A,            // jsr $1AE44A
+        0x23DF, 0x00FF, 0xF150,            // move.l (a7)+, $FFF150
+        0x4CDF, 0x7FFF,                    // movem.l (a7)+, d0-d7/a0-a6
+        0x508F,                            // addq.l #8, a7 (the block)
+        0x4EF9, 0x001B, 0x315C};           // jmp $1B315C (the refresh cave before it: 64 words, $7400-$747F)
     return {
         {0x1AB446, {0x6100, 0x2FB4}, {0x4EB8, (uint16_t)CAVE_LSPAWN}},
         {0x1AB554, {0x6100, 0x2EB0}, {0x4EB8, (uint16_t)CAVE_RSPAWN}},
@@ -327,6 +348,7 @@ std::vector<RomPatch> wide_patches(int E) {
                     0x4E71, 0x4E71, 0x4E71, 0x4E71, 0x4E71}},
         {CAVE_REACH, ff(reach.size()), reach},
         {CAVE_REFRESH, ff(refresh.w.size()), refresh.w},
+        {CAVE_CARPET, ff(carpet.size()), carpet},
         {CAVE_LSPAWN, ff(lspawn.w.size()), lspawn.w},
         {CAVE_RSPAWN, ff(rspawn.w.size()), rspawn.w},
         {CAVE_ROWSPAWN, ff(rowspawn.size()), rowspawn},
@@ -984,36 +1006,17 @@ void reach_hook(MegaDrive& md, const Wide& w) {
     md.cpu.r[1] = (md.cpu.r[1] & 0xFFFF0000u) | (uint32_t)kr;
 }
 
-// The Cave of Wonders' carpet after the golden idol. The carpet is a map object ($F9, block 144,29, next to the far
-// pedestal) whose spawn handler ($1B6B5C) spawns only once the idol is beaten ($FFF112, set by its tenth hit at $1AEB36);
-// until then its column spawns nothing and its block stays. The 4:3 game brings it as that column enters its plane
-// window at an edge: beaten from the arena's left half (camera below about 1952), the carpet streams in at the right
-// edge as Aladdin walks right; beaten from the right half, its column is already inside the window and the carpet comes
-// only once Aladdin has gone far enough left for the column to leave the window and comes back (the original's own
-// quirk, kept). The widened view shows the carpet's place from the left half too: the column lies in the spawn band,
-// which is spawned only at a column step (or, in a boss framing, its two outermost columns each frame), so the place
-// stayed empty until Aladdin moved right and the carpet then popped in well inside the view (21:9: 150 px; standing still,
-// never). So when the idol is beaten (PC_IDOL_BEATEN marks it in module_state[MS_DEV] bit 24), the next band_refresh
-// spawns both bands whole, as a column step would: a carpet whose column lies in the band comes at once, one inside the
-// 4:3 window waits for its column as at 4:3.
-constexpr uint32_t PC_IDOL_BEATEN = 0x1AEB36;   // st.b $FFF112: the idol's tenth hit
-constexpr uint32_t BAND_RETRY = 1u << 24;
-
 // While a boss framing is in force (or easing out) the view can run ahead of the camera, and the band's outer edge with
 // it, between column steps: right after the gameplay loop's streaming ($1A8CE8) the two outermost columns of the band on
 // each side are spawned as a column step would spawn them (CAVE_REFRESH, the return past the replaced jsr pushed with
-// the two column ranges; blocks already spawned are cleared or alive, so this only brings in what is missing). Once
-// after the idol is beaten (BAND_RETRY), the whole band on each side.
+// the two column ranges; blocks already spawned are cleared or alive, so this only brings in what is missing).
 void band_refresh(MegaDrive& md, const Wide& w) {
-    uint32_t& dev = md.module_state[MS_DEV];
-    const bool retry = (dev & BAND_RETRY) != 0;
-    dev &= ~BAND_RETRY;
-    if (!w.boss.on && w.ease == 0 && !retry) return;
+    if (!w.boss.on && w.ease == 0) return;
     int kl, kr;
     band_reach(md, w, kl, kr);
     const int L = md.ram16(STREAM_X) >> 4, W = md.ram16(MAP_W);
-    const int l1 = std::max(1, L - kl), l2 = retry ? L - 1 : std::min(L - 1, L - kl + 1);
-    const int r1 = retry ? L + 23 : std::max(L + 23, L + 21 + kr), r2 = std::min(W - 1, L + 22 + kr);
+    const int l1 = std::max(1, L - kl), l2 = std::min(L - 1, L - kl + 1);
+    const int r1 = std::max(L + 23, L + 21 + kr), r2 = std::min(W - 1, L + 22 + kr);
     uint32_t sp = md.cpu.r[15];
     md.set_ram32(sp -= 4, PC_STREAMED + 6);
     md.set_ram16(sp -= 2, (uint16_t)r2);
@@ -1113,6 +1116,56 @@ void line2_filled(MegaDrive& md) {
         if (k >= 0) line2_set(st, k, o, pal, false);
         return;
     }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The Cave of Wonders' carpet after the golden idol (docs/re_md_wide.md section 5, After the fight). The carpet is a map
+// object ($F9, block 144,29, right of the far pedestal: two linked objects) whose spawn handler ($1B6B5C) spawns it only
+// once the idol is beaten ($FFF112, set by its tenth hit at $1AEB36); until then its column spawns nothing and its block
+// stays. The 4:3 game brings it as that column next enters its plane window: beaten from the arena's left half (camera
+// below about 1952) it streams in at the right edge as Aladdin walks right; beaten beside the far pedestal its column is
+// already inside the window, its place in view, and the carpet comes only once Aladdin has walked left far enough for the
+// column to leave the window and back. The widened view shows that place from anywhere in the arena (at 21:9 the whole
+// arena), and an empty place where the carpet belongs, until Aladdin steps right (21:9, from the left: then popping in
+// 150 px inside the view) or walks away and back, read as the carpet not coming. So with the widescreen ROM the idol's
+// tenth hit (PC_IDOL_BEATEN, module_state[MS_DEV] bit 24) has the carpet's block alone spawned right after the same
+// iteration's streaming ($1A8CE8, CAVE_CARPET: the column spawner's loop for that block, its handler as the streaming
+// calls it), wherever the view or its spawn band covers the block - not whole columns, which would bring back the
+// river's stepping stones and the other objects that keep their map block. Spawned, the block's type is cleared as
+// always (a later streaming of its column spawns nothing), and the spawner's hook skips a block whose object is alive.
+// At 4:3 nothing changes: the original's own way.
+constexpr uint32_t PC_IDOL_BEATEN = 0x1AEB36;   // st.b $FFF112: the idol's tenth hit
+constexpr uint32_t IDOL_BEATEN = 0xFFF112;
+constexpr uint32_t CARPET_DUE = 1u << 24;
+constexpr uint8_t CARPET = 0xF9;
+
+// After the streaming: the carpet due (cleared either way) and its block not spawned yet, in the view's or the band's
+// columns and the plane's rows: push the block and the return past the replaced call, enter CAVE_CARPET. Returns
+// whether it did (band_refresh waits a frame then).
+bool carpet_due(MegaDrive& md, const Wide& w) {
+    uint32_t& dev = md.module_state[MS_DEV];
+    if (!(dev & CARPET_DUE)) return false;
+    dev &= ~CARPET_DUE;
+    if (!md.ram8(IDOL_BEATEN)) return false;
+    int kl, kr;
+    band_reach(md, w, kl, kr);
+    const int W = md.ram16(MAP_W), H = md.ram16(MAP_H), L = md.ram16(STREAM_X) >> 4, Y = md.ram16(STREAM_Y) >> 4;
+    for (int r = std::max(0, Y); r <= std::min(H - 1, Y + 15); r++) {
+        const uint32_t row = md.ram32(MAP_ROWS + 64 * r) & 0xFFFFFF;
+        for (int c = std::max(0, L - kl); c <= std::min(W - 1, L + 22 + kr); c++) {
+            const uint16_t word = md.ram16(row + 2 * c);
+            if (!word || md.ram8(OBJ_TYPES + word / 2) != CARPET || block_alive(md, word / 2, CARPET)) continue;
+            uint32_t sp = md.cpu.r[15];
+            md.set_ram32(sp -= 4, PC_STREAMED + 6);
+            md.set_ram32(sp -= 4, row + 2 * c);
+            md.set_ram16(sp -= 2, (uint16_t)(16 * c));
+            md.set_ram16(sp -= 2, (uint16_t)(16 * r));
+            md.cpu.r[15] = sp;
+            md.cpu.pc = CAVE_CARPET;
+            return true;
+        }
+    }
+    return false;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -1497,7 +1550,7 @@ public:
         md.add_pc_hook(PC_DEATH, leave);
         md.add_pc_hook(PC_PIT, leave);
         // (a level's start or a restart: no boss framing carried over)
-        auto fade = [](MegaDrive& m) { m.module_state[MS_FADE] = 1; m.module_state[MS_DEV] &= ~(BF_MASK | BAND_RETRY); };
+        auto fade = [](MegaDrive& m) { m.module_state[MS_FADE] = 1; m.module_state[MS_DEV] &= ~(BF_MASK | CARPET_DUE); };
         md.add_pc_hook(PC_FADE_IN, fade);
         md.add_pc_hook(PC_RESPAWN_FADE, fade);
         const bool wide = cfg.ext > 0;
@@ -1509,16 +1562,16 @@ public:
             for (const BossHandler& h : kBossHandlers)
                 md.add_pc_hook(h.at, [this, &h](MegaDrive& m) { if (!rom_attract_) boss_tune_spawned(m, h); });
             md.add_pc_hook(PC_LOAD_LINE2, [this](MegaDrive& m) { if (!rom_attract_) line2_load(m); });
-            // After the streaming: held tunes and colours; while a boss framing is in force, the band's outer columns
-            // (band_refresh)
+            // After the streaming: held tunes and colours; the carpet at the idol's kill (carpet_due), else while a boss
+            // framing is in force the band's outer columns (band_refresh)
             md.add_pc_hook(PC_STREAMED, [this](MegaDrive& m) {
                 boss_tune_held(m);
                 if (rom_attract_) return;
                 line2_moments(m);
-                band_refresh(m, *wide_);
+                if (!carpet_due(m, *wide_)) band_refresh(m, *wide_);
             });
-            md.add_pc_hook(PC_LEVEL_LOAD, [](MegaDrive& m) { m.module_state[MS_PAL2] = 0; m.module_state[MS_DEV] &= ~(BF_MASK | BAND_RETRY); });
-            md.add_pc_hook(PC_IDOL_BEATEN, [this](MegaDrive& m) { if (!rom_attract_) m.module_state[MS_DEV] |= BAND_RETRY; });
+            md.add_pc_hook(PC_LEVEL_LOAD, [](MegaDrive& m) { m.module_state[MS_PAL2] = 0; m.module_state[MS_DEV] &= ~(BF_MASK | CARPET_DUE); });
+            md.add_pc_hook(PC_IDOL_BEATEN, [this](MegaDrive& m) { if (!rom_attract_) m.module_state[MS_DEV] |= CARPET_DUE; });
             md.add_pc_hook(CAVE_REACH, [this](MegaDrive& m) { reach_hook(m, *wide_); });
             md.add_pc_hook(PC_COL_CALL, [this](MegaDrive& m) { if (!rom_attract_) spawn_call(m, PC_COL_RET); });
             md.add_pc_hook(PC_ROW_CALL, [this](MegaDrive& m) { if (!rom_attract_) spawn_call(m, PC_ROW_RET); });
