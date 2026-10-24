@@ -65,6 +65,17 @@ constexpr uint32_t kSpawnInit = 0x82A72C, kSpawnColumns = 0x82A742;
 constexpr uint32_t kSpawnInitCam = 0x82A75F, kSpawnInitRight = 0x82A767;
 constexpr uint32_t kSpawnInitLeft = 0x82A772, kSpawnInitCount = 0x82A77E;
 constexpr uint32_t kSpawnFrameCam = 0x82A7AA, kSpawnRowX = 0x82A876, kSpawnRowIn = 0x82A882, kSpawnRowOut = 0x82A892;
+// The frame spawner's new edge column (JSR $A89D: $82:A7E3 left, $82:A7EB right; both go on at $82:A7EE), and the level
+// start's column loop entered for one column ($82:A780 with Y = 1: PHX PHY JSR $A89D PLY PLX INX DEY BNE, PLB PLD RTL).
+constexpr uint32_t kSpawnEdgeLeft = 0x82A7E3, kSpawnEdgeRight = 0x82A7EB, kSpawnEdgeDone = 0x82A7EE;
+constexpr uint32_t kSpawnOneColumn = 0x82A780;
+// The level objects' spawned bits ($7E:C600 + index, object +$34; bit 0 out, bit 7 once only: kept on a delete), their
+// list ($82:8A7A + $006D + (index - 1) * 6: type, flags, x, y), and the game's sweep of every object ($81:9D82, from
+// an event such as an arena's start: JSL $83:96D0 per slot, Y the slot).
+constexpr uint32_t kSpawnedBits = 0x7EC600, kObjList = 0x828A7A, kObjListOff = 0x006D;
+constexpr uint32_t kSweepDelete = 0x819D8E;
+// The spawner's columns: objects per 32-px column ($7E:C100), the first one's list index ($7E:C200); its camera y.
+constexpr uint32_t kColCount = 0x7EC100, kColFirst = 0x7EC200, kSpawnCamY = 0x1BF1;
 // The level's main loop (its top: the stack is the task's own, nothing in flight) and its frame wait (the frame's
 // logic done). The scheduler's way back in ($81:BD28) from any task's wait ($81:BD31), restart ($81:BCF6) or end.
 constexpr uint32_t kLevelLoop = 0x8182CF, kLevelWait = 0x8182E6, kTaskYield = 0x81BD28;
@@ -112,7 +123,8 @@ public:
             s.markExec(pc, true);
         if (ext_ > 0)
             for (uint32_t pc : {kDrawTest, kKeepTest, kSpawnInitCam, kSpawnInitRight, kSpawnInitLeft, kSpawnInitCount,
-                                kSpawnFrameCam, kSpawnRowX})
+                                kSpawnFrameCam, kSpawnRowX, kSpawnEdgeLeft, kSpawnEdgeRight, kStubRetryR + 4,
+                                kStubRetryL + 4, kSweepDelete})
                 s.markExec(pc, true);
         write_stub(s);
     }
@@ -208,6 +220,54 @@ public:
             const uint16_t v = (uint16_t)(r.a + 0x40 + ext_ - rd16(s, kSpawnCam));
             r.pc = (uint16_t)(v < 0x180 + 2 * ext_ ? kSpawnRowIn : kSpawnRowOut);
             return true;
+        }
+        // A level object the game refuses to create (no free sprite VRAM bank for its graphics, $82:AA61, or no free
+        // slot) keeps its spawned bit clear but is only tried again when the spawner's edge crosses its column again.
+        // In the margins the spawner meets objects earlier, and more are alive (the wider keep range): the Market at
+        // Dusk's Jasmine (type $56, three banks), who ends the level after the boss, met the margin's edge while the
+        // market's enemies held the banks and was never created. So at each edge column the spawner first takes the
+        // columns at the original's edge (camera + $120 / - $40, and the one before it) where an object the 4:3
+        // game would create there now isn't out (spawned bits clear): it gets the original's chance. (None pending,
+        // the usual case: the game's own JSR runs, no cycle changes.)
+        case kSpawnEdgeLeft:
+        case kSpawnEdgeRight: {
+            const bool right = pc == kSpawnEdgeRight;
+            uint8_t cols[3];
+            const int n = retry_columns(s, right, cols);
+            const int i = next_column(s, cols, n, -1);
+            if (i == n - 1) return false;
+            r.x = cols[i];
+            r.pb = (uint8_t)(kStubRetryR >> 16);
+            r.pc = (uint16_t)(right ? kStubRetryR : kStubRetryL);
+            return true;
+        }
+        case kStubRetryR + 4:   // a column done (X = it + 1): the next one, if any (stateless: from the camera's RAM)
+        case kStubRetryL + 4: {
+            const bool right = pc == kStubRetryR + 4;
+            uint8_t cols[3];
+            const int n = retry_columns(s, right, cols);
+            const uint8_t done = (uint8_t)(r.x - 1);
+            for (int i = 0; i + 1 < n; i++)
+                if (cols[i] == done) {
+                    r.x = cols[next_column(s, cols, n, i)];
+                    r.pc = (uint16_t)(right ? kStubRetryR : kStubRetryL);
+                    return true;
+                }
+            return false;
+        }
+        case kSweepDelete: {
+            // The sweep deletes what the margins spawned ahead of the original too; a once-only object (bit 7: the
+            // Market at Dusk's boss and Jasmine, out in the margin when its arena starts) would never come back. One
+            // whose place in the list is beyond the original's spawn edges (its edge columns included) is left
+            // unspawned instead, for the spawner to take when the original's edge gets there (above).
+            const uint16_t obj = r.y;
+            const uint8_t idx = rd8(s, obj + 0x34);
+            if (rd8(s, obj) != 0 && idx != 0) {
+                const uint32_t e = kObjList + (uint32_t)((idx - 1) * 6 + rd16(s, kObjListOff));
+                const int col = (rom16(s, e + 2) & 0x3FFF) >> 5, cam = (int16_t)rd16(s, kCamX);
+                if (col >= (cam + 0x120) >> 5 || col <= floor_shr(cam - 0x40, 5)) wr8(s, kSpawnedBits + idx, 0);
+            }
+            return false;
         }
         default:
             return false;
@@ -500,6 +560,9 @@ private:
     // Patch-ROM stub: the level start's object spawn past its set-up (kSpawnColumns, entered as $82:A72C has it: DP 0,
     // DB $82, D and B on the stack under the return address), then back to the main loop's top.
     static constexpr uint32_t kStubRespawn = 0x608000;
+    // Patch-ROM stubs for the spawner's edge columns (right / left): JSL kStubColumn (one column, X), then
+    // JML $82:A7EE; an exec hook after the JSL (+4) sends X round again for the next column.
+    static constexpr uint32_t kStubRetryR = 0x608020, kStubRetryL = 0x608028, kStubColumn = 0x608030;
 
     const Snes* snes_ = nullptr;
     GameConfig cfg_;
@@ -541,6 +604,48 @@ private:
         a.b({0xE2, 0x30, 0x0B, 0xA9, 0x00, 0x48, 0x48, 0x2B});           // entry: SEP #$30, PHD, LDA #0, PHA x2, PLD
         a.b({0x8B, 0xA9, 0x82, 0x48, 0xAB});                            // PHB, LDA #$82, PHA, PLB
         for (uint8_t b : jml(kSpawnColumns)) a.b8(b);                   // JML $82:A742 (its RTL comes back here)
+        // The edge columns (from the exec hook at the JSR $A89D of the spawner's new edge column: DP 0, DB $82, 8-bit
+        // registers).
+        for (uint32_t at : {kStubRetryR, kStubRetryL}) {
+            PatchAsm c(s, at);
+            for (uint8_t b : jsl(kStubColumn)) c.b8(b);                 // JSL column (X)
+            for (uint8_t b : jml(kSpawnEdgeDone)) c.b8(b);              // JML $82:A7EE
+        }
+        PatchAsm c(s, kStubColumn);
+        c.b({0x0B, 0x8B, 0xE2, 0x30, 0xA0, 0x01});                      // PHD, PHB, SEP #$30, LDY #1
+        for (uint8_t b : jml(kSpawnOneColumn)) c.b8(b);                 // JML $82:A780 (its PLB PLD RTL comes back)
+    }
+    // The columns for the spawner's new edge column, in order: the original's edge column (camera + $120 right, - $40
+    // left, as $82:A742 works it out) and the one before it on that side (the original's crossings are up to 31 px
+    // off the 32-px grid), then the spawner's own (the margin's), each once.
+    static int retry_columns(const Snes& s, bool right, uint8_t* out) {
+        const int cam = rd16(s, kCamX);
+        const int c = (((cam + (right ? 0x120 : -0x40)) & 0xFFFF) >> 5) & 0xFF;
+        int n = 0;
+        auto add = [&](int col) {
+            for (int i = 0; i < n; i++)
+                if (out[i] == (uint8_t)col) return;
+            out[n++] = (uint8_t)col;
+        };
+        const int own = rd8(s, right ? kSpawnRight : kSpawnLeft);
+        if ((uint8_t)(right ? c - 1 : c + 1) != own) add(right ? c - 1 : c + 1);
+        if ((uint8_t)c != own) add(c);
+        add(own);
+        return n;
+    }
+    // The next of those to spawn after index `i`: one of the original's with an object not out that the spawner would
+    // take now ($82:A8C0: spawned bits & $81 clear, y within [$1BF1 - $40, + $140)), else the spawner's own (the last).
+    static int next_column(const Snes& s, const uint8_t* cols, int n, int i) {
+        for (i++; i < n - 1; i++) {
+            const int count = rd8(s, kColCount + cols[i]), first = rd8(s, kColFirst + cols[i]);
+            for (int k = 0; k < count; k++) {
+                const int idx = (first + 1 + k) & 0xFF;
+                const uint32_t e = kObjList + (uint32_t)((first + k) * 6 + rd16(s, kObjListOff));
+                const uint16_t dy = (uint16_t)(rom16(s, e + 4) + 0x40 - rd16(s, kSpawnCamY));
+                if (!(rd8(s, kSpawnedBits + idx) & 0x81) && dy < 0x180) return i;
+            }
+        }
+        return n - 1;
     }
 
     // A level screen: the main task waits in the level's main loop or its pause loop (task 0's saved return address).
