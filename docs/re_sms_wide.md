@@ -112,7 +112,7 @@ ROM patches (`wide_patches(E)`, code caves in bank 1's unused zero fill, `$7A00`
 | bank `$12` `$B3D6` | `ld de,$0020` | `call $7A90` | the bird type `$3B` leaving by itself, the same test |
 | `$3E25` / `$3E29` | `ld de,$0040` / `$0170` | `call $7B10` / `$7B30` | stages 2 3 4 6 9: awake while x in [-64 - E + s, 304 + E + s) (hook at `$7B23`) |
 | `$3D86` / `$3D6B` | `ld (ix+$1D),0; ret` | `jp $7AD0` / `$7AF0` | sprite table full: skip the draw (see below) |
-| bank `$12` `$AAEB` | `ld a,h; or a; ret z` | `call $7B50` | rolling boulders come home off the view (hook at `$7B54`) |
+| bank `$12` `$AAEB` | `ld a,h; or a; ret z` | `call $7B50` | rolling boulders come home off the view and the keep window (hook at `$7B54`) |
 | `$3D13`, `$425B`, bank `$12` `$B25A` | `ld b,$07` | `ld b,$0C` | the queue stages keep 12 objects (below) |
 
 The caves first test `$C104` (a demo playing: the original's behaviour), a second line of defence: while a demo
@@ -160,7 +160,10 @@ plays the ROM holds none of these patches (below).
 * The Caverns' and the Treasure Room's rolling boulders (type `$0A`, bank `$12` `$AADE`) roll left from their home,
   fall, and come back home once it is off the screen (hl = home - camera not within x 0..255): just past the
   original's left edge, under its blanked column, which put them out of nothing 70-100 px inside a wide view's left
-  side. They come back once it is 32 px off the view: not within [-E + s - 32, 256 + E + s).
+  side. They come back once it is off the view, and on the left past the keep window's edge: not within [-64 - E +
+  s, 256 + E + s). (With 32 px on the left, a home between that and the window's edge brought the boulder back only
+  for it to roll out of the window, be put back home and wake again every 8 frames while the camera stood still, out
+  of sight; the original has the same loop for homes in [-64, 0).)
 * The attract mode's demos replay recorded input against the original game. Any change to the code they run
   changes their course: the windows above (objects act earlier), the cheats, and also the number of instructions,
   as the game's random numbers take the Z80's R register. At 2:1 square and wider the third demo (The Rooftops)

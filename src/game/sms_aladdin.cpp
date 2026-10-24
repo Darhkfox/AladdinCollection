@@ -226,14 +226,16 @@ std::vector<RomPatch> wide_patches(int E) {
     // The Caverns' and the Treasure Room's rolling boulders (type $0A, bank $12 $AADE) come back to their home once
     // it is off the screen (`ld a,h; or a; ret z` with hl = home - camera: not within x 0..255) - just past the
     // original's left edge, under its blanked column, they popped up inside a wide view's left side. Off the view
-    // now: not within [-E + s - 32, 256 + E + s) (the keep window reaches 32 px further, so they still come back).
+    // now, and on the left past the keep window's edge: not within [-64 - E + s, 256 + E + s). (A home between the
+    // two came back only to roll out of the window at once and be put back home again, every few frames while the
+    // camera stood still: one past the window's edge stays asleep there.)
     const std::vector<uint8_t> boulder = {
         0xE5,                    // push hl
-        0x11, lo(E + 32), hi(E + 32),               // ld de,E+32
-        0x19,                    // add hl,de           CAVE_BOULDER_DE: de = E - the slide + 32
-        0x11, lo(256 + E2 + 32), hi(256 + E2 + 32), // ld de,256+2E+32
+        0x11, lo(64 + E), hi(64 + E),               // ld de,64+E
+        0x19,                    // add hl,de           CAVE_BOULDER_DE: de = 64 + E - the slide
+        0x11, lo(320 + E2), hi(320 + E2),           // ld de,320+2E
         0xB7,                    // or a
-        0xED, 0x52,              // sbc hl,de           in the view (or 32 px left of it)
+        0xED, 0x52,              // sbc hl,de           in the view or the keep window left of it
         0xE1,                    // pop hl
         0xD0,                    // ret nc              (back: come home)
         0xD1,                    // pop de              (the call's return)
@@ -682,7 +684,7 @@ public:
             m.z80.de = (uint16_t)(off_screen_vertically(m, m.z80.ix) ? 32 : 32 + m.vdp.ext - slide_now(m));
         });
         s.add_pc_hook(CAVE_KEEP_A_DE, [slide_now](Sms& m) { m.z80.de = (uint16_t)(64 + m.vdp.ext - slide_now(m)); });
-        s.add_pc_hook(CAVE_BOULDER_DE, [slide_now](Sms& m) { m.z80.de = (uint16_t)(32 + m.vdp.ext - slide_now(m)); });
+        s.add_pc_hook(CAVE_BOULDER_DE, [slide_now](Sms& m) { m.z80.de = (uint16_t)(64 + m.vdp.ext - slide_now(m)); });
         s.add_pc_hook(CAVE_FULL_A_WIDE, undrawn);
         s.add_pc_hook(CAVE_FULL_B_WIDE, undrawn);
         // the VBlank's sprite table upload ($02D9): in reverse order on odd frames (the game's flicker)
