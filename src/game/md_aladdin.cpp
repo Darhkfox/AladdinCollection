@@ -55,9 +55,11 @@ constexpr uint32_t PC_FRAME_WAIT = 0x1B249E;  // the frame wait (VBlank), the ga
 
 // module_state: [0] frame (+1) the gameplay loop last ran in, 0 after it was left, bit 31 (PLAY_BUSY) while that
 // iteration hasn't reached its frame wait yet (in_play); [1] the developer flags the cheats set (bit 0 cheat mode,
-// bit 1 map view), to clear them when they are switched off; [2] a level's fade-in is running (shown as play: the
-// picture is already the level's, so it starts wide and slid instead of jumping when play begins); [3..6] boss tunes
-// held back (boss_tune_held); [7] palette line 2 loads held back (line2_held)
+// bit 1 map view), to clear them when they are switched off, and in bits 2-23 the boss framing (boss_frame: bit 2 a
+// fight framed, 3-13 its arena's block column sum, 14-23 the easing remainder, signed; 0 in older states: none);
+// [2] a level's fade-in is running (shown as play: the picture is already the level's, so it starts wide and slid
+// instead of jumping when play begins); [3..6] boss tunes held back (boss_tune_held); [7] palette line 2 loads held
+// back (line2_held)
 enum { MS_PLAY = 0, MS_DEV = 1, MS_FADE = 2, MS_BOSS = 3, MS_BOSS_N = 4, MS_PAL2 = 7 };
 constexpr uint32_t PLAY_BUSY = 0x80000000u, PLAY_FRAME = 0x7FFFFFFFu;
 
@@ -115,7 +117,8 @@ const std::vector<RomPatch> kLevelSkip = {{0x00412A, {0x0010}, {0xFF00}}};
 // the caves spawn the columns the slid view reaches as well; the despawn window and the sprite clip cover +-2E.
 constexpr uint32_t CAVE = 0x7000;   // the $FF fill at $69E0-$FFFF (no references), reachable with jsr abs.w
 constexpr uint32_t CAVE_LSPAWN = CAVE, CAVE_RSPAWN = CAVE + 0x100, CAVE_ROWSPAWN = CAVE + 0x200, CAVE_CLIP = CAVE + 0x280,
-                   CAVE_SCRCLIP = CAVE + 0x2C0, CAVE_REACH = CAVE + 0x300, CAVE_DESPAWN = CAVE + 0x380;
+                   CAVE_SCRCLIP = CAVE + 0x2C0, CAVE_REACH = CAVE + 0x300, CAVE_DESPAWN = CAVE + 0x380,
+                   CAVE_REFRESH = CAVE + 0x400;
 
 // The 4:3 view only ever shows map x [16, W*16 - 18): camX in [0, W*16 - 354] (the camera's clamps, docs section 1).
 constexpr int VIEW_LEFT = 16, VIEW_RIGHT_GAP = 18, CAM_SPAN_GAP = 354;
@@ -131,6 +134,36 @@ int view_slide(int camx, int W, int E) {
     else if (camx > span - E) s = span - E - camx;
     else s = 0;
     return std::clamp(s, -E, E);
+}
+
+// Boss fights (docs/re_md_wide.md section 5). The 4:3 camera never locks: in a fight it follows Aladdin as anywhere
+// else, and the arena is wider than the 4:3 view (the Cave of Wonders' golden idol: camera 1821-2178 between the
+// arena's walls; Jafar's hall: 252-947), so at either end of it the widened view showed as much outside the arena on
+// the outer side as the 4:3 game, and the boss at the far other edge. While a boss fight is on (Boss) the view slides
+// toward the arena's centre instead - camera `centre` frames it at 4:3 - as far as |s| <= E and the level's ends allow:
+// held still while the camera is within E of that, following it beyond, and, once the camera is more than
+// E + ARENA_REACH away (Aladdin leaving the arena), back to the level's own slide over the next 2E px of camera (the view
+// catching up at 1.5 times the camera's pace). (The level's ends keep the view inside what the 4:3 game shows; at the
+// Rooftops' end the arena is the level's last screen and stays where the 4:3 game has it.)
+constexpr int ARENA_REACH = 320;
+struct Boss { bool on = false; int centre = 0; };
+
+int slide_target(int camx, int W, int E, const Boss& b) {
+    const int span = W * 16 - CAM_SPAN_GAP;
+    const int lo = std::max(-E, E - camx), hi = std::min(E, span - E - camx);
+    const int d = b.centre - camx, far = std::abs(d) - E - ARENA_REACH;
+    if (!b.on || span < 2 * E || lo > hi || far >= 2 * E) return view_slide(camx, W, E);
+    const int s = far <= 0 ? std::clamp(d, -E, E) : (d > 0 ? E - far / 2 : far / 2 - E);
+    return std::clamp(s, lo, hi);
+}
+
+// The slide in force: the target plus `e`, what is left of a change of target (a fight starting or ending) as it
+// eases out, inside the level.
+int slide_total(int camx, int W, int E, const Boss& b, int e) {
+    const int span = W * 16 - CAM_SPAN_GAP;
+    const int lo = std::max(-E, E - camx), hi = std::min(E, span - E - camx);
+    if (span < 2 * E || lo > hi) return view_slide(camx, W, E);
+    return std::clamp(slide_target(camx, W, E, b) + e, lo, hi);
 }
 
 // An object stored in block column c appears at screen x 16c - (camX + 16): the original streams column L/16 (left,
@@ -151,33 +184,11 @@ struct Asm {
 };
 
 std::vector<RomPatch> wide_patches(int E) {
-    const uint16_t e = (uint16_t)E, o = (uint16_t)sprite_left(E);
+    const uint16_t o = (uint16_t)sprite_left(E);
     auto ff = [](size_t n) { return std::vector<uint16_t>(n, 0xFFFF); };
-    // d0 = left reach kl = ceil((E - s)/16), d1 = right reach kr = ceil((E + s)/16) in blocks (s: view_slide); uses d2
-    Asm reach;
-    reach << std::initializer_list<uint16_t>{0x3039, 0x00FF, 0x7DF6,   // move.w $FF7DF6, d0 (camX)
-                                             0x3239, 0x00FF, 0x7DB6,   // move.w $FF7DB6, d1 (W)
-                                             0xE949, 0x0441, (uint16_t)CAM_SPAN_GAP,   // lsl.w #4, d1; subi.w #354, d1
-                                             0x0C41, (uint16_t)(2 * E)};               // cmpi.w #2E, d1
-    const size_t to_wide = reach.branch(0x6C00);                         // bge.s wide
-    reach << std::initializer_list<uint16_t>{0xE241, 0x9240};            // asr.w #1, d1; sub.w d0, d1 (narrow: centred)
-    const size_t narrow_done = reach.branch(0x6000);                     // bra.s clamp
-    reach.land(to_wide);
-    reach << std::initializer_list<uint16_t>{0x343C, e, 0x9440};          // wide: move.w #E, d2; sub.w d0, d2
-    const size_t to_left = reach.branch(0x6A00);                         // bpl.s left (camX <= E)
-    reach << std::initializer_list<uint16_t>{0x9240, 0x0441, e};          // sub.w d0, d1; subi.w #E, d1 (span - E - camX)
-    const size_t right_done = reach.branch(0x6B00);                      // bmi.s clamp (near the right end)
-    reach << std::initializer_list<uint16_t>{0x7200};                    // moveq #0, d1
-    const size_t mid_done = reach.branch(0x6000);                        // bra.s clamp
-    reach.land(to_left);
-    reach << std::initializer_list<uint16_t>{0x3202};                    // left: move.w d2, d1
-    reach.land(narrow_done);
-    reach.land(right_done);
-    reach.land(mid_done);
-    reach << std::initializer_list<uint16_t>{0x0C41, e, 0x6F04, 0x323C, e,                         // clamp: s <= E
-                                             0x0C41, (uint16_t)-E, 0x6C04, 0x323C, (uint16_t)-E,   //        s >= -E
-                                             0x303C, (uint16_t)(E + 15), 0x9041, 0xE840,           // d0 = (E+15-s) >> 4
-                                             0x0641, (uint16_t)(E + 15), 0xE841, 0x4E75};          // d1 = (E+15+s) >> 4
+    // d0 = left reach kl = ceil((E - s)/16), d1 = right reach kr = ceil((E + s)/16) in blocks: set by the module's PC hook
+    // on this rts (reach_hook: s is the slide in force, a boss fight's framing included)
+    const std::vector<uint16_t> reach = {0x4E75};
     // After the left column writer's own spawn (column L/16), the columns out to L/16 - kl (those >= 1): the spawner entered
     // past its set-up ($1AE42C) with the column's x ($FF7DB0, its scratch) and map pointer (a0), L itself untouched (a
     // frame can end inside, and the view is worked out from L). Every column of the band each time, not only the
@@ -271,6 +282,41 @@ std::vector<RomPatch> wide_patches(int E) {
     else clip.insert(clip.end(), {0x0C43, (uint16_t)(448 + 2 * E)});                           // addi / cmpi (a7)+
     clip.push_back(0x4E75);
     const std::vector<uint16_t> scrclip = {0x0443, 0x0080, 0x0041, 0x8000, 0x0C43, (uint16_t)(448 + 2 * E), 0x4E75};
+    // Block columns spawned as a column step would, from the gameplay loop: while a boss fight's framing is in force the
+    // view can move further than the camera (easing in or out), and the band with it, between column steps. Entered from
+    // the module's hook at $1A8CE8 (jsr $1B315C) with the return past it and two column ranges (words: first, last,
+    // first, last) pushed: each column through the column spawner ($1AE42C, past its set-up: $FF7DB0 = 16c, a0 = the
+    // map at column c, row Y/16; $FFF150 / $FFF152 = -16 / $F0, as the left writer's), all registers kept; then the
+    // replaced call.
+    Asm refresh;
+    refresh << std::initializer_list<uint16_t>{0x48E7, 0xFFFE,                    // movem.l d0-d7/a0-a6, -(a7)
+                                               0x2F39, 0x00FF, 0xF150,            // move.l $FFF150, -(a7)
+                                               0x33FC, 0xFFF0, 0x00FF, 0xF150,    // move.w #-16, $FFF150
+                                               0x33FC, 0x00F0, 0x00FF, 0xF152,    // move.w #$F0, $FFF152
+                                               0x3C2F, 0x0040, 0x3E2F, 0x0042};   // move.w 64(a7), d6; 66(a7), d7
+    const size_t call1 = refresh.branch(0x6100);                                  // bsr.s columns
+    refresh << std::initializer_list<uint16_t>{0x3C2F, 0x0044, 0x3E2F, 0x0046};   // move.w 68(a7), d6; 70(a7), d7
+    const size_t call2 = refresh.branch(0x6100);                                  // bsr.s columns
+    refresh << std::initializer_list<uint16_t>{0x23DF, 0x00FF, 0xF150,            // move.l (a7)+, $FFF150
+                                               0x4CDF, 0x7FFF,                    // movem.l (a7)+, d0-d7/a0-a6
+                                               0x508F,                            // addq.l #8, a7 (the ranges)
+                                               0x4EF9, 0x001B, 0x315C};           // jmp $1B315C
+    refresh.land(call1);   // columns: d6 .. d7
+    refresh.land(call2);
+    refresh << std::initializer_list<uint16_t>{0xBC47};                           // cmp.w d7, d6
+    const size_t none = refresh.branch(0x6E00);                                   // bgt.s done
+    const size_t col = refresh.here();
+    refresh << std::initializer_list<uint16_t>{0x3F06, 0x3F07,                    // move.w d6, -(a7); d7, -(a7)
+                                               0x41F9, 0x00FF, 0x9884,            // lea $FF9884, a0 (row pointers)
+                                               0x3A39, 0x00FF, 0x7E08, 0x0245, 0xFFF0,   // move.w $FF7E08, d5; andi.w #$FFF0
+                                               0xDA45, 0xDA45, 0x2070, 0x5000,    // add.w d5, d5 (x2); movea.l (a0, d5.w), a0
+                                               0x3A06, 0xDA45, 0xD0C5,            // + 2c
+                                               0xE94E, 0x33C6, 0x00FF, 0x7DB0,    // lsl.w #4, d6; move.w d6, $FF7DB0
+                                               0x4EB9, 0x001A, 0xE42C,            // jsr $1AE42C
+                                               0x3E1F, 0x3C1F, 0x5246, 0xBC47};   // d7, d6 back; addq.w #1, d6; cmp.w d7, d6
+    refresh.back(0x6F00, col);                                                    // ble.s column
+    refresh.land(none);
+    refresh << std::initializer_list<uint16_t>{0x4E75};
     return {
         {0x1AB446, {0x6100, 0x2FB4}, {0x4EB8, (uint16_t)CAVE_LSPAWN}},
         {0x1AB554, {0x6100, 0x2EB0}, {0x4EB8, (uint16_t)CAVE_RSPAWN}},
@@ -278,7 +324,8 @@ std::vector<RomPatch> wide_patches(int E) {
                     0xAE87, 0x383C, 0x0016},
                    {0x4EB8, (uint16_t)CAVE_ROWSPAWN, 0x6018, 0x4E71, 0x4E71, 0x4E71, 0x4E71, 0x4E71, 0x4E71, 0x4E71,
                     0x4E71, 0x4E71, 0x4E71, 0x4E71, 0x4E71}},
-        {CAVE_REACH, ff(reach.w.size()), reach.w},
+        {CAVE_REACH, ff(reach.size()), reach},
+        {CAVE_REFRESH, ff(refresh.w.size()), refresh.w},
         {CAVE_LSPAWN, ff(lspawn.w.size()), lspawn.w},
         {CAVE_RSPAWN, ff(rspawn.w.size()), rspawn.w},
         {CAVE_ROWSPAWN, ff(rowspawn.size()), rowspawn},
@@ -505,8 +552,17 @@ struct Wide {
     bool shift_a_on = false;
     bool active = false;                    // this frame is drawn wide (the slide applies)
     int cam = 0;                            // the camera the slide in force was worked out for
+    Boss boss;                              // this frame's boss framing (boss_frame; kept in module_state)
+    int ease = 0;                           // and what is left of its last change (slide_total's e)
     uint16_t t0[ScrollProbe::kWords];
 };
+
+// The slide in force for camera camx (this frame's boss framing)
+int wide_slide(const Wide& w, int camx) {
+    return slide_total(camx, w.md->ram16(MAP_W), w.md->vdp.ext, w.boss, w.ease);
+}
+
+void boss_frame(Wide& w, bool advance);
 
 // The camera a line was scrolled with: from the map plane's H scroll (the camera in RAM may already be the next
 // frame's), less the earthquake shake the Escape adds to the planes and the sprites alike ($FFF082, written with the
@@ -522,7 +578,7 @@ void apply_slide(Wide& w, int camx, int from) {
     MegaDrive& md = *w.md;
     VDP& v = md.vdp;
     const bool swapped = md.ram8(SWAP_PLANES) != 0;
-    const int s = view_slide(camx, md.ram16(MAP_W), v.ext);
+    const int s = wide_slide(w, camx);
     w.cam = camx;
     v.view_shift = s;
     bool probed = s != 0 && w.probe.run(md, camx);
@@ -546,11 +602,13 @@ void apply_slide(Wide& w, int camx, int from) {
     w.shift_a_on = swapped;
 }
 
-// Before each frame is drawn (MegaDrive::on_frame_start): whether it is drawn wide (for the whole frame), and its slide
-// from line 0's scroll.
-void update_view(Wide& w) {
+// Before each frame is drawn (MegaDrive::on_frame_start, `advance`): the boss framing moves on a frame; whether the
+// frame is drawn wide (for the whole frame), and its slide from line 0's scroll. (Without `advance`, after a width change
+// or a loaded state: the same frame again.)
+void update_view(Wide& w, bool advance) {
     MegaDrive& md = *w.md;
     VDP& v = md.vdp;
+    boss_frame(w, advance);
     v.view_shift = 0;
     v.view_shift_b_on = false;
     w.shift_a_on = false;
@@ -826,6 +884,218 @@ void line2_moments(MegaDrive& md) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+// Boss fights framed (slide_target). A fight is on while a boss object is alive - one of the four types whose spawn
+// starts BOSS TUNE (boss_type), the game's own mark of a boss fight - and its tune is not held back (its block has come
+// into the 4:3 window, or it spawned there: when the 4:3 game starts the fight). Its arena: the boss's map block and
+// those of the kinds that share its colours within a plane window of it - the golden idol's pedestal ($F5, block
+// 129,29: the fight's left end) and the other one ($F6, 143,32), between which the idol flies; Jafar alone; at the
+// Rooftops' end the boss's block. The arena's centre (map x 8 x (first + last block column)) is framed as the 4:3
+// camera would centre it: camera 8 x (first + last) - 176 (the idol: 2000, the middle of the 4:3 camera's 1821-2178 in
+// the fight; Jafar: 640, his hall 252-947). A fight starting or ending changes the slide's target at once; the
+// difference is kept and eased out (at most 3 px a frame), so the view doesn't lurch. module_state[MS_DEV] bits 2-23.
+constexpr uint32_t BF_ON = 1u << 2, BF_MASK = 0x00FFFFFCu;
+constexpr int BF_SUM = 3, BF_EASE = 14;
+
+bool boss_held(const MegaDrive& md, int slot) {
+    for (int k = 0; k < MS_BOSS_N; k++) {
+        const uint32_t e = md.module_state[MS_BOSS + k];
+        if (e && (int)((e >> 24) & 0x1F) == slot) return true;
+    }
+    return false;
+}
+
+// The boss fight on (from RAM), and its arena's block column sum
+Boss boss_arena(const MegaDrive& md, int& sum) {
+    Boss b;
+    for (int i = 1; i < 32 && !b.on; i++) {
+        const uint32_t o = OBJECTS + i * OBJ_SIZE;
+        const uint8_t type = md.ram8(o + 0x34);
+        int col, row;
+        if (!md.ram8(o) || !boss_type(type) || boss_held(md, i) || !object_block(md, o, col, row)) continue;
+        int lo = col, hi = col, top = row, bottom = row;
+        auto add = [&](int c, int r) { lo = std::min(lo, c), hi = std::max(hi, c), top = std::min(top, r), bottom = std::max(bottom, r); };
+        const uint32_t pal = line2_pal(type);
+        auto kin = [&](uint8_t t) { const uint32_t p = line2_pal(t); return pal && p && same_line2(md, p, pal); };
+        auto close_by = [&](int c, int r) { return std::abs(c - col) <= 23 && std::abs(r - row) <= 16; };
+        if (pal) {
+            for (int k = 1; k < 32; k++) {   // its kin alive (a spawned object's block type is cleared while it lives)
+                const uint32_t q = OBJECTS + k * OBJ_SIZE;
+                int c, r;
+                if (q != o && md.ram8(q) && kin(md.ram8(q + 0x34)) && object_block(md, q, c, r) && close_by(c, r)) add(c, r);
+            }
+            const int W = md.ram16(MAP_W), H = md.ram16(MAP_H);   // and still in the map
+            for (int r = std::max(0, row - 16); r <= std::min(H - 1, row + 16); r++) {
+                const uint32_t rp = md.ram32(MAP_ROWS + 64 * r) & 0xFFFFFF;
+                for (int c = std::max(0, col - 23); c <= std::min(W - 1, col + 23); c++) {
+                    const uint16_t wd = md.ram16(rp + 2 * c);
+                    if (wd && kin(md.ram8(OBJ_TYPES + wd / 2))) add(c, r);
+                }
+            }
+        }
+        // only with the camera at the arena's height (within half a screen): the boss stays alive with Aladdin fallen
+        // into the Cave's river 300 px below, where nothing of the fight is in view
+        const int camy = (int16_t)md.ram16(CAM_Y);
+        if (camy + 240 <= 16 * top - 112 || camy + 16 >= 16 * bottom + 16 + 112) continue;
+        sum = std::min(lo + hi, 0x7FF);
+        b.on = true;
+        b.centre = 8 * sum - 176;
+    }
+    return b;
+}
+
+// Once a frame (advance) the framing is worked out again and a change of target is kept in the remainder, which eases
+// out; this frame's framing for the slide (Wide::boss / ease).
+void boss_frame(Wide& w, bool advance) {
+    MegaDrive& md = *w.md;
+    uint32_t& st = md.module_state[MS_DEV];
+    Boss b;
+    b.on = (st & BF_ON) != 0;
+    int sum = (int)((st >> BF_SUM) & 0x7FF);
+    b.centre = 8 * sum - 176;
+    int e = (int)((st >> BF_EASE) & 0x3FF);
+    if (e & 0x200) e -= 0x400;
+    const int E = md.vdp.ext;
+    if (advance && E > 0) {
+        int sum2 = 0;
+        const Boss now = attract(md) ? Boss() : boss_arena(md, sum2);
+        const int W = md.ram16(MAP_W), cam = line_camera(md, 0, md.ram8(SWAP_PLANES) != 0);
+        e = std::clamp(e + slide_target(cam, W, E, b) - slide_target(cam, W, E, now), -2 * E, 2 * E);
+        const int step = std::clamp((std::abs(e) + 15) / 16, 1, 3);
+        e = e > 0 ? std::max(0, e - step) : std::min(0, e + step);
+        b = now;
+        sum = now.on ? sum2 : 0;
+        st = (st & ~BF_MASK) | (b.on ? BF_ON : 0u) | (uint32_t)sum << BF_SUM | ((uint32_t)e & 0x3FF) << BF_EASE;
+    }
+    w.boss = b;
+    w.ease = e;
+}
+
+// The spawn caves' reach (CAVE_REACH): kl / kr block columns from the slide in force
+void band_reach(const MegaDrive& md, const Wide& w, int& kl, int& kr) {
+    const int E = md.vdp.ext, s = wide_slide(w, (int16_t)md.ram16(CAM_X));
+    kl = (E + 15 - s) >> 4;
+    kr = (E + 15 + s) >> 4;
+}
+void reach_hook(MegaDrive& md, const Wide& w) {
+    int kl, kr;
+    band_reach(md, w, kl, kr);
+    md.cpu.r[0] = (md.cpu.r[0] & 0xFFFF0000u) | (uint32_t)kl;
+    md.cpu.r[1] = (md.cpu.r[1] & 0xFFFF0000u) | (uint32_t)kr;
+}
+
+// While a boss framing is in force (or easing out) the view can run ahead of the camera, and the band's outer edge with
+// it, between column steps: right after the gameplay loop's streaming ($1A8CE8) the two outermost columns of the band on
+// each side are spawned as a column step would spawn them (CAVE_REFRESH, the return past the replaced jsr pushed with
+// the two column ranges; blocks already spawned are cleared or alive, so this only brings in what is missing).
+void band_refresh(MegaDrive& md, const Wide& w) {
+    if (!w.boss.on && w.ease == 0) return;
+    int kl, kr;
+    band_reach(md, w, kl, kr);
+    const int L = md.ram16(STREAM_X) >> 4, W = md.ram16(MAP_W);
+    const int l1 = std::max(1, L - kl), l2 = std::min(L - 1, L - kl + 1);
+    const int r1 = std::max(L + 23, L + 21 + kr), r2 = std::min(W - 1, L + 22 + kr);
+    uint32_t sp = md.cpu.r[15];
+    md.set_ram32(sp -= 4, PC_STREAMED + 6);
+    md.set_ram16(sp -= 2, (uint16_t)r2);
+    md.set_ram16(sp -= 2, (uint16_t)r1);
+    md.set_ram16(sp -= 2, (uint16_t)l2);
+    md.set_ram16(sp -= 2, (uint16_t)l1);
+    md.cpu.r[15] = sp;
+    md.cpu.pc = CAVE_REFRESH;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Objects that keep their map block. Most spawn handlers spawn through $1B526C, which clears the object's map block
+// (and the despawn puts it back), so a column streamed again spawns nothing twice. Three kinds spawn through $1B52A0,
+// which leaves it: the stepping stones ($EF: the Cave of Wonders' river, the Escape's lava rocks; $F4, the one the monkey
+// statue $35 raises) and the apples that come while Aladdin has none ($61, four from one block). A stone sinks when
+// stood on and is gone (its object cleared), to come back when its column is streamed again. The 4:3 game streams a
+// column as it comes into its plane window at an edge, just outside the view (and spawns a second stone over one still
+// there when the camera crosses that edge back and forth). The widened spawning goes over the whole band beyond the 4:3
+// window at every column step (objects that found no room are tried again), so such an object came again at every step
+// its column spent in the band: in the river at 21:9, up to 10 stones on one block, the object slots full (the stone at
+// block 156,59 never came: in the QA's screenshot nothing beyond the rock outcrop, where it belongs), and a stone that
+// sank could rise again in the extension. So:
+// - a block whose object is alive is not spawned again (the spawners' handler call is skipped: $1AE46C, $1AE4E8);
+// - a column spawn through $1B52A0 goes ahead only where its column lies entirely outside the view as slid, as the 4:3
+//   game's edge columns do - not in the band's columns inside the view - except while a level start or a restart
+//   fills the plane ($FFF175: the camera runs 23 columns right and back, every block once, deduplicated);
+// - room is never made by evicting one (it would only come back at its column's next entry).
+constexpr uint32_t PC_COL_CALL = 0x1AE46C, PC_COL_RET = 0x1AE46E;   // the column spawner's jsr (a4) and what follows it
+constexpr uint32_t PC_ROW_CALL = 0x1AE4E8, PC_ROW_RET = 0x1AE4EA;   // the row spawner's
+constexpr uint32_t PC_SPAWN_KEEP = 0x1B52A0, PC_SPAWN_RTS = 0x1B529E;
+constexpr uint32_t SPAWN_X = 0xFF7DB0, SPAWN_DX = 0xFFF150, FILLING = 0xFFF175;
+
+// An object spawned from this block (+$32: the block word / 2, +$34 its type) alive
+bool block_alive(const MegaDrive& md, uint16_t blk, uint8_t type) {
+    for (int i = 1; i < 32; i++) {
+        const uint32_t o = OBJECTS + i * OBJ_SIZE;
+        if (md.ram8(o) && md.ram16(o + 0x32) == blk && md.ram8(o + 0x34) == type) return true;
+    }
+    return false;
+}
+
+// A spawned object whose block stays in the map (alive, its block's type still there)
+bool keeps_block(const MegaDrive& md, uint32_t o) {
+    return md.ram8(o) && md.ram8(o + 0x34) && md.ram8(OBJ_TYPES + (uint32_t)(int16_t)md.ram16(o + 0x32)) != 0;
+}
+
+// At a spawner's handler call (d2 = the block word / 2, d3 = its type; the call skipped by going on to the restore)
+void spawn_call(MegaDrive& md, uint32_t restore) {
+    if (block_alive(md, (uint16_t)md.cpu.r[2], (uint8_t)md.cpu.r[3])) md.cpu.pc = restore;
+}
+
+// At $1B52A0: from the column spawner (its handler call's return on the stack, under a helper's for $61), outside a
+// fill, inside the view: not spawned (NE, as when no slot is free)
+void spawn_keep(MegaDrive& md, const Wide& w) {
+    if (md.ram8(FILLING)) return;
+    const uint32_t sp = md.cpu.r[15] & 0xFFFFFF;
+    bool column = false;
+    for (uint32_t a = sp; a < sp + 16; a += 4) {
+        const uint32_t v = md.ram32(a) & 0xFFFFFF;
+        if (v == PC_ROW_RET) return;
+        if (v == PC_COL_RET) { column = true; break; }
+    }
+    if (!column) return;
+    const int x = ((int16_t)md.ram16(SPAWN_X) + (int16_t)md.ram16(SPAWN_DX) + 16) & ~15;   // the block column's map x
+    const int camx = (int16_t)md.ram16(CAM_X), E = md.vdp.ext, s = wide_slide(w, camx);
+    if (x + 16 <= camx + 16 - E + s || x >= camx + 336 + E + s) return;
+    md.cpu.set_sr((uint16_t)(md.cpu.get_sr() & ~4));
+    md.cpu.pc = PC_SPAWN_RTS;
+}
+
+// Palette line 2 and the fill. While a level start or a restart fills the plane ($FFF175) the spawn handlers load no
+// colours (they test it before $1B2650); the 4:3 game fills its own window, and an object it spawns later loads its
+// colours then. The widened band's fill spawns objects beyond that window, which so never loaded theirs: after a death
+// in the Cave's river at 21:9, the leaping fish ($3E, block 139,59) came with the restart and leapt in a bat's colours
+// (25 frames in the 4:3 part on the arena run from above). So, right after a handler call during a fill
+// ($1AE46E / $1AE4EA, the spawner's registers still on the stack: d2 the block word / 2, d3 its type), an object of a
+// line-2 kind spawned outside the 4:3 window is noted as a held load (line2_held): its colours go in at its 4:3 moment,
+// or once the line is free (line2_moments).
+void line2_filled(MegaDrive& md) {
+    if (!md.ram8(FILLING)) return;
+    const uint32_t sp = md.cpu.r[15] & 0xFFFFFF;
+    const uint16_t blk = md.ram16(sp + 10);
+    const uint8_t type = md.ram8(sp + 15);
+    const uint32_t pal = line2_pal(type);
+    if (!pal) return;
+    uint32_t& st = md.module_state[MS_PAL2];
+    for (int i = 1; i < 32; i++) {
+        const uint32_t o = OBJECTS + i * OBJ_SIZE;
+        if (!md.ram8(o) || md.ram16(o + 0x32) != blk || md.ram8(o + 0x34) != type) continue;
+        const int col = ((int16_t)md.ram16(o + 2) + 16) >> 4, row = ((int16_t)md.ram16(o + 4) - 240) >> 4;
+        if (in_43_window(md, col, row)) return;
+        int k = -1;
+        for (int j = 0; j < L2_N; j++) {
+            if (line2_entry(st, j).obj == o) return;
+            if (k < 0 && !line2_entry(st, j).obj) k = j;
+        }
+        if (k >= 0) line2_set(st, k, o, pal, false);
+        return;
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
 // Room for objects. The widened view keeps more objects alive than the game was sized for: its object slots (32 at
 // $FF7E40, $42 bytes; each kind of object looks for a free one in its own range) and its sprite-tile pool (below) can
 // run out where the 4:3 game's never do. An object that finds no room is not spawned (a free-slot search fails: its
@@ -868,6 +1138,7 @@ bool on_screen(const MegaDrive& md, uint32_t o) {
 // that, and either 32 px out (past the spawn band) or with nothing of it on screen.
 bool evictable(const MegaDrive& md, uint32_t o, int than) {
     if (o == OBJECTS || !md.ram8(o) || boss_type(md.ram8(o + 0x34))) return false;   // (a respawn: the tune again)
+    if (keeps_block(md, o)) return false;   // (it would come back only as its column next comes in)
     const uint8_t f6 = md.ram8(o + 6);
     if ((f6 & 8) || !(f6 & 0x20) || !md.ram8(o + 0x34) || (md.ram8(o + 0x3C) & 2)) return false;
     for (int r = 8; r < 15; r++) if ((md.cpu.r[r] & 0xFFFFFF) == o) return false;
@@ -1205,7 +1476,8 @@ public:
         md.add_pc_hook(PC_LEVEL_END, leave);
         md.add_pc_hook(PC_DEATH, leave);
         md.add_pc_hook(PC_PIT, leave);
-        auto fade = [](MegaDrive& m) { m.module_state[MS_FADE] = 1; };
+        // (a level's start or a restart: no boss framing carried over)
+        auto fade = [](MegaDrive& m) { m.module_state[MS_FADE] = 1; m.module_state[MS_DEV] &= ~BF_MASK; };
         md.add_pc_hook(PC_FADE_IN, fade);
         md.add_pc_hook(PC_RESPAWN_FADE, fade);
         const bool wide = cfg.ext > 0;
@@ -1217,8 +1489,21 @@ public:
             for (const BossHandler& h : kBossHandlers)
                 md.add_pc_hook(h.at, [this, &h](MegaDrive& m) { if (!rom_attract_) boss_tune_spawned(m, h); });
             md.add_pc_hook(PC_LOAD_LINE2, [this](MegaDrive& m) { if (!rom_attract_) line2_load(m); });
-            md.add_pc_hook(PC_STREAMED, [this](MegaDrive& m) { boss_tune_held(m); if (!rom_attract_) line2_moments(m); });
-            md.add_pc_hook(PC_LEVEL_LOAD, [](MegaDrive& m) { m.module_state[MS_PAL2] = 0; });
+            // After the streaming: held tunes and colours; while a boss framing is in force, the band's outer columns
+            // (band_refresh)
+            md.add_pc_hook(PC_STREAMED, [this](MegaDrive& m) {
+                boss_tune_held(m);
+                if (rom_attract_) return;
+                line2_moments(m);
+                band_refresh(m, *wide_);
+            });
+            md.add_pc_hook(PC_LEVEL_LOAD, [](MegaDrive& m) { m.module_state[MS_PAL2] = 0; m.module_state[MS_DEV] &= ~BF_MASK; });
+            md.add_pc_hook(CAVE_REACH, [this](MegaDrive& m) { reach_hook(m, *wide_); });
+            md.add_pc_hook(PC_COL_CALL, [this](MegaDrive& m) { if (!rom_attract_) spawn_call(m, PC_COL_RET); });
+            md.add_pc_hook(PC_ROW_CALL, [this](MegaDrive& m) { if (!rom_attract_) spawn_call(m, PC_ROW_RET); });
+            md.add_pc_hook(PC_SPAWN_KEEP, [this](MegaDrive& m) { if (!rom_attract_) spawn_keep(m, *wide_); });
+            md.add_pc_hook(PC_COL_RET, [this](MegaDrive& m) { if (!rom_attract_) line2_filled(m); });
+            md.add_pc_hook(PC_ROW_RET, [this](MegaDrive& m) { if (!rom_attract_) line2_filled(m); });
         }
         wide_->md = &md;
         md.vdp.line_hook = wide ? line_hook : nullptr;
@@ -1226,14 +1511,14 @@ public:
         md.vdp.sprite_xoff = wide ? sprite_xoff_hook : nullptr;
         md.vdp.sprite_is_hud = wide ? sprite_is_hud_hook : nullptr;
         md.vdp.edge_mask_l = md.vdp.edge_mask_r = 0;
-        md.vdp.sprite_x10 = false;   // (per frame: post_frame)
+        sprite_x10(md, cfg.ext);   // (per frame: post_frame; here for the first frame after a loaded state)
         md.vdp.hook_host = wide_.get();
         md.vdp.hook_flags = cfg.hud_anchor ? 1 : 0;
         Wide* w = wide_.get();
-        md.on_frame_start = wide ? std::function<void(MegaDrive&)>([w](MegaDrive&) { update_view(*w); }) : nullptr;
+        md.on_frame_start = wide ? std::function<void(MegaDrive&)>([w](MegaDrive&) { update_view(*w, true); }) : nullptr;
         md.vdp.view_shift = 0;
         md.vdp.view_shift_b_on = false;
-        if (wide) update_view(*w);   // (the frame about to be drawn after a width change or a loaded state)
+        if (wide) update_view(*w, false);   // (the frame about to be drawn after a width change or a loaded state)
     }
 
     void pre_frame(MegaDrive& md, const GameConfig& cfg) override {
@@ -1268,8 +1553,11 @@ public:
     void post_frame(MegaDrive& md, const GameConfig& cfg, FrameInfo& info) override {
         // (the level-edge masks are drawn per line by line_hook, so the HUD stays over them)
         info.gameplay = cfg.ext > 0 ? wide_->active : wide_view(md);   // (as the frame was drawn)
-        // Sprite X read as 10 bits only in play (the other screens, shown 4:3, may leave junk in the upper bits)
-        const int E = cfg.ext;
+        sprite_x10(md, cfg.ext);
+    }
+
+    // Sprite X read as 10 bits only in play (the other screens, shown 4:3, may leave junk in the upper bits)
+    static void sprite_x10(MegaDrive& md, int E) {
         md.vdp.sprite_x10 = E > 0 && in_gameplay(md) && (448 + 2 * E > 512 || sprite_left(E) > 0);
     }
 
