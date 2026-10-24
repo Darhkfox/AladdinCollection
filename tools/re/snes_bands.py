@@ -18,7 +18,8 @@ ends, top to bottom, the middle), walking and jumping in between (invincible). P
   edge : where the view is centred, the picture against the bare core's (the same state, the extension drawn from the
          VRAM map at the game's own registers, the map filled with the background's 512-px repeat first: the game
          leaves a column it never shows stale), every 10 frames: pixels that differ (BG2 only; mode $0A's ratchet
-         bands, which keep the virtual camera's lead, and the margins dimmed past the camera's reach left out).
+         bands, which keep the virtual camera's lead, and each line's margin past the level's end, mirrored and
+         dimmed, left out: where the module, run again from the frame's state with the mirror off, draws it black).
 The tour also carries Aladdin across both ends at each height, the camera passing where the view stops.
 `turbo` 4: Remove Slowdown on. Writes tools/qa/snes/bands_<ext>.txt and a sheet of the stopped view's frames
 (tools/qa/snes/bands_<ext>_<level>.png; BANDS_DEBUG=<n>: the first n edge differences side by side)."""
@@ -118,6 +119,14 @@ for lv in levels:
     b = SNES()
     b.layers(2)
     b.set_ext(ext, ext)
+    # the module again with the level black past its ends (not mirrored): where each line's level ends
+    m = SNES()
+    m.module('snes')
+    m.configure(ext, True, 'invincible,inf_lives')
+    if turbo > 1:
+        m.turbo(turbo)
+    m.layers(2)
+    m.edge_mirror(False)
     mode = w.r16(0x83F)
     if mode not in (0x0A, 0x0E):
         out.append('level %d: mode %02X has no bands by world y' % (lv, mode))
@@ -202,18 +211,17 @@ for lv in levels:
             b.hold(0)
             b.run(1)
             ref = grab_np(b)
+            m.load(state)
+            m.hold(buttons)
+            m.run(1)
+            nm = grab_np(m)
             if ref.shape == pic.shape:
                 cnt['edge_frames'] += 1
-                # (past where the game's camera can show now the module dims the margin: half the colour)
+                # (past the level's end on a line - the line's page row - the module mirrors the level about its edge
+                # and dims it: black there with the mirror off)
                 a, r_ = pic.astype(int), ref.astype(int)
-                # (and mirrored about the level's edge there: the whole zone from the picture's edge in)
-                dimmed = (np.abs(2 * a - r_) <= 16).all(axis=2).mean(axis=0) > 0.5
-                width = dimmed.size
-                lo = next((x for x in range(width // 2, -1, -1) if dimmed[x]), -1)
-                hi = next((x for x in range(width // 2, width) if dimmed[x]), width)
                 differ = np.abs(r_ - a).sum(axis=2) > 0
-                differ[:, :lo + 1] = False
-                differ[:, hi:] = False
+                differ[(nm == 0).all(axis=2) & (pic != 0).any(axis=2)] = False
                 # (mode $0A's ratchet bands keep the virtual camera's lead, band_d_: not the game's own place)
                 differ[[r for r in range(224) if kinds[band_of_row[r]][0] == 'k']] = False
                 d = int(differ.sum())

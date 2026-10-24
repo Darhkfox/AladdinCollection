@@ -50,6 +50,11 @@ The level data is all in RAM:
 So the PPU's `fetchWideTile` hook gives every margin tile straight from that data, at the world position of the
 screen pixel (the layer's scroll register completed from its struct, per line). Nothing of the game's streaming
 changes, any width up to the PPU's limit works, and a width change in the middle of a level needs no redraw.
+The struct's x / y it is completed from are taken as the frame starts (`near_x_` / `near_y_`): the game's logic moves
+the camera during the frame, a byte at a time and past the level's edge before it clamps it (Inside the Lamp 3 at its
+left end: x `$00FD` for part of a line, then `$FFFD`, then 0), and a line drawn meanwhile was taken for one the game
+scrolls on its own - drawn from VRAM and not limited to the level: one bright line of other data for a frame, which
+the dimming used to hide.
 `tools/re/snes_mapdecode.py` checks the decode against VRAM over the game's own screen in every level: identical.
 
 A layer is drawn from VRAM instead where it doesn't follow its struct: a band of the lava cavern's background (scrolled
@@ -150,21 +155,53 @@ never pans by itself while the game's screen holds still. (A first version also 
 at pages the camera can't enter at its height and slid there by itself: in play testing layers moved where the
 console's don't. `tools/re/snes_motion.py` measures each layer's motion from the pixels and checks it.)
 
-**Dimmed** (`reach`): past where the game's camera can show now - the zone's camera limits `[min(cam, $1A40),
-max(cam, $1A42) + 256)` (Market at Dusk's boss), an arena, the pages it may enter in the page rows its screen covers
-(barrier pages, bit 15). On each line, past the level (the line's own page row's pages, the level's width) BG1 and BG2
-are mirrored about the level's edge (`Ppu::wideMirror`, `wideDimLo/Hi`; black instead with *Past Level Ends: Black*).
+**Dimmed** only where the margins can't show what the console would:
+- Past the level on each line - its own page row's pages the camera may enter around the game's screen (a page it may
+  not, bit 15, the game draws as page 0), the level's width: BG1 and BG2 are mirrored about the level's edge and
+  dimmed (`Ppu::wideMirror`, `wideDimLo/Hi`; black instead with *Past Level Ends: Black*, `Ppu::edgeMirror`).
+- Where the game paints on its screen what the level beside it doesn't hold (`painted_row`): Jafar's cobra (level
+  `$11`) sets the floor on fire by writing the fire into its room's map (`$4000`, on BG1 since the room was held:
+  rows 21-31) in the 32 columns on its screen only, and in the same frame points BG2 at a spiked arch (`$4800`, rows
+  22-28, mode `$12`: placed by an object). From that frame the margins are dimmed on the lines from the arch's first
+  row down (line 163; the fire's starts at 167), where they show the room's stored floor; the wall above is the
+  room's and stays bright. The dim comes in the frame the fire appears on the game's screen (frame by frame: neither
+  before nor after).
+- Everywhere else the margins show the level as stored, at full brightness, also where the game's camera can't go now:
+  a zone's camera limits (`$1A40` / `$1A42`: the Market at Dusk's wait at `$400` and its boss at `$500`, Sultan's
+  Dungeon 3's boss at `$A00`, the end of Jafar's Palace 3 at `$11A0`), an arena (the Cave of Wonders' end, Jafar's
+  room before the fire), the pages the camera can't enter in another page row its screen covers (Agrabah Rooftops,
+  Sultan's Dungeon 2, Jafar's Palace 2). Nothing changes the level there, and its objects are drawn as the game has
+  them: the sweeps leave those areas as empty as the console's would be. **The Cave of Wonders' end** (level `$04`):
+  at its last camera x (`$1A04` = 3840) the camera is held in x (`$1A10` = 1, `$1A12` = 0); the magic carpet (`$6B`)
+  on the floor rises, Abu comes in from the left (seen leaping in on the left side before the 4:3 screen shows him)
+  and plays with it, then it flies off right with Aladdin after it and the level fades out (to the Underground River).
+  The treasure room doesn't change and its layers keep streaming (the structs' flags stay `$0F`): the margins are its
+  data, as anywhere. (A first version dimmed all of these (`reach`): past `[min(cam, $1A40), max(cam, $1A42) + 256)`,
+  beside an arena's screen, and past pages the camera can't enter in page rows `camy >> 8` to `(camy + 255) >> 8` - a
+  row below the screen's 224 lines included: the Cave's treasure room was dimmed on one side through its event, and
+  the sides went from bright to dimmed in one frame as the camera was held and back as it was let go.)
+
+In an arena a layer is drawn from the level's data also once the game stops streaming it, and from the struct whose
+map it shows: Jafar's room (on BG2, struct `$188E`, map `$4000`) has both structs' flags drop to 0 once the camera is
+held; partway through the fight the game points BG1 at the room's map, and at the cobra BG2 at the arch's. The room's
+data is still the room's: identical to VRAM over the 240 px the map holds beside the game's screen (64 columns less
+the screen's 33 and the streaming's column each side) and over the screen itself until the fire. Drawn from VRAM, as a
+first version did, the left 40 px at 21:9 with square pixels (280 px on one side) showed the screen's own right edge
+and two columns of zeros. BG2 holding an object's picture (mode `$12`) isn't drawn from data: the cobra's arch,
+scrolled with the camera at 512, is shown on the game's screen only (its map's repeat had shown at the far left at
+21:9).
 
 A state made at another width (or the width switched on from 4:3) shows its first frame where the view stops already
 (the level's extent at the camera), not centred.
 
 **Save states and rewind** (the app saves one every 2 frames while rewinding is possible): `save_ext` (version 4)
-carries the view (span, offset, reach, whether it may stop), the sprites' recorded x - both the latched set and the one
-being built for the next OAM DMA - how many frames ago the level loop's top ran, so a state saved in a frame the game's
-logic didn't finish in still counts as a level, the band routines' inputs (both snapshots, whether this logic frame's
-is taken, the ratchet's difference) and whether a level is being played (section 1; an older state: a level index, no
-demo and the main task in the level loop). `tools/re/snes_rewind.py` rewinds as the app does and compares every
-rewound picture with the straight run's: identical (also from near a level's end: its `state` argument).
+carries the view (span, offset, whether it may stop; two words that held the dimmed range are written as 0 and not
+read), the sprites' recorded x - both the latched set and the one being built for the next OAM DMA - how many frames
+ago the level loop's top ran, so a state saved in a frame the game's logic didn't finish in still counts as a level,
+the band routines' inputs (both snapshots, whether this logic frame's is taken, the ratchet's difference) and whether
+a level is being played (section 1; an older state: a level index, no demo and the main task in the level loop).
+`tools/re/snes_rewind.py` rewinds as the app does and compares every rewound picture with the straight run's:
+identical (also from near a level's end: its `state` argument).
 
 ## 4. Objects
 
@@ -243,12 +280,21 @@ margins and, where the view is split, moved to the picture's middle (`(extR - ex
 - `snes_bands.py <ext> [levels] [turbo]`: Agrabah's three band levels on a tour that carries Aladdin to both ends and
   the middle at three heights and across both ends. On every line it checks the module's BG2 shift against the ROM
   routines' with the camera at the picture's middle (the line's band from where this frame's HDMA started), that the
-  camera's bands hold still while the view is stopped, and the centred picture against the bare core's. At 46, 72,
+  camera's bands hold still while the view is stopped, and the centred picture against the bare core's (each line's
+  margin past the level's end left out: black when the frame is run again with the mirror off). At 46, 72,
   106 and 140, with and without Remove Slowdown: no line off, no stopped-view frame moving, no picture differing in
   any of the three. Before this fix the Rooftops had 63,122 / 69,247 / 77,505 / 96,429 lines off (of ~943,000),
   77 / 126 / 191 / 251 stopped-view frames moving, and 76 / 75 / 82 / 95 pictures differing at the four widths.
   The Market and the Market at Dusk had none before either. Rewind from states high at both of the Rooftops' ends
   (106, 140, 46): identical.
+- The dimming (section 3): the old module against the new, frame by frame with the same input, at 106 - the play bot in
+  all 19 levels (2,400 frames), the end states, the Cave of Wonders' end into the Underground River, Jafar's fight:
+  the pictures differ only where the margins were dimmed beside an arena or a zone's limits or past another page row's
+  pages (the Cave's end, Jafar's room, the Market at Dusk at `$400` and `$500`, Sultan's Dungeon 3's boss, Jafar's
+  Palace 3's end, Sultan's Dungeon 2, Jafar's Palace 2, Agrabah Rooftops) and in single lines of single frames drawn
+  while the struct was being written (Inside the Lamp 3, the Underground River: now right). At 4:3 identical. The
+  fire's dim starts in the frame the fire does, at 106 and 140; *Past Level Ends: Black* still blacks out the same
+  areas.
 - `snes_dusk_end.py`: the Market at Dusk from its start through the boss to STAGE CLEAR, 24 runs a width (Remove
   Slowdown off and on, three ways there, four ways to fight). Before the edge-column retry and the sweep's rule, at
   106 none of the 12 runs that beat the boss could finish (Aladdin walked to x 1616, no Jasmine) and at 140 the boss
@@ -275,6 +321,9 @@ margins and, where the view is split, moved to the picture's middle (`(extR - ex
   on at): if the console's timing differs, they are a line or so off (the band's value is checked against the register
   at its edges).
 - Where Jafar's room grows and the camera is then held, the view keeps its place (the offset only closes while the
-  camera moves), so the arena isn't centred in the picture; its unreachable sides are dimmed.
-- The dimmed sides of an arena show the level's data, not what the game draws there during the fight (Jafar's cobra
-  phase sets the floor on fire only on the game's screen).
+  camera moves), so the arena isn't centred in the picture; beside it the room is shown as stored.
+- Jafar's cobra sets the floor on fire only on the game's screen (section 3): beside it the floor lines show the
+  room's stored floor, dimmed, from the frame the fire appears to the end of the fight.
+- Where the game's camera can't go (a zone's limits, an arena) the margins show the level and the objects the game
+  has out there; ones it would only bring out with its camera there don't appear (the events' sweeps empty those
+  areas on the console too).
