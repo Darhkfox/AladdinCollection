@@ -245,7 +245,9 @@ gradlew assembleDebug
 - Mega Drive: near a level's ends the scenery holds still while Aladdin walks for the first stretch of camera
   travel (54 px at 16:9, 128 px at 21:9), and the level's start shows less behind Aladdin and more ahead, as the
   game's own camera is kept. After a mid-level width change, objects in the newly shown columns appear when the
-  view next scrolls over them. Invincibility covers hits only: pits, lava and
+  view next scrolls over them. In Sultan's Dungeon at 21:9 with CRT pixels a guard can still appear up to 75 px
+  inside the left edge when the wider view has filled the console's sprite memory. Invincibility covers hits only:
+  pits, lava and
   the Rug Ride's walls still cost a life. Developer Map View puts Aladdin back where the view is when it's
   switched off, so switch it off over solid ground. Attract demos are recorded inputs and can play out differently
   in widescreen.
@@ -256,7 +258,8 @@ gradlew assembleDebug
   camera (stage 0's distant building and brick wall, stage 1's railings) show their current state at the sides.
   Infinite Health keeps the gems, but the guards' grabs, the carpet's crashes, pits and lava still cost a life;
   Invincibility covers all but pits and lava. With Remove Sprite Flicker off, sprites in the sides count towards
-  the 8-per-line limit.
+  the 8-per-line limit. The attract demos play at 4:3: they replay recorded input, which only stays on its path
+  with the original code.
 - SNES: with Remove Slowdown on, the attract demos (recorded button presses) can drift slightly from their path, as
   the lag frames they were recorded with are gone. Invincibility and infinite health don't prevent pits, crushes or being left behind by the scrolling. Infinite
   Gems keeps the counter at 99, so every gem completes a hundred (an extra heart, then an extra life). The dimmed
