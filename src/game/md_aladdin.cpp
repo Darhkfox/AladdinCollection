@@ -4,6 +4,7 @@
 #include "md_common.h"
 #include "../core/md.h"
 #include <algorithm>
+#include <climits>
 #include <cstring>
 #include <iterator>
 #include <memory>
@@ -35,6 +36,7 @@ constexpr uint32_t GENIE_TOKENS = 0xFFF003;                   // a spin of the G
 constexpr uint32_t LEVEL_END = 0xFFF0E9;                      // the level is over (countdown, $FF = at once)
 constexpr uint32_t DEMO = 0xFFF57C;                           // 1 in the attract demos
 constexpr uint32_t RUG_CRASHES = 0xFFF006;                    // Rug Ride lives lost: the third crash ends the ride
+constexpr uint32_t RIDE_DONE = 0xFFF005;                      // set by the Rug Ride's end (its script's $F2 entry)
 constexpr uint32_t SHAKE_X = 0xFFF082;                        // earthquake shake (Escape from the Cave): planes and sprites
 constexpr uint32_t SCRIPT_START = 0x4082;
 
@@ -394,12 +396,23 @@ bool in_play(const MegaDrive& md) {
 // A level on screen in a game: in play, or fading in (its first frames, before the gameplay loop runs).
 bool in_gameplay(const MegaDrive& md) { return (md.module_state[MS_FADE] != 0 && !attract(md)) || in_play(md); }
 
-// Gameplay shown wide: all but Abu's bonus rounds (a 336-px room) and the Rug Ride, whose obstacles are sent in at the
-// 4:3 view's right edge on a timer (wider, they would pop up in the middle of the right extension). Those stay 4:3.
+// Gameplay shown wide: all but Abu's bonus rounds (a 336-px room), which stay 4:3.
 bool wide_view(const MegaDrive& md) {
     const int level = md.ram8(LEVEL);
-    return in_gameplay(md) && level != L_ABU_AGRABAH && level != L_ABU_CAVE && level != L_RUG_RIDE;
+    return in_gameplay(md) && level != L_ABU_AGRABAH && level != L_ABU_CAVE;
 }
+
+// The Rug Ride (docs/re_md_wide.md section 7). The carpet flies right at the ride's own pace (the camera moves `speed`
+// px an iteration, 6 at the start and one more every 310 iterations) and Aladdin stays at screen x 120; the obstacles
+// are sent in by a script every 192 px of the ride at the 4:3 view's right edge (screen x 304) and stay put in the cave
+// as it scrolls past. Anything shown right of screen x 320 would show nothing of what is coming there, and what came
+// would pop up in the middle of the view. So the ride is shown with all the extra width behind the carpet: the view
+// slides by -E (screen x -2E .. 319), the 4:3 picture is its right part exactly, the right edge is the 4:3 game's (the
+// same look ahead: the same ride), and the left part shows the cave behind - what was passed, and the lava wave that
+// chases the carpet. The game runs on the 4:3 game's ROM (MdAladdin::rom_for); the module draws what the 4:3 game
+// doesn't show there (RideView). The planes are 512-px loops the VDP wraps; plane B's lava wave, the one picture in them
+// that isn't a repeating pattern, never shows twice (its copy 512 px on lies right of the view).
+bool rug_ride(const MegaDrive& md) { return md.ram8(LEVEL) == L_RUG_RIDE; }
 
 // The status bar's sprites (written first, $1AB7C4): the lamp and its smoke trail (tiles $680-$6DF, VDP X $92 up to
 // $C2 + 8 x health - the last pieces pass X $100), Aladdin's face ($6EA) and lives digit (X $AA) bottom left; the apple and
@@ -422,12 +435,15 @@ bool screen_fixed(const VDP& v, int index) {
 // Sprites move with the slid view (the renderer subtracts view_shift), but the HUD stays anchored to the screen's
 // edges and messages ("FIND THE SCARAB", PAUSED, ...) stay where the game puts them on the screen. (Only in a frame
 // drawn wide.)
+// (The Rug Ride's view is slid for good, its 4:3 screen the view's right part: its screen-fixed sprites - the Genie's
+// hand signs - and the HUD unanchored stay on that part, where the 4:3 game has them.)
 int sprite_xoff(const MegaDrive& md, int index, uint16_t attr, int x, int y) {
     (void)y;
     const VDP& v = md.vdp;
+    const bool anchor = (v.hook_flags & 1) != 0, ride = rug_ride(md);
     const int side = hud_side(attr & 0x7FF, x);
-    if (side) return v.view_shift + ((v.hook_flags & 1) ? side * v.ext : 0);
-    return screen_fixed(v, index) ? v.view_shift : 0;
+    if (side) return anchor ? v.view_shift + side * v.ext : ride ? 0 : v.view_shift;
+    return screen_fixed(v, index) && !ride ? v.view_shift : 0;
 }
 
 // HUD sprites stay visible over the level-edge masks.
@@ -567,6 +583,8 @@ private:
     }
 };
 
+struct RideView;
+
 // Per-session widescreen state the VDP hooks work with (VDP::hook_host).
 struct Wide {
     MegaDrive* md = nullptr;
@@ -578,6 +596,7 @@ struct Wide {
     Boss boss;                              // this frame's boss framing (boss_frame; kept in module_state)
     int ease = 0;                           // and what is left of its last change (slide_total's e)
     uint16_t t0[ScrollProbe::kWords];
+    RideView* ride = nullptr;               // the Rug Ride's (ride_frame, ride_line)
 };
 
 // The slide in force for camera camx (this frame's boss framing)
@@ -586,6 +605,8 @@ int wide_slide(const Wide& w, int camx) {
 }
 
 void boss_frame(Wide& w, bool advance);
+void ride_frame(Wide& w);
+void ride_line(Wide& w, int line, uint8_t* plane_b, uint8_t* sprites);
 
 // The camera a line was scrolled with: from the map plane's H scroll (the camera in RAM may already be the next
 // frame's), less the earthquake shake the Escape adds to the planes and the sprites alike ($FFF082, written with the
@@ -636,7 +657,9 @@ void update_view(Wide& w, bool advance) {
     v.view_shift_b_on = false;
     w.shift_a_on = false;
     w.active = v.ext != 0 && wide_view(md);
-    if (w.active) apply_slide(w, line_camera(md, 0, md.ram8(SWAP_PLANES) != 0), 0);
+    if (w.active && rug_ride(md)) v.view_shift = -v.ext;   // (every plane and line alike: the 4:3 picture as it is)
+    else if (w.active) apply_slide(w, line_camera(md, 0, md.ram8(SWAP_PLANES) != 0), 0);
+    ride_frame(w);
 }
 
 // Before each line is drawn: the slide follows the scroll line by line. On a lag frame the game writes the scroll (and
@@ -644,7 +667,7 @@ void update_view(Wide& w, bool advance) {
 // camera against the new scroll: a one-frame jump of the picture the slide holds still.
 void pre_line_hook(void* host, int line) {
     Wide& w = *(Wide*)host;
-    if (!w.active) return;
+    if (!w.active || rug_ride(*w.md)) return;
     MegaDrive& md = *w.md;
     const int c = line_camera(md, line, md.ram8(SWAP_PLANES) != 0);
     if (c != w.cam) apply_slide(w, c, line);
@@ -1414,6 +1437,251 @@ bool tile_pool_make_room(MegaDrive& md) {
     return true;
 }
 
+// ---------------------------------------------------------------------------------------------------------------------
+// The Rug Ride wide (docs/re_md_wide.md section 7). The ride runs on the 4:3 game's ROM (the cheats, none of the
+// widescreen patches: MdAladdin::rom_for), so its RAM and timing are the 4:3 game's to the cycle; the view is slid by
+// -E (update_view) and the module only draws. Two things the 4:3 game never shows come into the view behind the carpet:
+// * Objects leaving on the left. The game despawns an object once it is $50 px left of the camera ($1ADE84: screen x
+//   -96), out of its own view but inside the wider one. The module keeps drawing it there - a ghost: its record as the
+//   game left it, its frame drawn from the ROM data the game draws it from, its animation stepped by the game's own code
+//   (on a CPU and a RAM copy of the module's) on every second iteration, as the game steps its objects - until it leaves
+//   the view or its animation ends it. (Nothing the ride sends moves in the cave: its treasures, walls and pickups
+//   stand; a lava splash erupts and sinks where it is - at speed the game despawns one half way.)
+// * Plane B's lava wave: a crest cut off straight at its back (ride_wave).
+constexpr uint32_t PC_WINDOW_DESPAWN = 0x1ADEDE;   // the object loop: a1 outside the window, despawned (bsr $1AE0B0)
+constexpr uint32_t PC_ANIMATE = 0x1AC796;          // the animation pass, odd iterations: every object a step
+constexpr uint32_t PC_ANIM_OBJECT = 0x1AC7DC, PC_ANIM_NEXT = 0x1AC842, PC_ANIM_DONE = 0x1AC846;   // its loop, per object
+constexpr uint32_t ANIM_RET = 0xFF7D9A, ANIM_SKIP = 0xFF7D9E, ANIM_MOVES = 0xFF7DA2, ANIM_COMMANDS = 0x4954;
+constexpr uint32_t SHAKE_Y = 0xFFF080;
+constexpr size_t GHOSTS_MAX = 16;
+
+// The game's animation step for one object ($1AC7DC with a1 = it, d4 = 0: its script at +$20 - frames, waits, loops,
+// jumps, calls - and the end that removes it), on a CPU of its own over a copy of RAM: what the object would do next had
+// the game kept it. Nothing it writes reaches the game.
+class AnimProbe {
+public:
+    AnimProbe() {
+        cpu.ctx = this;
+        cpu.rd8 = [](void*, uint32_t) -> uint8_t { return 0; };      // (I/O: VDP status, Z80 bus free at once)
+        cpu.rd16 = [](void*, uint32_t) -> uint16_t { return 0; };
+        cpu.wr8 = [](void*, uint32_t, uint8_t) {};
+        cpu.wr16 = [](void*, uint32_t, uint16_t) {};
+        cpu.trace_fn = [](void* c, uint32_t pc) { if ((pc & 0xFFFFFF) == 0) ((M68k*)c)->end_run(); };
+        cpu.trace_ctx = &cpu;
+    }
+
+    // One step for the record `obj` of the object at `addr`; false when it ended (or the step didn't return).
+    bool step(const MegaDrive& md, uint32_t addr, uint8_t* obj) {
+        memcpy(ram, md.ram, sizeof(ram));
+        memcpy(ram + (addr & 0xFFFF), obj, OBJ_SIZE);
+        put32(ANIM_RET, PC_ANIM_NEXT);   // (as the pass sets them: commands return through these)
+        put32(ANIM_SKIP, PC_ANIM_DONE);
+        ram[ANIM_MOVES & 0xFFFF] = 0;
+        for (int p = 0; p < 256; p++) cpu.page_read[p] = cpu.page_write[p] = nullptr;
+        for (int p = 0; p < 0x40 && !md.rom.empty(); p++) cpu.page_read[p] = const_cast<uint8_t*>(&md.rom[((size_t)p << 16) % md.rom.size()]);
+        for (int p = 0xE0; p < 0x100; p++) cpu.page_read[p] = cpu.page_write[p] = ram;
+        cpu.set_sr(0x2700);
+        cpu.stopped = false;
+        cpu.irq_level = 0;
+        cpu.r[4] = 0;                    // d4: the loop's last object
+        cpu.r[9] = addr;                 // a1
+        cpu.r[11] = DMA_QUEUE;           // a3: the frame's tile uploads (into the copy)
+        cpu.r[12] = ANIM_COMMANDS;       // a4
+        cpu.r[15] = 0xFFEF00;
+        cpu.write32(cpu.r[15] -= 4, 0);  // returns to address 0 (trace_fn stops there)
+        cpu.pc = PC_ANIM_OBJECT;
+        for (int used = 0; (cpu.pc & 0xFFFFFF) != 0 && used < 100000;) {
+            const int n = cpu.run(2000);
+            used += n;
+            if (n == 0) break;
+        }
+        if ((cpu.pc & 0xFFFFFF) != 0) return false;
+        memcpy(obj, ram + (addr & 0xFFFF), OBJ_SIZE);
+        return obj[0] != 0;
+    }
+
+private:
+    M68k cpu;
+    uint8_t ram[0x10000];
+    void put32(uint32_t a, uint32_t v) { for (int i = 0; i < 4; i++) ram[(a + i) & 0xFFFF] = (uint8_t)(v >> (24 - 8 * i)); }
+};
+
+struct RideView {
+    struct Ghost { uint32_t addr; uint8_t obj[OBJ_SIZE]; };   // the object's record and where it lived
+    std::vector<Ghost> ghosts;                                // (kept in save states: MdAladdin::save_ext)
+    struct Piece { int x, y, w, h; uint8_t attr; bool hf, vf; size_t data; };   // screen x / y, cells
+    std::vector<Piece> pieces;                                // this frame's, and the tiles they draw from
+    std::vector<uint8_t> tiles;
+    AnimProbe probe;
+};
+
+uint32_t obj32(const uint8_t* o, int k) { return (uint32_t)o[k] << 24 | o[k + 1] << 16 | o[k + 2] << 8 | o[k + 3]; }
+int obj16(const uint8_t* o, int k) { return (int16_t)(o[k] << 8 | o[k + 1]); }
+
+// An object's sprite pieces as the game would place them with camera (camx, camy). Its frame (+$14, ROM) is a word
+// (pieces - 1), 4 bytes, then 12 bytes a piece: its descriptor (a short address: +4 its tiles' bytes, +6 the SAT size
+// << 8, +8 / +9 its width / height), x / y offsets (bytes; flipped, -offset - width / height, still a byte), the DMA
+// source of its tiles (VDP registers 21-23 at +4 / +6 / +8) and the tiles the builder steps on by (+$A). The frame's
+// upload ($1AC6D0) writes the pieces' tiles one after another into the object's block; the builder ($1ABA0A) puts piece k
+// at VDP x offset + x - camera X, y offset + y - camera Y - $100 (+ the earthquake's shake), its pattern the block's plus
+// the tiles of the pieces before it, palette and priority from +$1E (+ the block's tile index), flipped by +9 / +$35.
+// Returns the screen x right of its rightmost piece (INT_MIN: nothing to draw).
+int ghost_pieces(const MegaDrive& md, const uint8_t* o, int camx, int camy, RideView& r) {
+    const uint32_t frame = obj32(o, 0x14) & 0xFFFFFF;
+    if (!frame || (o[7] & 0x20) || frame + 6 > md.rom.size()) return INT_MIN;   // (no frame, hidden)
+    const int n = md.rom16(frame) + 1;
+    if (n > 32 || frame + 6 + 12u * n > md.rom.size()) return INT_MIN;
+    const size_t block = r.tiles.size();
+    auto byte = [&](uint32_t a) -> uint8_t {
+        a &= 0xFFFFFF;
+        return a < md.rom.size() ? md.rom[a] : a >= 0xFF0000 ? md.ram[a & 0xFFFF] : 0;
+    };
+    for (int k = 0; k < n; k++) {   // the block, as the upload writes it
+        const uint32_t e = frame + 6 + 12 * k, desc = md.rom16(e);
+        const uint32_t src = (uint32_t)(md.rom16(e + 8) & 0x7F) << 17 | (uint32_t)(md.rom16(e + 6) & 0xFF) << 9 |
+                             (uint32_t)(md.rom16(e + 4) & 0xFF) << 1;
+        const int bytes = std::min<int>(md.rom16(desc + 4), 0x1000);
+        for (int i = 0; i < bytes; i++) r.tiles.push_back(byte(src + i));
+    }
+    const uint16_t attr = (uint16_t)(((obj32(o, 0x2E) >> 5) & 0xFFFF) + (uint16_t)obj16(o, 0x1E));
+    const int x0 = (int16_t)(obj16(o, 2) - camx) - (int16_t)md.ram16(SHAKE_X) - 128;   // (16 bits: the ride's camera wraps)
+    const int y0 = (int16_t)(obj16(o, 4) - camy) - 0x100 + (int16_t)md.ram16(SHAKE_Y) - 128;
+    int right = INT_MIN;
+    size_t tile = 0;
+    for (int k = 0; k < n; k++) {   // the pieces, as the builder places them
+        const uint32_t e = frame + 6 + 12 * k, desc = md.rom16(e);
+        const int size = (md.rom16(desc + 6) >> 8) & 0x0F;
+        RideView::Piece p;
+        p.w = ((size >> 2) & 3) + 1;
+        p.h = (size & 3) + 1;
+        uint8_t dx = md.rom[e + 2], dy = md.rom[e + 3];
+        p.hf = o[9] != 0;
+        p.vf = o[0x35] != 0;
+        if (p.hf) dx = (uint8_t)(-dx - md.rom[desc + 8]);
+        if (p.vf) dy = (uint8_t)(-dy - md.rom[desc + 9]);
+        p.x = x0 + dx;
+        p.y = y0 + dy;
+        p.attr = (uint8_t)(((attr & 0x8000) ? 0x80 : 0) | ((attr >> 13) & 3) << 4);
+        p.data = block + tile * 32;
+        if (p.data + (size_t)p.w * p.h * 32 <= r.tiles.size()) {
+            r.pieces.push_back(p);
+            right = std::max(right, p.x + 8 * p.w);
+        }
+        tile += md.rom16(e + 0xA);
+    }
+    return right;
+}
+
+// Before each frame: the ghosts' pieces, placed with the camera the frame's sprites were placed with - the floor's
+// scroll (plane A's bottom 56 lines: -(camera X + 16)) next to the camera in RAM, which can be the next iteration's
+// already; a ghost entirely left of the view is gone. No ghosts outside the ride's play.
+void ride_frame(Wide& w) {
+    RideView* r = w.ride;
+    if (!r) return;
+    MegaDrive& md = *w.md;
+    r->pieces.clear();
+    r->tiles.clear();
+    if (!w.active || !rug_ride(md)) {
+        r->ghosts.clear();
+        return;
+    }
+    const int ram_x = (int16_t)md.ram16(CAM_X);
+    int d = (ram_x + 16 + line_hscroll(md.vdp, 216, false)) & 511;
+    if (d >= 256) d -= 512;
+    const int camx = ram_x - d, camy = (int16_t)md.ram16(CAM_Y), left = -md.vdp.ext + md.vdp.view_shift;
+    for (size_t i = 0; i < r->ghosts.size();) {
+        const size_t np = r->pieces.size(), nt = r->tiles.size();
+        if (ghost_pieces(md, r->ghosts[i].obj, camx, camy, *r) > left) { i++; continue; }
+        r->pieces.resize(np);
+        r->tiles.resize(nt);
+        r->ghosts.erase(r->ghosts.begin() + i);
+    }
+}
+
+// At $1ADEDE (a1 outside the game's window, about to be despawned, its linked object, +$3E, with it): one leaving on
+// the left goes on as a ghost - $50 px or more left of the camera, the game's own test, but as a signed distance: the
+// test compares unsigned words, and once the ride's camera X has run past 65535 (some 55,000 px into the ride) objects
+// the script sends in at the 4:3 view's right edge are despawned at once; the 4:3 game shows them vanish there, and so
+// does the wider view. (The linked object that leaves with it likewise, when it is that far left too; ghosts are only
+// ever drawn left of the 4:3 area, so that stays the 4:3 game's.)
+void ride_despawn(Wide& w) {
+    RideView* r = w.ride;
+    MegaDrive& md = *w.md;
+    if (!r || !md.vdp.ext || !rug_ride(md) || !in_play(md)) return;
+    auto keep = [&](uint32_t a) {
+        if (a <= OBJECTS || a >= OBJECTS + 32 * OBJ_SIZE || (a - OBJECTS) % OBJ_SIZE || !md.ram8(a) || (md.ram8(a + 6) & 8)) return;
+        if ((int16_t)(md.ram16(a + 2) - md.ram16(CAM_X)) >= -0x50) return;
+        if (r->ghosts.size() >= GHOSTS_MAX) r->ghosts.erase(r->ghosts.begin());
+        RideView::Ghost g;
+        g.addr = a;
+        for (int i = 0; i < OBJ_SIZE; i++) g.obj[i] = md.ram8(a + i);
+        r->ghosts.push_back(g);
+    };
+    const uint32_t o = md.cpu.r[9] & 0xFFFFFF;
+    keep(o);
+    keep(md.ram32(o + 0x3E) & 0xFFFFFF);
+}
+
+// At $1AC796 (the animation pass of an odd iteration): the ghosts step on with the game's objects.
+void ride_animate(Wide& w) {
+    RideView* r = w.ride;
+    if (!r) return;
+    for (size_t i = 0; i < r->ghosts.size();) {
+        if (r->probe.step(*w.md, r->ghosts[i].addr, r->ghosts[i].obj)) i++;
+        else r->ghosts.erase(r->ghosts.begin() + i);
+    }
+}
+
+// Plane B's lava wave (the picture's lines 24-159, scrolled by $FFF0A2: a pixel every 64 frames, so it creeps up behind
+// the carpet) is a crest cut off straight at its back (plane x 72, its top there at line 39), which the 4:3 game never
+// shows: the cut starts 118 px left of its screen and comes to 28 px short of it by the ride's end. The view behind the
+// carpet shows it, so the wave's back goes on from there: its top on down at the crest's own slope (12 px in 27) toward
+// the lava, its body the 16 px at the cut repeated, squeezed into the lower height.
+constexpr int WAVE_X = 72, WAVE_TOP = 39, WAVE_BOTTOM = 159;
+void ride_wave(const MegaDrive& md, int line, uint8_t* lb) {
+    const VDP& v = md.vdp;
+    if (line < WAVE_TOP || line > WAVE_BOTTOM || (v.vsram[1] & 0x3FF) != 0 || (v.reg[16] & 3) != 1) return;
+    const uint32_t nt = (v.reg[4] & 7) << 13;
+    uint8_t row[8];
+    auto pixel = [&](int x, int y) {   // plane B (64 x 32 cells) at (x, y)
+        v.pattern_row(v.vram16(nt + (((y >> 3) & 31) * 64 + ((x >> 3) & 63)) * 2), y & 7, row);
+        return row[x & 7];
+    };
+    if (!(pixel(WAVE_X, 150) & 15) || (pixel(WAVE_X - 1, 150) & 15)) return;   // (not the ride's picture)
+    const int cut = ((WAVE_X + line_hscroll(v, line, true)) & 511) - 512, left = -v.ext + v.view_shift;
+    for (int x = left; x < cut; x++) {
+        const int d = cut - x, top = WAVE_TOP + d * 4 / 9;
+        uint8_t& p = lb[x - left];
+        if (line < top || top >= WAVE_BOTTOM || (p & 15)) continue;
+        p = pixel(WAVE_X + (16 - d % 16) % 16, WAVE_BOTTOM - (WAVE_BOTTOM - line) * (WAVE_BOTTOM - WAVE_TOP) / (WAVE_BOTTOM - top));
+    }
+}
+
+// A line of the ride: the wave's back on plane B, the ghosts behind the game's sprites, left of the 4:3 area.
+void ride_line(Wide& w, int line, uint8_t* plane_b, uint8_t* sprites) {
+    const MegaDrive& md = *w.md;
+    ride_wave(md, line, plane_b);
+    if (!w.ride) return;
+    const RideView& r = *w.ride;
+    const int TW = std::min(320 + 2 * md.vdp.ext, md.vdp.ext - md.vdp.view_shift), at = md.vdp.ext - md.vdp.view_shift;   // (at: screen x 0)
+    for (const RideView::Piece& p : r.pieces) {
+        int row = line - p.y;
+        if (row < 0 || row >= 8 * p.h) continue;
+        if (p.vf) row = 8 * p.h - 1 - row;
+        for (int c = 0; c < p.w; c++) {
+            const int col = p.hf ? p.w - 1 - c : c;
+            const uint8_t* t = &r.tiles[p.data + (size_t)(col * p.h + (row >> 3)) * 32 + (row & 7) * 4];
+            for (int k = 0; k < 8; k++) {
+                const int i = p.x + 8 * c + k + at;
+                if (i < 0 || i >= TW || (sprites[i] & 15)) continue;
+                const int q = p.hf ? 7 - k : k;
+                const uint8_t c4 = (q & 1) ? (t[q >> 1] & 15) : (t[q >> 1] >> 4);
+                if (c4) sprites[i] = p.attr | c4;
+            }
+        }
+    }
+}
+
 int sprite_xoff_hook(void* host, int index, uint16_t attr, int x, int y) {
     const Wide& w = *(Wide*)host;
     return w.active ? sprite_xoff(*w.md, index, attr, x, y) : 0;
@@ -1421,13 +1689,13 @@ int sprite_xoff_hook(void* host, int index, uint16_t attr, int x, int y) {
 bool sprite_is_hud_hook(void* host, int index) { return sprite_is_hud(*((Wide*)host)->md, index); }
 
 void line_hook(void* host, int line, uint8_t* plane_a, uint8_t* plane_b, uint8_t* sprites) {
-    (void)sprites;
     Wide& w = *(Wide*)host;
     MegaDrive& md = *w.md;
     VDP& v = md.vdp;
     v.edge_mask_l = v.edge_mask_r = 0;
-    // (The Rug Ride doesn't stream: plane A is one 512-px loop of the lava cave the camera runs along, its "map" nominal.)
     if (!w.active) return;
+    // (The Rug Ride doesn't stream: its planes are 512-px loops of the lava cave the VDP wraps, its "map" nominal.)
+    if (rug_ride(md)) return ride_line(w, line, plane_b, sprites);
     const int E = v.ext, TW = 320 + 2 * E;
     if (w.shift_a_on && w.shift_a[line] != v.view_shift)   // plane A's own slide (the renderer used the view's)
         v.render_plane(plane_a, line, false, -E + w.shift_a[line], 320 + E + w.shift_a[line]);
@@ -1530,15 +1798,25 @@ public:
     // routine runs or a demo plays the ROM is the original, no cheat touches RAM and the picture is 4:3; the ROM
     // switches at the first frame boundary where it is safe (pre_frame) - the title's own screens lie between a game's
     // start and its first level, and between the demo flag and the demo's level.
+    // The Rug Ride runs on the 4:3 game's ROM (the cheats, none of the widescreen patches): its view is widened by
+    // drawing only (RideView), so the ride is the 4:3 game's to the cycle. The stories and title cards around it lie
+    // between it and the levels on either side.
+    enum class Rom { Wide, Attract, Ride };
+    static Rom rom_kind(const MegaDrive& md) { return attract(md) ? Rom::Attract : rug_ride(md) ? Rom::Ride : Rom::Wide; }
     static std::vector<RomPatch> rom_for(const MegaDrive& md, const GameConfig& cfg) {
-        return attract(md) ? std::vector<RomPatch>() : patch_list(cfg);
+        switch (rom_kind(md)) {
+        case Rom::Attract: return {};
+        case Rom::Ride: { GameConfig c = cfg; c.ext = 0; return patch_list(c); }
+        default: return patch_list(cfg);
+        }
     }
+    bool wide_rom() const { return rom_ == Rom::Wide; }   // (the widescreen patches' hooks work on them)
 
     bool can_configure(const MegaDrive& md, const GameConfig& cfg) const override { return patches_safe(md, rom_for(md, cfg)); }
 
     void configure(MegaDrive& md, const GameConfig& cfg) override {
         apply_patches(md, rom_for(md, cfg));
-        rom_attract_ = attract(md);
+        rom_ = rom_kind(md);
         md.clear_pc_hooks();
         auto play = [](MegaDrive& m) { m.module_state[MS_PLAY] = ((uint32_t)m.frame_count + 1) & PLAY_FRAME; m.module_state[MS_FADE] = 0; };
         auto leave = [](MegaDrive& m) { m.module_state[MS_PLAY] = 0; m.module_state[MS_FADE] = 0; };
@@ -1554,32 +1832,37 @@ public:
         md.add_pc_hook(PC_FADE_IN, fade);
         md.add_pc_hook(PC_RESPAWN_FADE, fade);
         const bool wide = cfg.ext > 0;
-        // (with the widescreen patches only: in the attract mode and at 4:3 the pool is the original's)
+        // (with the widescreen patches only: in the attract mode, the Rug Ride and at 4:3 the pool is the original's)
         if (wide) {
-            md.add_pc_hook(PC_TILES_FULL, [this](MegaDrive& m) { if (!rom_attract_) tile_pool_make_room(m); });
+            md.add_pc_hook(PC_TILES_FULL, [this](MegaDrive& m) { if (wide_rom()) tile_pool_make_room(m); });
             for (const SlotSearch& ss : kSlotSearches)
-                md.add_pc_hook(ss.rts, [this, &ss](MegaDrive& m) { if (!rom_attract_ && in_play(m)) slot_search_done(m, ss); });
+                md.add_pc_hook(ss.rts, [this, &ss](MegaDrive& m) { if (wide_rom() && in_play(m)) slot_search_done(m, ss); });
             for (const BossHandler& h : kBossHandlers)
-                md.add_pc_hook(h.at, [this, &h](MegaDrive& m) { if (!rom_attract_) boss_tune_spawned(m, h); });
-            md.add_pc_hook(PC_LOAD_LINE2, [this](MegaDrive& m) { if (!rom_attract_) line2_load(m); });
+                md.add_pc_hook(h.at, [this, &h](MegaDrive& m) { if (wide_rom()) boss_tune_spawned(m, h); });
+            md.add_pc_hook(PC_LOAD_LINE2, [this](MegaDrive& m) { if (wide_rom()) line2_load(m); });
             // After the streaming: held tunes and colours; the carpet at the idol's kill (carpet_due), else while a boss
             // framing is in force the band's outer columns (band_refresh)
             md.add_pc_hook(PC_STREAMED, [this](MegaDrive& m) {
                 boss_tune_held(m);
-                if (rom_attract_) return;
+                if (!wide_rom()) return;
                 line2_moments(m);
                 if (!carpet_due(m, *wide_)) band_refresh(m, *wide_);
             });
             md.add_pc_hook(PC_LEVEL_LOAD, [](MegaDrive& m) { m.module_state[MS_PAL2] = 0; m.module_state[MS_DEV] &= ~(BF_MASK | CARPET_DUE); });
-            md.add_pc_hook(PC_IDOL_BEATEN, [this](MegaDrive& m) { if (!rom_attract_) m.module_state[MS_DEV] |= CARPET_DUE; });
+            md.add_pc_hook(PC_IDOL_BEATEN, [this](MegaDrive& m) { if (wide_rom()) m.module_state[MS_DEV] |= CARPET_DUE; });
             md.add_pc_hook(CAVE_REACH, [this](MegaDrive& m) { reach_hook(m, *wide_); });
-            md.add_pc_hook(PC_COL_CALL, [this](MegaDrive& m) { if (!rom_attract_) spawn_call(m, PC_COL_RET); });
-            md.add_pc_hook(PC_ROW_CALL, [this](MegaDrive& m) { if (!rom_attract_) spawn_call(m, PC_ROW_RET); });
-            md.add_pc_hook(PC_SPAWN_KEEP, [this](MegaDrive& m) { if (!rom_attract_) spawn_keep(m, *wide_); });
-            md.add_pc_hook(PC_COL_RET, [this](MegaDrive& m) { if (!rom_attract_) line2_filled(m); });
-            md.add_pc_hook(PC_ROW_RET, [this](MegaDrive& m) { if (!rom_attract_) line2_filled(m); });
+            md.add_pc_hook(PC_COL_CALL, [this](MegaDrive& m) { if (wide_rom()) spawn_call(m, PC_COL_RET); });
+            md.add_pc_hook(PC_ROW_CALL, [this](MegaDrive& m) { if (wide_rom()) spawn_call(m, PC_ROW_RET); });
+            md.add_pc_hook(PC_SPAWN_KEEP, [this](MegaDrive& m) { if (wide_rom()) spawn_keep(m, *wide_); });
+            md.add_pc_hook(PC_COL_RET, [this](MegaDrive& m) { if (wide_rom()) line2_filled(m); });
+            md.add_pc_hook(PC_ROW_RET, [this](MegaDrive& m) { if (wide_rom()) line2_filled(m); });
+            // The Rug Ride: objects despawned behind the carpet go on as ghosts, stepped with the game's (RideView)
+            md.add_pc_hook(PC_WINDOW_DESPAWN, [this](MegaDrive&) { if (rom_ == Rom::Ride) ride_despawn(*wide_); });
+            md.add_pc_hook(PC_ANIMATE, [this](MegaDrive&) { if (rom_ == Rom::Ride) ride_animate(*wide_); });
         }
         wide_->md = &md;
+        wide_->ride = ride_.get();
+        if (!wide) ride_->ghosts.clear();   // (4:3: none to draw, none to save)
         md.vdp.line_hook = wide ? line_hook : nullptr;
         md.vdp.pre_line_hook = wide ? pre_line_hook : nullptr;
         md.vdp.sprite_xoff = wide ? sprite_xoff_hook : nullptr;
@@ -1596,11 +1879,11 @@ public:
     }
 
     void pre_frame(MegaDrive& md, const GameConfig& cfg) override {
-        if (attract(md) != rom_attract_) {
+        if (rom_kind(md) != rom_) {
             const std::vector<RomPatch> rom = rom_for(md, cfg);
             if (patches_safe(md, rom)) {   // (else a later frame)
                 apply_patches(md, rom);
-                rom_attract_ = !rom_attract_;
+                rom_ = rom_kind(md);
             }
         }
         // The developers' debug-screen options: set while the cheat is on in a game, cleared once when it is switched
@@ -1630,9 +1913,38 @@ public:
         sprite_x10(md, cfg.ext);
     }
 
-    // Sprite X read as 10 bits only in play (the other screens, shown 4:3, may leave junk in the upper bits)
+    // Sprite X read as 10 bits only in play (the other screens, shown 4:3, may leave junk in the upper bits), and not
+    // in the Rug Ride (the 4:3 game's ROM: X 0..$1BE, as on the real chip)
     static void sprite_x10(MegaDrive& md, int E) {
-        md.vdp.sprite_x10 = E > 0 && in_gameplay(md) && (448 + 2 * E > 512 || sprite_left(E) > 0);
+        md.vdp.sprite_x10 = E > 0 && in_gameplay(md) && !rug_ride(md) && (448 + 2 * E > 512 || sprite_left(E) > 0);
+    }
+
+    // Save states (rewind too): besides module_state, the Rug Ride's ghosts - objects the game has despawned behind the
+    // carpet that the view still shows (RideView): a version byte, their count, then each one's slot address (4 bytes)
+    // and record. Nothing when there are none; an older state (none) has no ghosts.
+    static constexpr uint8_t EXT_VERSION = 1;
+    std::vector<uint8_t> save_ext() const override {
+        std::vector<uint8_t> d;
+        if (ride_->ghosts.empty()) return d;
+        d.push_back(EXT_VERSION);
+        d.push_back((uint8_t)ride_->ghosts.size());
+        for (const RideView::Ghost& g : ride_->ghosts) {
+            for (int i = 0; i < 4; i++) d.push_back((uint8_t)(g.addr >> (24 - 8 * i)));
+            d.insert(d.end(), g.obj, g.obj + OBJ_SIZE);
+        }
+        return d;
+    }
+
+    void load_ext(const uint8_t* d, size_t n) override {
+        ride_->ghosts.clear();
+        if (n < 2 || d[0] != EXT_VERSION || d[1] > GHOSTS_MAX || n != 2 + (size_t)d[1] * (4 + OBJ_SIZE)) return;
+        for (int k = 0; k < d[1]; k++) {
+            const uint8_t* e = d + 2 + k * (4 + OBJ_SIZE);
+            RideView::Ghost g;
+            g.addr = (uint32_t)e[0] << 24 | e[1] << 16 | e[2] << 8 | e[3];
+            std::memcpy(g.obj, e + 4, OBJ_SIZE);
+            ride_->ghosts.push_back(g);
+        }
     }
 
     std::vector<AchievementDef> achievements() const override {
@@ -1712,9 +2024,13 @@ public:
             if (apples >= 50) fire(A_APPLES);
             if (digits(s, GEMS, 2) < digits(p, GEMS, 2)) fire(A_PEDDLER);
         }
-        // a level is over: by the game, or by the pause screen's level-skip code (never counted, and the run is over)
-        if (!s.b(LEVEL_END) || p.b(LEVEL_END)) return;
-        if (s.b(PAUSED) || p.b(PAUSED)) { c.run_bits |= R_DEV; c.scratch[S_ATT] = 0; return; }
+        // a level is over: by the game, or by the pause screen's level-skip code (never counted, and the run is over).
+        // The Rug Ride's end (its script's last entry, $F2 at $1B5B3A) sets the flag to 1 only for a moment - the
+        // gameplay loop counts it down in the same iteration, so a frame's RAM hardly ever shows it - and $FFF005 for
+        // good: that one's rising edge is the end of the ride. (The third crash, the game's mercy, sets the flag to $FF.)
+        const bool ride_end = level == L_RUG_RIDE && s.b(RIDE_DONE) && !p.b(RIDE_DONE);
+        if (!ride_end && (!s.b(LEVEL_END) || p.b(LEVEL_END))) return;
+        if (!ride_end && (s.b(PAUSED) || p.b(PAUSED))) { c.run_bits |= R_DEV; c.scratch[S_ATT] = 0; return; }
         switch (level) {
         case L_MARKET: fire(A_MARKET); break;
         case L_DESERT: fire(A_DESERT); break;
@@ -1823,7 +2139,8 @@ public:
 
 private:
     std::unique_ptr<Wide> wide_{new Wide};
-    bool rom_attract_ = false;   // the ROM is the attract mode's (original)
+    std::unique_ptr<RideView> ride_{new RideView};
+    Rom rom_ = Rom::Wide;   // the ROM the game runs on now (rom_for)
 
 };
 

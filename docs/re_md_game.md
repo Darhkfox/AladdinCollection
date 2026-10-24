@@ -54,8 +54,13 @@ RAM `$FFxxxx` is written `$xxxx` below; ROM addresses are plain.
 | `$F57C` | b | 1 during the attract demos (table `$4B04`: input recording + level, 5 demos) |
 | `$F57D` / `$F57F` | b | sound effects / music on (OPTIONS) |
 | `$F165` | b | planes swapped: the level map is on plane B (Sultan's Dungeon) |
-| `$F173` | b | Rug Ride mode |
+| `$F173` | b | Abu's bonus rounds (set by their inits `$1B6394` / `$1B6478`): no camera moves |
 | `$F006` | b | Rug Ride crashes: the first two cost a life, the third ends the ride (`$1A8F5A`, the game's mercy) |
+| `$F086` / `$F088` / `$F084` | w | Rug Ride: speed (px an iteration, 6 at the start), iterations toward the next speed-up (310), distance toward the next script entry (192) (§2.1) |
+| `$F12E` | l | Rug Ride: script position (ROM `$262F`, §2.1) |
+| `$F0A2` | w | Rug Ride: plane B's lava wave scroll (320 at the start, +1 every 64 frames) |
+| `$F005` | b | `$FF` once the Rug Ride is completed (its script's `$F2`, `$1B5B42`); cleared at a new game (`$1AA6EE` clears `$EFDC`-`$F006`) |
+| `$7DEA` | l | random seed (`$1B3032`: × 13 + 7); `$BC614E` as an attract demo's level starts (`$1A8C0C`), in a game it runs on from power-on |
 | `$7E20` / `$7273` / `$7E25` | b | debug screen options: CHEAT MODE, MAP VIEW MODE, FREEZEABILITY (§3.2) |
 | `$7E28` | b | frame counter of the gameplay loop |
 | `$7276` | l | position in the current button code (`$4128` pause code, `$413A` OPTIONS code) |
@@ -121,6 +126,43 @@ cut-scene and title card as after the level before it — the player skips them 
 difficulty as at a new game (`$1B0046`, `$1AA66E`); continues stay as power-on gave them (1).
 `tools/re/md_util.start_play` (used by the md_* scripts) taps START through the card until the level init
 (`$1AA484`) and runs to the first frame of play; `tools/re/md_levels.py` makes a state of every level.
+
+### 2.1 The Rug Ride (level 8)
+
+The escape from the Cave of Wonders on the carpet, ahead of a lava wave. Header: init `$1B64D0`, per-iteration
+routine `$1B6066`, scroll routine `$1AAEFC`; the map (15000 × 16) is nominal: it is never streamed.
+* **Flight.** The gameplay loop's player routine goes to `$1A9D18` for level 8: the carpet (object 1, template
+  `$1B7DC8`) and Aladdin move `$F086` px right an iteration and the camera keeps Aladdin at screen x 120 (124 after
+  the camera code's own step), so camX runs on by exactly the speed; UP / DOWN move Aladdin's screen y (`$7DFC`) 4 px
+  an iteration between `$10E` and `$18A`; the flight takes no other input. The speed starts at 6 and goes up by one
+  every 310 iterations (`$F088`), with no cap: 24 px an iteration by the end, some 5,750 iterations (96 s) for the
+  whole ride if it is flown without a crash. camX passes 65535 about 55,000 px into the ride and wraps (the word is
+  unsigned; the game's own despawn test then takes objects at once as they are sent in, which the original shows).
+* **Scroll.** H scroll per 8-line row (reg 11 = 2), V scroll 0. Plane A: rows 0-20 (the cave's curtain) at camX / 2,
+  rows 21-27 (the lava floor) at camX. Plane B: rows 0-2 (the roof) at camX; rows 3-19 (lines 24-159) the **lava
+  wave** at `$F0A2` (320 at the start, +1 every 64 frames: it creeps up from the left, its crest's right edge from
+  screen x −3 to about 90 by the ride's end); rows 20-23 at 3/4 camX and 24-27 at 2 camX (lava). Both planes are
+  512-px pictures loaded once (plane B: header +`$1C` = `$12B428`); everything but the wave is a seamless loop. The
+  wave is a crest of 118 px at plane x 72-190 on an empty band, cut off straight at its back (x 72, its top at line 39).
+* **The script.** Every iteration `$F084` += speed; each time it passes 192 (every 192 px of the ride, so at the same
+  places whatever the speed) the next pair of bytes of the script at ROM `$262F` (`$F12E`) is run: a command `$E6`-
+  `$FF` (handlers at `$20C0` + 4 × (command − `$E6`)) and a parameter. 443 entries up to `$F2` (`$1B5B3A`: the
+  level over, `$F0E9` = 1 - counted down in the same iteration - and `$F005` = `$FF`). The ride's: `$FE` (321) a
+  treasure (object `$42`, template `$1B814C`: a static 16 × 24 pickup that scores; their heights trace the way
+  through), `$F7` (29) a pair of rock piles (`$54`, `$1B8160`, 32 px apart) from the lava (y `$88`), the roof (`$30`)
+  or in mid-air, `$F3` (39) `$F10B` = parameter, `$FA` / `$FB` / `$F9` / `$F4` (29) the Genie's warning signs
+  (template `$1B8138`, screen-fixed at VDP (398, 356) and rising), `$F8` (9) an extra life (`$46`, unless 9 lives),
+  `$F5` / `$F6` (9) gem (`$3A`, unless 99) / `$34`, `$FF` (6) nothing. Each object is put at camX + 320 (screen x 304;
+  its sprite shows from x 305-314, inside the 4:3 view's right edge) and y = camY + 256 + parameter, and stays there
+  in the cave (no movement script, no speed); only its animation runs. After every entry a random number
+  (`$1B3032`: seed `$7DEA` × 13 + 7, running on through the game - not reset for the ride or its restarts) below `$46`
+  sends a lava splash (`$84`, `$1B7EE0`) at screen x 304 down in the lava: it erupts and sinks in 47 frames. The only other
+  random numbers are drawn by collect effects' animations (`$1AC950`).
+* **Crashes.** A rock pile ends the flight (invincibility doesn't cover it); `$1A8F5A` counts it in `$F006`: the first
+  two take a life and the ride starts over from the beginning (script, speed, wave; the seed runs on), the third ends
+  the level (`$F0E9` = `$FF`: the game's mercy; the next level follows as after a completed ride).
+* `$F173` (often taken for the ride's flag) is set by Abu's bonus rounds' inits (`$1B6394`, `$1B6478`): the camera
+  code returns at once while it is set.
 
 ## 3. Cheats
 
@@ -194,5 +236,8 @@ QuackShot in the same core (music RMS about 2600-3000 vs. 2400-3600), so `audio_
 * Abu's round: the script position changes onto level 2 or 6. The Genie's wheel: a level over with `$F003` > 0
   (not the Sultan's Palace). The peddler: gems falling while Aladdin is in play (a continue resets them off play).
   The attract demos (`$F57C`) are skipped.
-* Magic Carpet Ride: the end of the Rug Ride, not by the mercy after a third crash (`$F006` ≥ 3).
+* Magic Carpet Ride: the end of the Rug Ride, not by the mercy after a third crash (`$F006` ≥ 3). The ride's end sets
+  `$F0E9` to 1 only for a moment (the gameplay loop counts it down in the same iteration: a frame's RAM hardly ever
+  shows it, so the award was missed), and `$F005` for good: its rising edge in level 8 counts as the level over.
+  `tools/re/md_wide_rug.py` flies the whole ride: `md_escape` (and the Genie's wheel) unlocked on the frame it ends.
 * `md_jafar`: the end of Jafar's Palace, the last level (the ending follows).

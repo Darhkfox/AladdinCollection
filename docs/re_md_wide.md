@@ -12,12 +12,14 @@ Cave's stepping stones: copies per block and stones missing from the view), `md_
 framing: views at the arena's ends, lurches), `md_wide_carpet.py` (the carpet after the idol: when it spawns, shows and
 picks Aladdin up, beaten beside either pedestal), `md_attract.py` (the
 attract mode at every width, with and without cheats, against widescreen off), `md_apptest.py` (the real app's
-autotest on level states: HUD, pillarboxing as the player sees them). `md_util.start_play` starts a level through the
+autotest on level states: HUD, pillarboxing as the player sees them), `md_wide_rug.py` (the Rug Ride at 4:3 and wide
+with the same input: RAM, lag, the 4:3 area of the picture, ghosts, achievements; `--states` its save states),
+`md_parity.py` (the module at 4:3 against the bare core, every level). `md_util.start_play` starts a level through the
 module's level select and skips its story card (START) until the first frame of play.
 
 **Recipe**
 1. The planes are not patched: the map plane's columns outside what the game keeps valid are drawn per line from the
-   level map in RAM (`line_hook`, §2). The Rug Ride (a 512-px loop, no map) keeps the VDP's own wrap.
+   level map in RAM (`line_hook`, §2). The Rug Ride (512-px loops, no map) keeps the VDP's own wrap (§7).
 2. Near a level's ends the picture slides (`view_shift`) so the widened view shows only what the 4:3 game shows; the
    game's camera is untouched. Plane B slides by what the level's own scroll routine gives for the moved camera; the
    slide follows the scroll line by line (§5). In a boss fight the slide frames the arena's centre (§5, Boss fights).
@@ -26,7 +28,10 @@ module's level select and skips its story card (START) until the first frame of 
    room from objects out of sight (the tile pool compacted), and the sprite clip covers ±2E (§3).
 4. HUD sprites are moved to the screen edges and kept still while the view slides (`sprite_xoff`, §4).
 5. Gameplay = a level fading in, the gameplay or pause loop ran in the last 4 frames, or an iteration of the gameplay
-   loop is still under way (PC hooks, §6); Abu's bonus rounds and the Rug Ride are shown 4:3. The attract mode (title, demos) runs on the original ROM, cheats off (§6).
+   loop is still under way (PC hooks, §6); Abu's bonus rounds are shown 4:3. The attract mode (title, demos) runs on the original ROM, cheats off (§6).
+6. The Rug Ride runs on the 4:3 game's ROM (the cheats only) and is shown with all the extra width behind the carpet:
+   the view slid by −E for good, objects the game despawns there drawn on by the module (ghosts, animated by the game's
+   own code on a CPU of the module's), the lava wave's cut-off back drawn on (§7).
 
 ## 1. Camera and streaming
 
@@ -60,9 +65,9 @@ line hook straight from the RAM map, with this line's own scroll and the frame's
 * block → name-table word → `VDP::pattern_row` (VRAM tiles, so animated tiles animate), with the priority bit.
 The planes in VRAM are untouched, so nothing depends on how the view got there: width changes mid-level, loaded
 states and the level-start fill need nothing extra. The picture on plane B is a 512×256 image the game scrolls
-endlessly (header +`$1C`), so the VDP's wrap-around shows it right in the extension. The Rug Ride (`$F173`) never
-streams: plane A is one 512-px loop of the lava cave and camX runs on; its "map" (15000 × 16) is nominal, so no
-drawing there.
+endlessly (header +`$1C`), so the VDP's wrap-around shows it right in the extension. The Rug Ride never streams:
+its planes are 512-px loops of the lava cave and camX runs on; its "map" (15000 × 16) is nominal, so no drawing from
+it there (§7).
 
 ## 3. Objects and sprites
 
@@ -371,9 +376,7 @@ the idol on the far pedestal cut at the right edge; in Jafar's hall at the left 
   itself follows the scroll per line); `FrameInfo::gameplay` reports it as drawn.
 * 4:3: logos, title, OPTIONS, the debug screen, story cut-scenes and title cards, the instructions, "Level
   Complete", the Genie's wheel, the death screen, continue / game over, the ending and credits; Abu's bonus rounds
-  (a 336-px room: 8 px a side more) and the **Rug Ride**: its obstacles are sent in at the 4:3 view's right edge
-  (screen x 320) on a timer — wider, they would pop up in the middle of the right extension, and sending them in
-  earlier would change the ride.
+  (a 336-px room: 8 px a side more). The Rug Ride is wide, its own way (§7).
 * **Attract mode**: the demos replay recorded input (`$F57C` = 1, the recording at (`$F576`), table `$4B04`, five
   demos), so anything that changes the code they run - the widescreen patches' spawning, a cheat's patch or RAM write
   - changes their course. From power-on through the title routine and while a demo plays, the ROM is the original
@@ -389,7 +392,65 @@ the idol on the far pedestal cut at the right edge; in Jafar's hall at the left 
   (`patches_safe`); the extension is drawn from the map at once. Objects in the newly shown columns appear when the
   view next streams their column or row.
 
-## 7. Checks
+## 7. The Rug Ride
+
+The ride's own logic: re_md_game.md §2.1. The carpet flies right at the ride's pace with Aladdin at screen x 120; the
+script sends every rock pile, pickup, sign and lava splash in at camX + 320 (screen x 304: their sprites show from x
+305-314, just inside the 4:3 view's right edge), every 192 px of the ride, and they stay put in the cave. Right of
+screen x 320 a wider view would show nothing of what is coming there, and things would appear in the middle of it.
+Sending them in earlier, further right, so that they reach the 4:3 edge as before, changes the ride: the ticks go by
+distance and the place could be kept, but an object sent in earlier lives longer - a splash's 47 frames are timed (it
+would be further through its eruption by the time it came into the 4:3 view), animations would run at another phase,
+the random numbers that pick the splashes are drawn by collect effects' animations too (another order of draws), more
+objects compete for slots and sprite tiles, and the 68000's time differs (lag frames). Drawing what is coming from a
+look-ahead would mean running the game ahead (the player decides the crashes) or remaking its objects. So:
+* **All the extra width behind the carpet.** The view is slid by −E for good (`update_view`): screen x −2E … 319, every
+  plane and every line alike, so the 4:3 picture is the view's right part exactly and its right edge the 4:3 game's -
+  the same look ahead, the same ride. The left part shows the cave behind: what Aladdin passed, and the lava wave that
+  chases him (at 4:3 it only creeps in from the left late in the ride). Aladdin stands 2E + 120 px from the view's
+  left edge: 228 of 428 at 16:9, 376 of 576 at 21:9 (CRT pixels).
+* **The 4:3 game's ROM.** The ride runs on the ROM the 4:3 game runs on: the cheats, none of the widescreen patches
+  (`MdAladdin::rom_for`, switched at a safe frame boundary as for the attract mode; the story cards lie between the
+  ride and the levels on either side). With the patches, their code cost cycles (a restart after a crash took a frame
+  longer than at 4:3) and their despawn window kept objects alive behind the carpet whose animations
+  then drew random numbers (the collect effect's random jump, `$1AC950`): at 21:9 the seed, and with it the splashes,
+  went another way within 800 frames. On the 4:3 ROM the 68000 runs the same code to the cycle: RAM, lag frames and
+  the ride are the 4:3 game's. The module only draws; its hooks that write RAM work only on the widescreen ROM
+  (`wide_rom()`).
+* **Ghosts** (`RideView`). The game despawns an object once it lies `$50` px left of the camera (`$1ADE84`: screen x
+  −96, out of its view - its sprite reaches x −14 at most - but inside the wider one). At the despawn (`$1ADEDE`, a1)
+  the module keeps the object's record (and its linked one's, +`$3E`, if that is as far left) and draws it on where it
+  is in the cave: its frame from the ROM data the game draws it from (+`$14`: pieces, offsets, sizes, flips and the
+  DMA source of their tiles - the upload `$1AC6D0` and the sprite builder `$1ABA0A` mirrored), placed with the camera
+  the frame's sprites were placed with (the floor's scroll, plane A lines 168-223, next to the camera in RAM), behind
+  the game's sprites and only left of the 4:3 area. Its animation steps on when the game's do (`$1AC796`, odd
+  iterations), by the game's own code (`$1AC7DC` for that one object) on a CPU and a RAM copy of the module's
+  (`AnimProbe`, as `ScrollProbe`): a splash despawned half-way (from speed 9 on) erupts and sinks on behind the
+  carpet, a pickup or a rock pile stays as it was; its animation's end (`$F6 00`) ends the ghost, as does leaving the
+  view. The takeover is exact (a pickup across its despawn: the same 210 sprite pixels, 6 px further each frame). The
+  despawn test compares unsigned words: once camX has wrapped past 65535 (about 55,000 px into the ride) the game
+  despawns what it sends in at the right edge at once, and the 4:3 game shows it vanish there; ghosts are taken only
+  `$50` px left of the camera as a signed distance, so the wider view shows that as the 4:3 game does. Up to 16
+  ghosts; save states and rewind carry them in the module's part (`save_ext`: version 1, count, slot address and
+  record each). An older state has none: what had left the 4:3 game's window by then is missing behind the carpet
+  until it would have left the view.
+* **The wave's back** (`ride_wave`). Plane B's wave (lines 24-159, scrolled by `$F0A2`) is a crest cut off straight at
+  its back (plane x 72, its top at line 39): 118 px left of the 4:3 screen at the start and 28 px short of it at the
+  end, so never seen at 4:3 but in the view behind the carpet at every width. The wave's body is drawn on from the
+  cut in plane B's line buffer: its top going on down at the crest's own slope (12 px in 27) toward the lava at line
+  159, the 16 px at the cut repeated and squeezed into the lower height. The wave's copy 512 px on (the plane's loop)
+  lies right of the view (x ≥ 392): the wave shows once. Everything else in both planes is a seamless loop (curtain
+  and lava at camX / 2 and camX, the roof, the lava bands at 3/4 and 2 camX), which the VDP's wrap shows right in a
+  576-px view.
+* **HUD and signs.** Anchored, the HUD goes to the view's edges as in every level; unanchored, it stays on the 4:3 area
+  (the 4:3 screen is the view's right part). The Genie's warning signs (screen-fixed objects; the 4:3 ROM doesn't mark
+  them, so `sprite_xoff` moves them with the view) stay where the 4:3 game has them, on the 4:3 area. Sprite X is read
+  as 9 bits (the 4:3 ROM's clip keeps it in 0..`$1BE`).
+* **Magic Carpet Ride**: the award was missed at 4:3 too (`$F0E9` is 1 only for a moment); now `$F005`'s rising edge
+  counts (re_md_game.md §5).
+* No module state: the slide is the ride's level id; the ghosts are the module's own (save extension).
+
+## 8. Checks
 
 | check | how | result |
 |---|---|---|
@@ -415,3 +476,7 @@ the idol on the far pedestal cut at the right edge; in Jafar's hall at the left 
 | idol arena colours | the arena runs of §3 (Palette line 2) at 0 / 54 / 128, split into frames shown as play and the death-fade / fill frames (line 2 on the all-black `$128F12`) | in other colours on shown frames: 21:9 from the left 526 → 0 (the bat), from above 31 → 0 at 16:9 and 91 → 0 at 21:9; what remains are fade and fill frames (the run now falls into the river on its second life, as at 4:3) |
 | arena pop-in | `md_wide_popin.py`'s count on the idol arena in from the left / from above with a fight, and Jafar's hall | from above: 19 / 30 objects first seen inside the view and 4 / 20 dropped for want of tiles at 16:9 / 21:9 before, 9 / 7 and 0 now (rows coming in at the top on the flight, as at 4:3: 8); the rest as at 4:3 |
 | save states | a state saved with a load held / in the middle of a statue's map scan / while a boss framing eases in, holds, eases out / on each of the 13 frames around the idol's kill (16:9, 21:9), run on in a fresh instance | identical to the run it came from (RAM, VRAM, CRAM, `module_state`, picture; the first frame after a load now has the 10-bit sprite X set as `post_frame` sets it - before, a sprite past VDP X 511 showed wrong for that frame) |
+| 4:3 parity | `md_parity.py`: the module at 0 against the bare core, the same random input from power-on (12,000 frames) and in each of the 13 levels from its first frame of play (6,000 each, the Rug Ride included) | RAM, VRAM and picture identical on every frame |
+| Rug Ride, 4:3 against wide | `md_wide_rug.py 20 32 40 54 64 80 108 128`: 8 seeds of the autopilot with random spells (out by the third crash at speeds 8-16), 8 with invincibility, 8 flying the whole ride (6 to its end without a crash, one after two; one out at speed 18), the same input at every width | at every width: 68000 and Z80 RAM identical to 4:3 on every frame (43,350 / 42,703 / 62,121 iterations), the same lag frames, the 4:3 area of the picture identical on every frame shown wide (HUD unanchored); nothing appears in the extension but from something there (a geyser's sparks); every object despawned inside the view (1,704 / 1,673 / 4,994) goes on as a ghost; achievements as at 4:3, to the frame (Magic Carpet Ride at the end of each completed ride, the Genie's wheel) |
+| Rug Ride ghosts | a pickup across its despawn at 21:9, the sprite layer alone | the same 210 pixels, 6 px further each frame: the takeover doesn't show |
+| Rug Ride save states | `md_wide_rug.py 20 54 80 108 128 --states`: states saved mid-ride (some holding ghosts), loaded into a fresh instance as the app does, run 90 frames | picture and RAM identical to the run they came from; without the module's part (as an older state) RAM identical and only the ghosts it held missing (1-2 frames at 21:9) |
