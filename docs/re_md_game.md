@@ -47,6 +47,7 @@ RAM `$FFxxxx` is written `$xxxx` below; ROM addresses are plain.
 | `$7262` / `$7266` / `$726A` / `$726E` | l | the CRAM lines' sources (lines 0-3), kept for the fades and the hit flash's restore (`$1ACDA2`); `$1B2678` / `$1B2664` / `$1B2650` / `$1B263C` load a line and set its source. Line 2 is the objects': several kinds load their colours into it as they spawn (docs/re_md_wide.md §3) |
 | `$F175` | b | set while a level start or a restart fills the plane (`$1AA73E` … `$1AA812`): spawn handlers load no colours then |
 | `$F10E` / `$F10F` / `$F110` | b | the Cave of Wonders' monkey statues `$35` / `$36` / `$37` (blocks 38,56 / 81,25 / 87,6) hit with the sword (`$F10E` lets the stepping stone `$F4` at block 61,58 spawn: its handler `$1B65F4` tests it); `$36` and `$37` also clear the map blocks whose attribute (`$FFAE86` + word / 2) is `$4F` / `$FE` resp. `$4E` / `$FD` across the whole map (`$1AC386` / `$1AC3BC`, 14,400 words: the game stands still for 9 frames) - a wall elsewhere |
+| `$F125` / `$F112` | b | the Cave of Wonders' golden idol: hits taken (`$1AEAA8`; the tenth beats it) / `$FF` once beaten (`$1AEB36`), which lets its carpet (map object `$F9`, block 144,29: handler `$1B6B5C`) spawn |
 | `$F003` | b | Genie tokens: one spin of the Genie's wheel each after the level (`$1B16E0`, not after the Sultan's Palace) |
 | `$F176` | b | Abu token found: the play-order script's bonus entries are taken |
 | `$F572` | l | **play-order script position** (ROM `$4082`, see §2) |
@@ -59,8 +60,15 @@ RAM `$FFxxxx` is written `$xxxx` below; ROM addresses are plain.
 | `$7E28` | b | frame counter of the gameplay loop |
 | `$7276` | l | position in the current button code (`$4128` pause code, `$413A` OPTIONS code) |
 
-**Bosses** have no variables of their own: a boss is an object in the table (Jafar's Quarters: the level routine
-`$1B62B6` re-arms Jafar's magic — slot 1, template `$1B8278`, at (`$184`, `$166`) — every 128 frames). The camera
+**Bosses** are objects in the table, their hits left in the object's +1 (Jafar's Quarters: the level routine
+`$1B62B6` re-arms Jafar's magic — slot 1, template `$1B8278`, at (`$184`, `$166`) — every 128 frames). The Rooftops'
+boss (object `$10` from map type `$18`, 9 hits; or `$13` from `$28`, 10) ends the level from its kill (`$F0E9` = `$20`:
+`$1AC4A2`, `$1AED04`); Jafar in his palace (`$12`, 10 hits) becomes the snake (`$11`, 20) in the same slot
+(`$1AC5A4`, `$F11D` set), whose kill ends the game's last level (`$F0E9` = `$14`, `$1AC59A`). The Cave of Wonders'
+idol counts its hits in `$F125` instead; the tenth (`$1AEB22`) leaves its death effect, sets `$F112` and starts the
+level music again, and the carpet then waiting right of the far pedestal (`$F9`, spawned as its block column is
+streamed once `$F112` is set) carries Aladdin over the treasure and down to the river's bank, where the level goes on.
+The camera
 always follows Aladdin (no locked arenas): `$7DFE` / `$7E00` are only set to the facing offsets, and the clamps
 are the map's own (§2). The arenas are bounded by walls: the Cave of Wonders' idol between its two pedestals
 (Aladdin x 2047-2305, camera 1821-2178), Jafar in the middle of his hall (477-1138, camera 252-947), the Rooftops'

@@ -56,7 +56,8 @@ constexpr uint32_t PC_FRAME_WAIT = 0x1B249E;  // the frame wait (VBlank), the ga
 // module_state: [0] frame (+1) the gameplay loop last ran in, 0 after it was left, bit 31 (PLAY_BUSY) while that
 // iteration hasn't reached its frame wait yet (in_play); [1] the developer flags the cheats set (bit 0 cheat mode,
 // bit 1 map view), to clear them when they are switched off, and in bits 2-23 the boss framing (boss_frame: bit 2 a
-// fight framed, 3-13 its arena's block column sum, 14-23 the easing remainder, signed; 0 in older states: none);
+// fight framed, 3-13 its arena's block column sum, 14-23 the easing remainder, signed; 0 in older states: none), bit 24
+// the spawn band to be spawned whole once, the Cave's idol just beaten (BAND_RETRY, band_refresh);
 // [2] a level's fade-in is running (shown as play: the picture is already the level's, so it starts wide and slid
 // instead of jumping when play begins); [3..6] boss tunes held back (boss_tune_held); [7] palette line 2 loads held
 // back (line2_held)
@@ -983,17 +984,36 @@ void reach_hook(MegaDrive& md, const Wide& w) {
     md.cpu.r[1] = (md.cpu.r[1] & 0xFFFF0000u) | (uint32_t)kr;
 }
 
+// The Cave of Wonders' carpet after the golden idol. The carpet is a map object ($F9, block 144,29, next to the far
+// pedestal) whose spawn handler ($1B6B5C) spawns only once the idol is beaten ($FFF112, set by its tenth hit at $1AEB36);
+// until then its column spawns nothing and its block stays. The 4:3 game brings it as that column enters its plane
+// window at an edge: beaten from the arena's left half (camera below about 1952), the carpet streams in at the right
+// edge as Aladdin walks right; beaten from the right half, its column is already inside the window and the carpet comes
+// only once Aladdin has gone far enough left for the column to leave the window and comes back (the original's own
+// quirk, kept). The widened view shows the carpet's place from the left half too: the column lies in the spawn band,
+// which is spawned only at a column step (or, in a boss framing, its two outermost columns each frame), so the place
+// stayed empty until Aladdin moved right and the carpet then popped in well inside the view (21:9: 150 px; standing still,
+// never). So when the idol is beaten (PC_IDOL_BEATEN marks it in module_state[MS_DEV] bit 24), the next band_refresh
+// spawns both bands whole, as a column step would: a carpet whose column lies in the band comes at once, one inside the
+// 4:3 window waits for its column as at 4:3.
+constexpr uint32_t PC_IDOL_BEATEN = 0x1AEB36;   // st.b $FFF112: the idol's tenth hit
+constexpr uint32_t BAND_RETRY = 1u << 24;
+
 // While a boss framing is in force (or easing out) the view can run ahead of the camera, and the band's outer edge with
 // it, between column steps: right after the gameplay loop's streaming ($1A8CE8) the two outermost columns of the band on
 // each side are spawned as a column step would spawn them (CAVE_REFRESH, the return past the replaced jsr pushed with
-// the two column ranges; blocks already spawned are cleared or alive, so this only brings in what is missing).
+// the two column ranges; blocks already spawned are cleared or alive, so this only brings in what is missing). Once
+// after the idol is beaten (BAND_RETRY), the whole band on each side.
 void band_refresh(MegaDrive& md, const Wide& w) {
-    if (!w.boss.on && w.ease == 0) return;
+    uint32_t& dev = md.module_state[MS_DEV];
+    const bool retry = (dev & BAND_RETRY) != 0;
+    dev &= ~BAND_RETRY;
+    if (!w.boss.on && w.ease == 0 && !retry) return;
     int kl, kr;
     band_reach(md, w, kl, kr);
     const int L = md.ram16(STREAM_X) >> 4, W = md.ram16(MAP_W);
-    const int l1 = std::max(1, L - kl), l2 = std::min(L - 1, L - kl + 1);
-    const int r1 = std::max(L + 23, L + 21 + kr), r2 = std::min(W - 1, L + 22 + kr);
+    const int l1 = std::max(1, L - kl), l2 = retry ? L - 1 : std::min(L - 1, L - kl + 1);
+    const int r1 = retry ? L + 23 : std::max(L + 23, L + 21 + kr), r2 = std::min(W - 1, L + 22 + kr);
     uint32_t sp = md.cpu.r[15];
     md.set_ram32(sp -= 4, PC_STREAMED + 6);
     md.set_ram16(sp -= 2, (uint16_t)r2);
@@ -1477,7 +1497,7 @@ public:
         md.add_pc_hook(PC_DEATH, leave);
         md.add_pc_hook(PC_PIT, leave);
         // (a level's start or a restart: no boss framing carried over)
-        auto fade = [](MegaDrive& m) { m.module_state[MS_FADE] = 1; m.module_state[MS_DEV] &= ~BF_MASK; };
+        auto fade = [](MegaDrive& m) { m.module_state[MS_FADE] = 1; m.module_state[MS_DEV] &= ~(BF_MASK | BAND_RETRY); };
         md.add_pc_hook(PC_FADE_IN, fade);
         md.add_pc_hook(PC_RESPAWN_FADE, fade);
         const bool wide = cfg.ext > 0;
@@ -1497,7 +1517,8 @@ public:
                 line2_moments(m);
                 band_refresh(m, *wide_);
             });
-            md.add_pc_hook(PC_LEVEL_LOAD, [](MegaDrive& m) { m.module_state[MS_PAL2] = 0; m.module_state[MS_DEV] &= ~BF_MASK; });
+            md.add_pc_hook(PC_LEVEL_LOAD, [](MegaDrive& m) { m.module_state[MS_PAL2] = 0; m.module_state[MS_DEV] &= ~(BF_MASK | BAND_RETRY); });
+            md.add_pc_hook(PC_IDOL_BEATEN, [this](MegaDrive& m) { if (!rom_attract_) m.module_state[MS_DEV] |= BAND_RETRY; });
             md.add_pc_hook(CAVE_REACH, [this](MegaDrive& m) { reach_hook(m, *wide_); });
             md.add_pc_hook(PC_COL_CALL, [this](MegaDrive& m) { if (!rom_attract_) spawn_call(m, PC_COL_RET); });
             md.add_pc_hook(PC_ROW_CALL, [this](MegaDrive& m) { if (!rom_attract_) spawn_call(m, PC_ROW_RET); });
