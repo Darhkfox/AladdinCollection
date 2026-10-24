@@ -119,8 +119,12 @@ achievements of its own: *A Whole New World* (defeat Jafar in all three versions
   so the extra width shows the arena rather than what lies beyond its far end; it eases in and out over about a second.
   In widescreen the magic carpet comes as soon as the golden idol is beaten, unlike the original, where a win beside
   the far pedestal makes you walk away and back before it appears (at 4:3 it stays the original's way).
-  Abu's bonus rounds and the Rug Ride stay 4:3 (the Rug Ride sends its obstacles in at the 4:3 edge on a timer), and
-  so do the title screens and the attract demos, which play exactly as recorded at every width and with any cheat.
+  The Rug Ride is wide too, with all the extra width behind the carpet: the ride sends its rocks and treasures in at
+  the 4:3 screen's right edge, so the view ends there as in the original (you see as far ahead, so the ride plays
+  and is as hard as ever: it runs on the original game, unchanged to the frame) and shows the cave you have flown
+  through on the left, with the lava wave chasing you and what you passed drifting away until it leaves the screen.
+  Abu's bonus rounds stay 4:3, and so do the title screens and the attract demos, which play exactly as recorded at
+  every width and with any cheat.
 - **Level select**: all 13 entries in the game's own order (both of Abu's bonus rounds and the Rug Ride included),
   on Practice, Normal or Difficult. Each level starts with its own story card, as after the one before.
 - **Cheats**: invincibility, infinite health, lives, apples, gems and continues, and three of the developers'
@@ -255,9 +259,10 @@ gradlew assembleDebug
 - Mega Drive: near a level's ends the scenery holds still while Aladdin walks for the first stretch of camera
   travel (54 px at 16:9, 128 px at 21:9), and the level's start shows less behind Aladdin and more ahead, as the
   game's own camera is kept. After a mid-level width change, objects in the newly shown columns appear when the
-  view next scrolls over them. Invincibility covers hits only: pits, lava and the Rug Ride's walls still cost a
-  life. Developer Map View puts Aladdin back where the view is when it's switched off, so switch it off over solid
-  ground. The cheats apply in a game, not on the title screen or in the attract demos. In Jafar's Palace at 21:9
+  view next scrolls over them. A Rug Ride save state from an older version doesn't hold what had already passed
+  behind the carpet: it is missing on the left of the screen until it would have left it. Invincibility covers hits
+  only: pits, lava and the Rug Ride's walls still cost a life. Developer Map View puts Aladdin back where the view
+  is when it's switched off, so switch it off over solid ground. The cheats apply in a game, not on the title screen or in the attract demos. In Jafar's Palace at 21:9
   with CRT pixels, a knife thrown from the left edge can vanish as it hits when every other sprite is in view
   (making room would mean removing a guard who is partly on screen). Some kinds of enemy share one set of colours
   (the game gives it to whichever appeared last), so one that only the wider view shows can take another's colours

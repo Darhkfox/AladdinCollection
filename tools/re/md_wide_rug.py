@@ -2,13 +2,15 @@
 
     python tools/re/md_wide_rug.py [ext ...] [--seeds 1,2,3,4] [--cheats invincible] [--frames 30000] [--anchor]
                                    [--noise 0.06]
+    python tools/re/md_wide_rug.py [ext ...] --states
 
-For each seed one input track is made on the 4:3 run - an autopilot that steers the carpet toward the next treasure of
-the trail ahead (the script's $FE entries lay it along the way through), with random presses and spells of no steering
-mixed in, so it also crashes - and fed, frame by frame, to the 4:3 run and to a run at every width given, all started
-from one state at the ride's first frame of play (--noise: the share of frames that start a random spell; at 0 the
-autopilot flies the whole ride without a crash). It runs until the ride is over (its end, or the third crash: the game's
-mercy) or for --frames. Per frame it compares:
+For each seed one input track is made on the 4:3 run - an autopilot that keeps clear of the next rock pile (in view, or
+the next the script will send) and else steers toward the next pickup of the trail ahead (the script's $FE entries lay
+it along the way through), with random presses and spells of no steering mixed in, so it also crashes - and fed, frame
+by frame, to the 4:3 run and to a run at every width given, all started from one state at the ride's first frame of
+play (--noise: the share of frames that start a random spell; at 0 the autopilot flies the whole ride without a
+crash). It runs until the ride is over (its end, or the third crash: the game's mercy) or for --frames. Per frame it
+compares:
 * RAM: the whole 68000 RAM and the Z80's, at the end of every frame (the ride runs on the 4:3 game's ROM: the same code
   to the cycle, the same lag frames);
 * the ride as such, at the end of every gameplay-loop iteration (the loop's frame wait, $1A8CD2): camera, Aladdin and the

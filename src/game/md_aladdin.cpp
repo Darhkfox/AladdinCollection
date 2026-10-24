@@ -1862,6 +1862,7 @@ public:
         }
         wide_->md = &md;
         wide_->ride = ride_.get();
+        if (!wide) ride_->ghosts.clear();   // (4:3: none to draw, none to save)
         md.vdp.line_hook = wide ? line_hook : nullptr;
         md.vdp.pre_line_hook = wide ? pre_line_hook : nullptr;
         md.vdp.sprite_xoff = wide ? sprite_xoff_hook : nullptr;
