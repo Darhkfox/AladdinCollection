@@ -113,6 +113,10 @@ achievements of its own: *A Whole New World* (defeat Jafar in all three versions
   row by row with the level's own scroll routine, so it holds still with the level. When the wider view fills the
   console's object slots or sprite memory, room is made from objects out of sight (the sprite memory is compacted,
   and objects past the edge are put back on the map to return later), so nothing appears late inside the view.
+  Objects that stay on the map once spawned (the Cave of Wonders' stepping stones, the Escape's lava rocks, the
+  apples that appear when Aladdin has none) come in once, at the view's edge, as in the original. In a boss fight
+  (the idol in the Cave of Wonders, Jafar) the wider view settles on the arena's centre instead of following Aladdin,
+  so the extra width shows the arena rather than what lies beyond its far end; it eases in and out over about a second.
   Abu's bonus rounds and the Rug Ride stay 4:3 (the Rug Ride sends its obstacles in at the 4:3 edge on a timer), and
   so do the title screens and the attract demos, which play exactly as recorded at every width and with any cheat.
 - **Level select**: all 13 entries in the game's own order (both of Abu's bonus rounds and the Rug Ride included),
@@ -255,8 +259,10 @@ gradlew assembleDebug
   with CRT pixels, a knife thrown from the left edge can vanish as it hits when every other sprite is in view
   (making room would mean removing a guard who is partly on screen). Some kinds of enemy share one set of colours
   (the game gives it to whichever appeared last), so one that only the wider view shows can take another's colours
-  at the sides until it comes into the 4:3 area - e.g. a bat at the far left of the Cave of Wonders' idol fight at
-  21:9 takes the idol's gold.
+  at the sides until it comes into the 4:3 area - e.g. the Cave of Wonders' idol, for a few frames at the right edge
+  as it comes in at 21:9 while a bat is in view. A boss arena is framed only as far as the extra width reaches: the
+  Cave's idol fight spans 677 px at 4:3, so at 16:9 the view still follows Aladdin near its ends; at the end of
+  Agrabah Rooftops the arena is the level's last screen, so the extra width can only go to its left, as before.
 - Master System: the game's own camera is kept (Aladdin's position is an 8-bit screen coordinate), so near a
   stage's ends the scenery holds still while Aladdin walks for the first stretch of camera travel. Objects wake as
   they come within the original's margins of the view as shown, so those entering from the right act as much

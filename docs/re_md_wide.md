@@ -7,7 +7,9 @@ Scripts: `tools/re/md_wide_util.py` (map access, the plane checker), `md_wide_de
 through the module, `md_out/wide_<E>.png`; `caves` disassembles the patched code), `md_shots.py` (one level, a
 script of inputs), `md_wide_edges.py` (every level's start and right end, slid, with a per-frame check that the view
 stays inside the level), `md_wide_spawn.py` (where objects appear, against the slid view), `md_wide_popin.py` (map
-objects first seen well inside the slid view, and objects dropped for want of sprite tiles), `md_attract.py` (the
+objects first seen well inside the slid view, and objects dropped for want of sprite tiles), `md_wide_stones.py` (the
+Cave's stepping stones: copies per block and stones missing from the view), `md_wide_boss.py` (the idol fight's
+framing: views at the arena's ends, lurches), `md_attract.py` (the
 attract mode at every width, with and without cheats, against widescreen off), `md_apptest.py` (the real app's
 autotest on level states: HUD, pillarboxing as the player sees them). `md_util.start_play` starts a level through the
 module's level select and skips its story card (START) until the first frame of play.
@@ -17,7 +19,7 @@ module's level select and skips its story card (START) until the first frame of 
    level map in RAM (`line_hook`, §2). The Rug Ride (a 512-px loop, no map) keeps the VDP's own wrap.
 2. Near a level's ends the picture slides (`view_shift`) so the widened view shows only what the 4:3 game shows; the
    game's camera is untouched. Plane B slides by what the level's own scroll routine gives for the moved camera; the
-   slide follows the scroll line by line (§5).
+   slide follows the scroll line by line (§5). In a boss fight the slide frames the arena's centre (§5, Boss fights).
 3. Objects are part of the map and spawn when their block column / row is streamed: caves spawn the columns the slid
    view reaches too, the despawn window follows the slid view, an object short of an object slot or sprite tiles gets
    room from objects out of sight (the tile pool compacted), and the sprite clip covers ±2E (§3).
@@ -69,8 +71,9 @@ drawing there.
   L and +`$150` for the right column, whose map x is L + 352), y likewise from `$7DB2` + `$F152`; the table entry is
   cleared (no duplicate) and restored when the object despawns. An object stored in column c
   appears at screen x 16c − (camX + 16): the 4:3 game spawns them at screen x −31..−1 (left) and 321..351 (right).
-* **Spawn caves**: `$7300` works out the reach on each side from the camera (the slide s of §5, the same sum as the
-  module's `view_slide`): kl = ⌈(E − s)/16⌉, kr = ⌈(E + s)/16⌉ block columns (0..⌈2E/16⌉). After the left writer's
+* **Spawn caves**: `$7300` is an `rts` on which the module's PC hook sets the reach on each side from the camera and
+  the slide in force (§5, a boss fight's framing included; `reach_hook`): kl = ⌈(E − s)/16⌉, kr = ⌈(E + s)/16⌉ block
+  columns (0..⌈2E/16⌉) in d0 / d1. After the left writer's
   own spawn (`$1AB446` `bsr $1AE3FC` → `jsr $7000.w`) the cave spawns columns L/16 − kl … L/16 − 1 as well (those
   ≥ 1), after the right writer's (`$1AB554` → `jsr $7100.w`) columns L/16 + 23 … L/16 + 22 + kr (inside the map):
   the spawner is entered past its set-up (`$1AE42C`) with its column x (`$7DB0`, scratch) and map pointer (a0) moved
@@ -81,6 +84,34 @@ drawing there.
   (`md_wide_spawn.py`, checked against the slid view; what remains inside is what the original also spawns inside —
   thrown apples, projectiles, things placed left of their block, rows below / above). While the view slides, its far
   edge stays put in the map and so does the spawn column.
+* **Objects that keep their map block.** Most spawn handlers spawn through `$1B526C`, which clears the block's type
+  (`$FFAE87` + word / 2: no duplicate) until the object despawns. Three kinds go through `$1B52A0`, which leaves it
+  (its only two callers: `$1B6614` for `$EF` / `$F4`, `$1B7338` for `$61`): the stepping stones `$EF` (template
+  `$1B7FE4` in the Cave of Wonders' river, blocks 132/144/156/165/175 at row 59; `$1B7FD0`: the Escape's lava rocks)
+  and `$F4` (block 61,58, only once the monkey statue `$35` has set `$F10E`), and `$61`, four apples from one block
+  while Aladdin has none (`$EFE0` = "00"). A stone (object `$62`) sinks while stood on (`$63`, about 1 px every 3
+  frames; Aladdin goes under with it at y 1200) and is cleared at the bottom (some 130 frames after it was stepped on),
+  to come back the next time
+  its column is streamed. The 4:3 game streams a column as it enters its plane window at an edge, just outside its
+  view (and so puts a second stone over one still there when the camera crosses that edge back and forth: in the
+  river, `$EF` at 2288 twice after a 16-px back-and-forth). The band of the spawn caves is spawned whole at every column
+  step (for the retries), so such a block was spawned again at every step its column spent in the band: in a map-view
+  pass back and forth over the river at 21:9, up to 10 stones on block 132 (x 2096), up to 17 objects alive against
+  the 4:3 game's 7-10, and the stone at block 156 (x 2480) never spawned (no free slot: the duplicates were in view,
+  not evictable) - the QA's screenshot of the river at 21:9, camera ≈ 2150: Aladdin on the stone of block 144, the
+  ring on his left the leaping fish's (`$3E`, block 139), and nothing beyond the rock outcrop where the stone of block
+  156 belongs (in the right extension). Stacked copies sink together (1 px apart), so they showed only as missing
+  objects. Now (`spawn_call`, `spawn_keep`; with the widescreen ROM only):
+  - a block whose object is alive (+`$32` = the block word / 2, +`$34` the type) is not spawned again: the column and
+    row spawners' handler call (`$1AE46C` / `$1AE4E8`, `jsr (a4)`) is skipped (pc to the register restore after it);
+  - at `$1B52A0`, a column spawn (the column spawner's return `$1AE46E` among the four longs on the stack; `$61` calls
+    through a helper) outside a fill goes ahead only when the block's column (map x (`$7DB0` + `$F150` + 16) & ~15)
+    lies entirely outside the slid view - the band's far column, as the 4:3 game's edge columns lie outside its view;
+    otherwise it returns NE (as with no free slot). Rows (their spawns are the row's entry) and the fill
+    (`$FFF175`: the camera runs 23 columns right and back, the whole band each time) are only deduplicated;
+  - they are never evicted for room (they would return only at their column's next entry).
+  The same pass over the river: one stone per block at 16:9 and 21:9, block 156 present, 15 objects at most. The
+  Escape's lava rocks are no longer spawned again over a risen rock (`md_wide_popin.py`: 6 → 0 at every width).
 * **Despawn** (`$1ADE84`): x outside [camX − `$50`, camX + `$190`] → [camX − `$50` − 16kl, camX + `$190` + 16kr]
   (`$1ADEB6` → `jsr $7380.w`, carry = out): the original's 80-px margin outside the view as slid. A wider window (±2E
   on both sides, as before) kept objects far outside the view alive, holding sprite tiles a new one needed.
@@ -107,8 +138,8 @@ drawing there.
     entry, count `$FFEFEE`) and sprite table follow it, so a move copies the tiles in VRAM at once and points the
     sprite table being shown and the queued uploads at them (else the moved objects showed garbage for a frame).
   * `md_wide_popin.py` (the QA's walk through every wide level at every width, objects counted well inside the view on
-    a shown frame): 0 everywhere but the Escape, whose lava rocks are spawned again over a rock already risen (an
-    exact overlap, nothing changes on screen; the 4:3 game does the same at its edge). The QA's `t_popin.py` also
+    a shown frame): 0 everywhere (the Escape's lava rocks, spawned again over a rock already risen - 6 at every width
+    before - no longer are: they keep their map block, see Objects that keep their map block). The QA's `t_popin.py` also
     counts objects born while a respawn is rebuilt behind black, ones thrown or dropped by others (Rooftops; as at
     4:3), and a first frame's stale position (the frame can end inside the spawn code). No object is dropped for want
     of tiles any more but one at Jafar's Palace at 21:9 (CRT): a knife thrown from the left extension that needs a
@@ -156,6 +187,13 @@ drawing there.
     that bat lingers in view) loads and becomes early. A held one whose colours the line has by then counts as early.
   - `module_state[7]`: three entries of 10 bits (slot, palette index << 5, bit 8 early); save states and rewind keep
     them. With no free entry, a load goes through as the game does it.
+  - While a level start or a restart fills the plane (`$FFF175`) the handlers load no colours at all (they test it
+    before `$1B2650`): the 4:3 game fills only its own window and loads a later spawn's colours when it comes. The
+    widened fill spawns beyond that window, so such an object never loaded its colours: after a death in the river at
+    21:9 the leaping fish (block 139,59) came with the restart and leapt in a bat's colours. Now an object of a line-2
+    kind spawned during a fill outside the 4:3 window (`line2_filled`, right after the spawners' handler call,
+    `$1AE46E` / `$1AE4EA`, their registers still on the stack) gets a held entry: its colours go in at its 4:3 moment or
+    once the line is free.
   Checked (the entries read from save states): the arena at 21:9, in from the left and a 1,710-frame fight walking both
   ways - idol / pedestals in other colours on 1,671 frames before, 0 now; held: that bat (drawn in the idol's gold in the
   left extension, the only place it shows, 526 frames) and, coming in, the idol itself for 4 frames in the right
@@ -177,8 +215,9 @@ drawing there.
 * The clip caves mark the entry: map objects clear bit 15 of the size / link word the builder writes (d1), screen-
   fixed ones set it (bit 7 of the SAT entry's size byte, which the VDP ignores) — `sprite_xoff` keeps those (messages
   such as FIND THE SCARAB, HIT STATUES, PAUSED) where the game puts them on the screen while the view slides.
-* Caves: the `$FF` fill at `$69E0-$FFFF` is unreferenced and reachable with `jsr abs.w`; `$7000-$73FF` is used
-  (left / right / row spawn `$7000` / `$7100` / `$7200`, clips `$7280` / `$72C0`, reach `$7300`, despawn `$7380`).
+* Caves: the `$FF` fill at `$69E0-$FFFF` is unreferenced and reachable with `jsr abs.w`; `$7000-$74FF` is used
+  (left / right / row spawn `$7000` / `$7100` / `$7200`, clips `$7280` / `$72C0`, reach `$7300` (an `rts` the module
+  hooks), despawn `$7380`, band refresh `$7400`, §5).
 
 ## 4. HUD
 
@@ -227,6 +266,49 @@ already be the next frame's — and, when it differs from the one the slide in f
   (the map) takes s, and plane A (the picture) its own slide, re-rendered in the line hook.
 * What is left outside the level after the slide (only in a narrower level) is blacked out per line with the VDP's
   `edge_mask_l/r` — sprites too, but not HUD sprites. There is no vertical extension, so nothing to do vertically.
+
+**Boss fights** (`slide_target`, `boss_arena`, `boss_frame`). The 4:3 game never locks its camera (`$7DFE` is only
+ever `$70` / `$F0`, §1): in a fight it follows Aladdin, who is held in the arena by its walls, and the arena is wider
+than the 4:3 view. The Cave of Wonders' golden idol: Aladdin walks 2047-2305, between the pedestal the boss spawns
+from (`$F5`, block 129,29; object `$8B` at 2048,704) and the other one (`$F6`, 143,32; at 2272,752), between which the
+idol flies; the camera runs 1821-2178, so the 4:3 game shows map x 1838-2515 over the fight. Jafar's Palace: Jafar
+(`$4D`, block 51,47) stands at x 800 in a hall Aladdin walks 477-1138 (camera 252-947). With the slide 0 the widened
+view is the 4:3 view plus E on each side, so at either end of an arena it showed E px beyond what the 4:3 game ever
+shows in the fight on the outer side (at 21:9 from camera 1821: map x 1709-2285, the bat country left of the arena, and
+the idol on the far pedestal cut at the right edge; in Jafar's hall at the left wall: x 140-716, Jafar out of view).
+* A fight is on while a boss object is alive - one of the four kinds whose spawn starts BOSS TUNE (§3: `$18`, `$28`,
+  `$4D`, `$F5`), the game's own mark of a boss fight - and its tune isn't held back (it has come into the 4:3 window,
+  when the 4:3 game starts the fight), with the camera at the arena's height (the 4:3 view within 112 px of its rows:
+  the idol's pedestal lives on while Aladdin falls into the river 300 px below).
+* Its arena: the boss's block and, within a plane window of it, the blocks of the kinds that share its colours (§3,
+  Palette line 2: the idol's other pedestal); for spawned ones their objects' blocks. The centre, map x 8 × (first +
+  last block column), is what a 4:3 camera of 8 × (first + last) − 176 centres: the idol 2000 (the middle of 1821-2178),
+  Jafar 640 (his hall 252-947), the Rooftops' boss 2240.
+* The slide then aims there: s = C − camX within [−E, E] and the level's limits (the view inside [16, W·16 − 18)) - the
+  view holds still while the camera is within E of C and follows it beyond; past E + 320 from C (Aladdin leaving the
+  arena) it goes back to the level's own slide over the next 2E px of camera (the view at 1.5 times the camera's pace).
+  So the extra width is split evenly around the 4:3 framing of the arena where it can be. Idol fight: 21:9 shows
+  1888-2464 for camera 1872-2128 and 1837-2413 / 1938-2514 at the ends (never beyond 1837-2514, what the 4:3 game shows
+  in the fight); 16:9: 1962-2390, ends 1837-2265 / 2086-2514. Jafar at 21:9: 528-1104, ends 268-844 / 673-1249 (Jafar
+  in view at both walls). At the end of Agrabah Rooftops the boss's arena is the level's last screen: the level's limit
+  keeps the view where it was (21:9 unchanged; 16:9 holds on the last 428 px instead of following Aladdin 27 px short of
+  the map's end).
+* No lurch: a change of the fight state or arena changes the target at once; the difference is kept as a remainder
+  `e` added to the slide and eased out (|e|/16 px a frame, 1-3; about a second). `md_wide_boss.py`: the framing
+  starts at camera 1724 / 1732 at 16:9 / 21:9 (the tune's moment), the view never moves more than 3 px a frame further
+  than the camera in, through and out of the fight (the boss removed: slide back to 0), at 1.5 times the camera's pace
+  where it catches up after Aladdin leaves.
+* The spawn band follows the slide (`reach_hook`), so objects still come in just outside the view. While a framing is
+  in force (or easing out) the view can run ahead of the camera between column steps, so right after the gameplay
+  loop's streaming (`$1A8CE8`, `jsr $1B315C`) the module pushes the return past it and two column ranges and enters the
+  cave `$7400` (`band_refresh`), which spawns the two outermost columns of each band through the column spawner
+  (`$1AE42C`, as the left writer sets it up) and then jumps to `$1B315C`; blocks already spawned are cleared or alive,
+  so only what is missing comes.
+* `module_state[1]` bits 2-23 (bits 0-1 are the developer flags): the fight bit, the arena's column sum and `e`; reset
+  at a level's load and its fade-ins (start, restart). Older save states have 0 there: no framing, as before.
+  Abu's bonus rounds and the Rug Ride have no boss; Jafar's Quarters' boss music is the level's own and it has no boss
+  object (Jafar's magic is re-armed by the level routine): the 800-px level is its own arena and the level's limits
+  already keep the view inside it.
 
 ## 6. Gameplay and other screens
 
@@ -286,4 +368,9 @@ already be the next frame's — and, when it differs from the one the slide in f
 | level start / respawn (QA F2) | QA `t_app_levelstart.py`, `t_app_respawn.py`; per-frame trace of a respawn | fade-in frames wide and slid, no jump into play; the masks open while the picture is still dark |
 | statue hits (black bars) | the Cave's statues `$35` / `$36` / `$37` hit from both sides, 4:3 / 16:9 / 21:9 | 9 frames inside one loop iteration (`$36`, `$37`) as at 4:3; frames shown 4:3: 6 / 6 / 5 before at 21:9, 0 now |
 | palette line 2 | the idol's arena in from the left and from above with a fight; map-view sweep of the Dungeon, Cave, Jafar's Palace | see §3 (Palette line 2) |
-| save states | a state saved with a load held / in the middle of a statue's map scan, run on rewound and in a fresh instance | identical to the run it came from (RAM, VRAM, CRAM, `module_state`, every frame wide) |
+| stepping stones | `md_wide_stones.py 0 54 128` (map-view pass back and forth over the river) | at most 3 / 8 / 10 stones on one block and 0 / 9 / 17 views missing one (block 156, 165) before; 3 / 1 / 1 and 0 now (the 3 at 4:3 are the game's own) |
+| river foreground | plane A alone at 21:9 at the QA's spot (camera ≈ 2150) against 4:3 renders of the same map pixels (same CRAM) | 126,720 pixels identical, 0 different: the flat patches under the water line are the map's own art |
+| boss framing | `md_wide_boss.py 0 54 128`; Jafar's hall and the Rooftops' end walked wall to wall | views as in §5 (Boss fights); no frame moves the view more than 3 px further than the camera |
+| idol arena colours | the arena runs of §3 (Palette line 2) at 0 / 54 / 128, split into frames shown as play and the death-fade / fill frames (line 2 on the all-black `$128F12`) | in other colours on shown frames: 21:9 from the left 526 → 0 (the bat), from above 31 → 0 at 16:9 and 91 → 0 at 21:9; what remains are fade and fill frames (the run now falls into the river on its second life, as at 4:3) |
+| arena pop-in | `md_wide_popin.py`'s count on the idol arena in from the left / from above with a fight, and Jafar's hall | from above: 19 / 30 objects first seen inside the view and 4 / 20 dropped for want of tiles at 16:9 / 21:9 before, 9 / 7 and 0 now (rows coming in at the top on the flight, as at 4:3: 8); the rest as at 4:3 |
+| save states | a state saved with a load held / in the middle of a statue's map scan / while a boss framing eases in, holds, eases out (16:9, 21:9), run on in a fresh instance | identical to the run it came from (RAM, VRAM, CRAM, `module_state`, picture; the first frame after a load now has the 10-bit sprite X set as `post_frame` sets it - before, a sprite past VDP X 511 showed wrong for that frame) |
