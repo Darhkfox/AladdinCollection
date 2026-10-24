@@ -44,6 +44,9 @@ RAM `$FFxxxx` is written `$xxxx` below; ROM addresses are plain.
 | `$F0E6` | b | Aladdin dying: countdown to the death screen (`$FF` at once) |
 | `$F0F2` | b | invulnerability after a hit (`$28` frames); Aladdin blinks |
 | `$F158` | b | `$FF` while paused (`$F168` is the pause loop's START latch) |
+| `$7262` / `$7266` / `$726A` / `$726E` | l | the CRAM lines' sources (lines 0-3), kept for the fades and the hit flash's restore (`$1ACDA2`); `$1B2678` / `$1B2664` / `$1B2650` / `$1B263C` load a line and set its source. Line 2 is the objects': several kinds load their colours into it as they spawn (docs/re_md_wide.md §3) |
+| `$F175` | b | set while a level start or a restart fills the plane (`$1AA73E` … `$1AA812`): spawn handlers load no colours then |
+| `$F10E` / `$F10F` / `$F110` | b | the Cave of Wonders' monkey statues `$35` / `$36` / `$37` (blocks 38,56 / 81,25 / 87,6) hit with the sword; `$36` and `$37` also clear the map blocks whose attribute (`$FFAE86` + word / 2) is `$4F` / `$FE` resp. `$4E` / `$FD` across the whole map (`$1AC386` / `$1AC3BC`, 14,400 words: the game stands still for 9 frames) - a wall elsewhere |
 | `$F003` | b | Genie tokens: one spin of the Genie's wheel each after the level (`$1B16E0`, not after the Sultan's Palace) |
 | `$F176` | b | Abu token found: the play-order script's bonus entries are taken |
 | `$F572` | l | **play-order script position** (ROM `$4082`, see §2) |
