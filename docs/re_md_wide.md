@@ -9,7 +9,8 @@ script of inputs), `md_wide_edges.py` (every level's start and right end, slid, 
 stays inside the level), `md_wide_spawn.py` (where objects appear, against the slid view), `md_wide_popin.py` (map
 objects first seen well inside the slid view, and objects dropped for want of sprite tiles), `md_wide_stones.py` (the
 Cave's stepping stones: copies per block and stones missing from the view), `md_wide_boss.py` (the idol fight's
-framing: views at the arena's ends, lurches), `md_attract.py` (the
+framing: views at the arena's ends, lurches), `md_wide_carpet.py` (the carpet after the idol: when it spawns, shows and
+picks Aladdin up, beaten beside either pedestal), `md_attract.py` (the
 attract mode at every width, with and without cheats, against widescreen off), `md_apptest.py` (the real app's
 autotest on level states: HUD, pillarboxing as the player sees them). `md_util.start_play` starts a level through the
 module's level select and skips its story card (START) until the first frame of play.
@@ -217,7 +218,7 @@ drawing there.
   such as FIND THE SCARAB, HIT STATUES, PAUSED) where the game puts them on the screen while the view slides.
 * Caves: the `$FF` fill at `$69E0-$FFFF` is unreferenced and reachable with `jsr abs.w`; `$7000-$74FF` is used
   (left / right / row spawn `$7000` / `$7100` / `$7200`, clips `$7280` / `$72C0`, reach `$7300` (an `rts` the module
-  hooks), despawn `$7380`, band refresh `$7400`, §5).
+  hooks), despawn `$7380`, band refresh `$7400`, the carpet's block `$7480`, §5).
 
 ## 4. HUD
 
@@ -309,6 +310,45 @@ the idol on the far pedestal cut at the right edge; in Jafar's hall at the left 
   Abu's bonus rounds and the Rug Ride have no boss; Jafar's Quarters' boss music is the level's own and it has no boss
   object (Jafar's magic is re-armed by the level routine): the 800-px level is its own arena and the level's limits
   already keep the view inside it.
+* **After the fight.** The Rooftops' boss (object `$10`, or `$13` from `$28`) and Jafar (`$12`, then the snake `$11` put
+  in his slot) end their level from the kill itself: `$FFF0E9` = `$20` / `$14` (`$1AC4A2` / `$1AED04`, `$1AC59A`), with
+  nothing streamed in (killed at 4:3 / 16:9 / 21:9 from one state: Rooftops 30 / 31 / 31 frames from the kill to the
+  level's end, Jafar 19 / 20 / 20). The Cave of Wonders' idol is different. Its tenth hit (`$FFF125` counts them,
+  `$1AEAA8`) turns it into its death effect, sets `$FFF112` (`$1AEB36`) and starts the level's music again; the carpet
+  that then takes Aladdin away (over the treasure and down to the river's bank, where the level goes on) is a map
+  object, `$F9` at block (144, 29) right of the far pedestal, whose handler (`$1B6B5C`) spawns it (two linked objects,
+  `$1B78A0` / `$1B78C8`) only once `$FFF112` is set; it then hovers there until Aladdin steps on it. Until then its
+  column spawns nothing and the block stays, so the 4:3 game brings the carpet when that column next enters its plane
+  window (`md_wide_carpet.py`: the idol beaten beside either pedestal, then walks of 900 frames):
+  - beaten from the arena's left half (camera below about 1952, the column outside the window): the carpet streams in
+    at the right edge as Aladdin walks right (spawned at camera 1952; standing still or walking left, never);
+  - beaten from the right half (camera 2075 / 2109, the column inside the window and the carpet's place in view): no
+    carpet standing still, walking right or walking left only; it comes once Aladdin has gone left far enough for the
+    column to leave the window and turns back (90 frames left, then right: spawned at camera 1953, frame 116, Aladdin on
+    it at frame 165). That is the original's own way, kept at 4:3.
+  - **In widescreen the carpet comes with the kill**, a deliberate change from the original (the player's wish). The
+    widened view shows the carpet's place from anywhere in the arena (at 21:9 the whole arena), so the empty place after
+    a win read as the carpet not coming: kept to the 4:3 rule, 21:9 brought it from the left half only at the first step
+    right (popping in about 150 px inside the view; standing still or walking left, never) and from the far pedestal
+    only after the walk away and back (frames 101 / 160 as above; 16:9: 65 / 151). Now the idol's tenth hit (a PC hook
+    on `$1AEB36`, `module_state[1]` bit 24) has the carpet's block alone spawned right after the same iteration's
+    streaming (`$1A8CE8`, `carpet_due`): the cave `CAVE_CARPET` (`$7480`) runs the column spawner's loop (`$1AE44A`)
+    for that one block, its handler called as the streaming calls it (x = 16c − 16, y = 16r + 240; both linked objects),
+    wherever the view's or the spawn band's columns and the plane's rows hold the block. Not whole columns: those would
+    bring back the river's stepping stones and the other objects that keep their map block. The spawn clears the
+    block's type as always, so a later streaming of its column spawns nothing; a block spawned already (its type
+    cleared, or its object alive: the spawner's hook skips it) is left alone; in that frame the band refresh waits.
+    `md_wide_carpet.py` at 16:9 and 21:9: the carpet on the first frame after the kill from either pedestal (in the 4:3
+    part of the view at once beside the far one); from the left pedestal, walking right, in the 4:3 part at frame 20 and
+    Aladdin on it at frame 59 (4:3: 21 / 68); left of the far pedestal it reaches Aladdin at frame 65-71 standing still,
+    22 walking right; right of it, where the carpet hovers, it catches him on frame 2. 4:3 unchanged (all walks as
+    above). A carpet the band spawned before the kill (16:9, `$FFF112` set early: 39 frames before) gets no second one;
+    walks out of its column and back after the kill: one spawn, the pair of objects at most, at every spot and width.
+  - At 16:9 the band refresh's outermost columns reach column 144 near the arena's left end (camera about 1854): a
+    carpet despawned out there (beyond the despawn window) comes back at the view's right edge while Aladdin walks left,
+    where the 4:3 game would bring it on a step right.
+  - The Escape's carpet at the level's end (`$FB`, block 618,21, handler `$1B6BB2`: only with Aladdin's x ≥ `$2646`)
+    follows no boss; from one state at 4:3 and 21:9 it spawns on the same frame and the level ends on the same frame.
 
 ## 6. Gameplay and other screens
 
@@ -371,6 +411,7 @@ the idol on the far pedestal cut at the right edge; in Jafar's hall at the left 
 | stepping stones | `md_wide_stones.py 0 54 128` (map-view pass back and forth over the river) | at most 3 / 8 / 10 stones on one block and 0 / 9 / 17 views missing one (block 156, 165) before; 3 / 1 / 1 and 0 now (the 3 at 4:3 are the game's own) |
 | river foreground | plane A alone at 21:9 at the QA's spot (camera ≈ 2150) against 4:3 renders of the same map pixels (same CRAM) | 126,720 pixels identical, 0 different: the flat patches under the water line are the map's own art |
 | boss framing | `md_wide_boss.py 0 54 128`; Jafar's hall and the Rooftops' end walked wall to wall | views as in §5 (Boss fights); no frame moves the view more than 3 px further than the camera |
+| after the bosses | `md_wide_carpet.py 0 54 128`; the Rooftops' boss and Jafar (both forms) beaten from one state at 0 / 54 / 128 | see §5 (After the fight): in widescreen the carpet with the idol's kill from either pedestal, at 4:3 as the original; the other two end their level from the kill, nothing streamed |
 | idol arena colours | the arena runs of §3 (Palette line 2) at 0 / 54 / 128, split into frames shown as play and the death-fade / fill frames (line 2 on the all-black `$128F12`) | in other colours on shown frames: 21:9 from the left 526 → 0 (the bat), from above 31 → 0 at 16:9 and 91 → 0 at 21:9; what remains are fade and fill frames (the run now falls into the river on its second life, as at 4:3) |
 | arena pop-in | `md_wide_popin.py`'s count on the idol arena in from the left / from above with a fight, and Jafar's hall | from above: 19 / 30 objects first seen inside the view and 4 / 20 dropped for want of tiles at 16:9 / 21:9 before, 9 / 7 and 0 now (rows coming in at the top on the flight, as at 4:3: 8); the rest as at 4:3 |
-| save states | a state saved with a load held / in the middle of a statue's map scan / while a boss framing eases in, holds, eases out (16:9, 21:9), run on in a fresh instance | identical to the run it came from (RAM, VRAM, CRAM, `module_state`, picture; the first frame after a load now has the 10-bit sprite X set as `post_frame` sets it - before, a sprite past VDP X 511 showed wrong for that frame) |
+| save states | a state saved with a load held / in the middle of a statue's map scan / while a boss framing eases in, holds, eases out / on each of the 13 frames around the idol's kill (16:9, 21:9), run on in a fresh instance | identical to the run it came from (RAM, VRAM, CRAM, `module_state`, picture; the first frame after a load now has the 10-bit sprite X set as `post_frame` sets it - before, a sprite past VDP X 511 showed wrong for that frame) |
