@@ -22,8 +22,8 @@ module's level select and skips its story card (START) until the first frame of 
    view reaches too, the despawn window follows the slid view, an object short of an object slot or sprite tiles gets
    room from objects out of sight (the tile pool compacted), and the sprite clip covers ±2E (§3).
 4. HUD sprites are moved to the screen edges and kept still while the view slides (`sprite_xoff`, §4).
-5. Gameplay = a level fading in, or the gameplay or pause loop ran in the last 4 frames (PC hooks); Abu's bonus rounds
-   and the Rug Ride are shown 4:3. The attract mode (title, demos) runs on the original ROM, cheats off (§6).
+5. Gameplay = a level fading in, the gameplay or pause loop ran in the last 4 frames, or an iteration of the gameplay
+   loop is still under way (PC hooks, §6); Abu's bonus rounds and the Rug Ride are shown 4:3. The attract mode (title, demos) runs on the original ROM, cheats off (§6).
 
 ## 1. Camera and streaming
 
@@ -131,6 +131,32 @@ drawing there.
   coming down right of the arena starts no tune at 4:3 or now at 21:9 (it did at camera 2169, 229 before); in from the
   left at the arena's height the tune is queued at camera 1716 at 4:3 and 1716 / 1724 at 16:9 / 21:9 (one map-view
   step; before: 1652 / 1588); the Rooftops' and Jafar's Palace's likewise within a step of 4:3.
+* **Palette line 2**: several kinds of map object draw their sprites in CRAM line 2 and load their colours into it from
+  their spawn handler (`$1B2650`, which keeps the source at `$FF726A` for the fades and the hit flash's restore,
+  `$1ACDA2`; skipped while a level start or a restart fills the plane, `$FFF175`): `$23`-`$25`, `$2D`-`$2F`, `$4E`,
+  `$4F` `$1292B2` (the Cave's bats and the like), `$F5`-`$F8` `$1292F2` (the golden idol and its pedestals), `$3E`
+  `$129532` and `$3C` `$1294F2` (the same colours), `$4D` `$1295D2` (Jafar), `$8F` `$129612`, `$28` `$129152`, `$1F` /
+  `$81` `$1295F2`. Whichever spawned last colours them all; the 4:3 game's levels are laid out so that it is the one on
+  screen. With the wider spawning a kind could load its colours while another is on screen: in the idol's arena at
+  21:9 (CRT), Aladdin moving left brings the bat at block (109, 36) into the spawn band (camera 1872; the 4:3 window
+  never reaches it from the arena, whose left end is camera 1821) and the idol and both pedestals took the bat's dark
+  red, yellow and magenta for the rest of the fight (the QA's report: bright yellow / magenta outlines). Now a map
+  object spawned outside the 4:3 window whose colours differ from the line's, while an object of the kind that loaded
+  the line's colours is on screen, has the handler's call skipped (a hook at `$1B2650` that checks the return address
+  against the 13 spawn-handler calls, then returns) and the load held in `module_state[7]` (four entries: slot, palette
+  index; save states and rewind keep them). It is drawn in the line's colours meanwhile. Right after the gameplay
+  loop's streaming (`$1A8CE8`, with the boss tune) a held load is done when the object's block (found by its block word,
+  +`$32` × 2, unique in every map) comes into the 4:3 window - when the 4:3 game would spawn it and load them - or once
+  no object of the line's kind is alive (for a boss's colours, `$1292F2` / `$1295D2` / `$129152`: none on screen, so
+  the boss doesn't come in in a bat's colours while that bat lingers in view). Checked (the held entries read from save
+  states): the arena at 21:9, in from the left and a 1,710-frame fight walking both ways - idol / pedestals in other
+  colours on 1,671 frames before, 0 now; held: that bat (drawn in the idol's gold in the left extension, the only place
+  it shows, 526 frames) and, coming in, the idol itself for 4 frames in the right extension while a bat was in view;
+  from the ledges above, 26 frames (16:9: 1) before, 0 now. A map-view sweep of every camera row of the Dungeon, the
+  Cave and Jafar's Palace at 16:9 / 21:9: line 2 repainted under an object on screen by an object outside the 4:3
+  window 1 / 1 (that bat) before, 0 now. What remains is the 4:3 game's own: a load at its window's edge repainting a
+  statue that only the extension shows (Jafar's Palace at 21:9), and the 4:3 game itself repaints the idol with the
+  bat's colours when its camera reaches (1740, 440) with the idol alive.
 * **Sprite clip** (`$1ABA0A`): map objects' pieces need VDP X in [0, `$1BF`) — now [−o, 448 + 2E) with
   o = max(0, 2E − 96) (`$1ABAD0` → `jsr $7180.w`: the compare runs on a biased copy on the stack, so the X written is
   the piece's own, negative left of X 0); screen-fixed objects (+6 bit 3) [0, 448 + 2E) (`$1ABA8C` → `jsr $71C0.w`).
@@ -195,6 +221,15 @@ already be the next frame's — and, when it differs from the one the slide in f
 * Wide: frames in which the gameplay loop `$1A8C16` or the pause loop `$1A9230` ran within the last 4 frames;
   not after `$1A8E5C` (level over), `$1A8F82` (death screen), `$1A902E` (fell off the map), and not in the attract
   mode (below).
+* Also wide: the frames of one iteration of the gameplay loop that takes longer than that. The game draws nothing new
+  meanwhile and the picture holds as at 4:3. Hitting the Cave of Wonders' monkey statue `$36` (block 81, 25) or `$37`
+  (87, 6) with the sword runs a scan of the whole level map (`$1AC386` / `$1AC3BC`: 14,400 words, clearing the blocks
+  whose attribute is `$4F` / `$FE` resp. `$4E` / `$FD` - a wall elsewhere, for `$36` 101 blocks at columns 106-117, rows
+  0-13) inside the iteration: 9 frames without the loop's top, from frame 5 on shown 4:3 (black bars for 5-6 frames at
+  every width; the QA's report at 21:9). `$35` (38, 56) only sets a flag (`$F10E`; `$36` / `$37` set `$F10F` / `$F110`).
+  The loop's top sets bit 31 of `module_state[0]` and the frame wait `$1B249E` (the loop's at `$1A8CD2`) clears it;
+  while it is set, up to a second, the frames count as play. Seeded random play in every wide level (2 × 6,000 frames
+  each, invincible) finds no other iteration over 4 frames and no other short 4:3 stretch in play.
 * Also wide: a level's fade-in, from its call to the palette fade (`$1A8BFC` `bsr $1AE1A0` at a level's start,
   `$1A91B8` after a life lost) to the gameplay loop. The picture is already the level's, so it is shown wide and slid
   from its first frame; before, it faded in 4:3 with the game's own camera and jumped by the slide on the first frame
@@ -237,3 +272,6 @@ already be the next frame's — and, when it differs from the one the slide in f
 | attract demos | `md_attract.py --cheats …` (40,000 frames from power-on at every width) | RAM identical to widescreen off every frame, with and without cheats |
 | lag frames, shake (QA F3 / F4) | QA `t_tear_all.py`, `t_jitter.py`, `t_shake.py` | held picture still on every frame of the slide zones (Rooftops 10 → 0, Jafar's Quarters 4 → 0 frames moved at 21:9); the Escape shakes as at 4:3 (cliff edge 43/42/41/40 at a constant slide, sprites with it) |
 | level start / respawn (QA F2) | QA `t_app_levelstart.py`, `t_app_respawn.py`; per-frame trace of a respawn | fade-in frames wide and slid, no jump into play; the masks open while the picture is still dark |
+| statue hits (black bars) | the Cave's statues `$35` / `$36` / `$37` hit from both sides, 4:3 / 16:9 / 21:9 | 9 frames inside one loop iteration (`$36`, `$37`) as at 4:3; frames shown 4:3: 6 / 6 / 5 before at 21:9, 0 now |
+| palette line 2 | the idol's arena in from the left and from above with a fight; map-view sweep of the Dungeon, Cave, Jafar's Palace | see §3 (Palette line 2) |
+| save states | a state saved with a load held / in the middle of a statue's map scan, run on rewound and in a fresh instance | identical to the run it came from (RAM, VRAM, CRAM, `module_state`, every frame wide) |

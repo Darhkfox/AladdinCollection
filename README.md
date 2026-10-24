@@ -253,7 +253,10 @@ gradlew assembleDebug
   life. Developer Map View puts Aladdin back where the view is when it's switched off, so switch it off over solid
   ground. The cheats apply in a game, not on the title screen or in the attract demos. In Jafar's Palace at 21:9
   with CRT pixels, a knife thrown from the left edge can vanish as it hits when every other sprite is in view
-  (making room would mean removing a guard who is partly on screen).
+  (making room would mean removing a guard who is partly on screen). Some kinds of enemy share one set of colours
+  (the game gives it to whichever appeared last), so one that only the wider view shows can take another's colours
+  at the sides until it comes into the 4:3 area - e.g. a bat at the far left of the Cave of Wonders' idol fight at
+  21:9 takes the idol's gold.
 - Master System: the game's own camera is kept (Aladdin's position is an 8-bit screen coordinate), so near a
   stage's ends the scenery holds still while Aladdin walks for the first stretch of camera travel. Objects wake as
   they come within the original's margins of the view as shown, so those entering from the right act as much

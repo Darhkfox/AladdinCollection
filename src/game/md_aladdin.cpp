@@ -51,12 +51,15 @@ constexpr uint32_t TITLE_RET = 0xFFEFD4;      // the return address of the main 
 constexpr uint32_t PC_MAIN_ENTRY = 0x1A8A4A;  // power-on, and after a game: SP = $FFEFD8, the set-up, the title
 constexpr uint32_t PC_TITLE_RET = 0x1A8B32;   // the title routine returns here: a game starts (or a demo)
 constexpr uint32_t PC_LEVEL_INIT = 0x1AA484;  // level init (after the story card)
+constexpr uint32_t PC_FRAME_WAIT = 0x1B249E;  // the frame wait (VBlank), the gameplay loop's at $1A8CD2
 
-// module_state: [0] frame (+1) the gameplay loop last ran in, 0 after it was left; [1] the developer flags the cheats
-// set (bit 0 cheat mode, bit 1 map view), to clear them when they are switched off; [2] a level's fade-in is running
-// (shown as play: the picture is already the level's, so it starts wide and slid instead of jumping when play begins);
-// [3..6] boss tunes held back (boss_tune_held)
-enum { MS_PLAY = 0, MS_DEV = 1, MS_FADE = 2, MS_BOSS = 3, MS_BOSS_N = 4 };
+// module_state: [0] frame (+1) the gameplay loop last ran in, 0 after it was left, bit 31 (PLAY_BUSY) while that
+// iteration hasn't reached its frame wait yet (in_play); [1] the developer flags the cheats set (bit 0 cheat mode,
+// bit 1 map view), to clear them when they are switched off; [2] a level's fade-in is running (shown as play: the
+// picture is already the level's, so it starts wide and slid instead of jumping when play begins); [3..6] boss tunes
+// held back (boss_tune_held); [7] palette line 2 loads held back (line2_held)
+enum { MS_PLAY = 0, MS_DEV = 1, MS_FADE = 2, MS_BOSS = 3, MS_BOSS_N = 4, MS_PAL2 = 7 };
+constexpr uint32_t PLAY_BUSY = 0x80000000u, PLAY_FRAME = 0x7FFFFFFFu;
 
 enum : int { L_ROOFTOPS = 0, L_MARKET, L_ABU_AGRABAH, L_DESERT, L_DUNGEON, L_CAVE, L_ABU_CAVE, L_ESCAPE, L_RUG_RIDE,
              L_LAMP, L_PALACE, L_JAFAR_PALACE, L_JAFAR_QUARTERS };
@@ -304,9 +307,18 @@ bool attract(const MegaDrive& md) {
     return md.ram8(DEMO) != 0 || (ret > PC_MAIN_ENTRY && ret <= PC_TITLE_RET) || (ret == 0 && md.frame_count < 120);
 }
 
-// The gameplay loop ran lately (in play or paused), in a game.
+// The gameplay loop ran lately (in play or paused), in a game. One iteration of the loop can take several frames: the
+// game draws nothing new meanwhile and the picture holds, as at 4:3 - hitting two of the Cave of Wonders' monkey
+// statues runs a scan of the whole level map ($1AC386 / $1AC3BC, clearing the blocks of a wall elsewhere) that keeps
+// the 68000 busy for 9 frames. Those frames are play: the iteration is under way from the loop's top
+// (PC_MAIN_LOOP sets PLAY_BUSY) until its frame wait (PC_FRAME_WAIT clears it). (Up to a second of it: a way out of
+// the loop not hooked as leaving it still ends play.)
+constexpr uint32_t PLAY_RECENT = 4, PLAY_BUSY_MAX = 60;
 bool in_play(const MegaDrive& md) {
-    return md.module_state[MS_PLAY] != 0 && (uint32_t)md.frame_count + 1 - md.module_state[MS_PLAY] <= 4 && !attract(md);
+    const uint32_t ms = md.module_state[MS_PLAY];
+    if (ms == 0 || attract(md)) return false;
+    const uint32_t age = ((uint32_t)md.frame_count + 1 - ms) & PLAY_FRAME;
+    return age <= PLAY_RECENT || ((ms & PLAY_BUSY) && age <= PLAY_BUSY_MAX);
 }
 
 // A level on screen in a game: in play, or fading in (its first frames, before the gameplay loop runs).
@@ -626,6 +638,165 @@ void boss_tune_held(MegaDrive& md) {
             gems_command(md, {0x10, BOSS_TUNE});
         }
         e = 0;
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Palette line 2. Several kinds of map object draw their sprites in CRAM line 2 and load their colours into it from
+// their spawn handler ($1B2650, the source kept at $FF726A for fades; not while a level start or a restart fills the
+// plane, $FFF175): the bats and the like ($1292B2), the Cave of Wonders' golden idol and its pedestals ($1292F2),
+// Jafar's Palace's statues ($1294F2), ... Whichever spawned last colours them all; the 4:3 game's levels are laid out so
+// that it is the one on screen. The widened spawning brings objects in up to 2E px earlier (and from rows the 4:3 game
+// doesn't reach), so one could load its colours while another kind is on screen: in the idol's arena at 21:9, moving
+// left brings the bat at block (109, 36) into the spawn band, and the idol and its pedestals took the bat's dark red,
+// yellow and magenta for the rest of the fight (the 4:3 game's window never reaches that bat from the arena). So when a
+// map object spawned outside the 4:3 window would load other colours while an object of the kind that loaded the
+// line's colours is on screen, the handler's call is skipped and the load held (object slot, palette:
+// module_state[MS_PAL2], four entries of a byte); the object is drawn in the line's colours meanwhile. Right after the
+// gameplay loop's streaming (as the boss tune) a held load is done when the object's block comes into the 4:3 window -
+// when the 4:3 game would spawn it and load them - or once no object of the line's kind is alive any more (a boss's
+// colours: none on screen, so the boss doesn't come in in another's colours while one of those lingers in view).
+struct Line2Load { uint32_t ret; uint32_t pal; uint8_t types[5]; };   // a spawn handler's call (return address)
+const Line2Load kLine2Loads[] = {
+    {0x1B6C2C, 0x1292B2, {0x23, 0x24}}, {0x1B6C4C, 0x1292B2, {0x25}}, {0x1B75F4, 0x1292B2, {0x2D, 0x2E, 0x2F, 0x4E, 0x4F}},
+    {0x1B6DE8, 0x1292F2, {0xF5}}, {0x1B6E14, 0x1292F2, {0xF6}}, {0x1B6E40, 0x1292F2, {0xF7}}, {0x1B6E6C, 0x1292F2, {0xF8}},
+    {0x1B6FAC, 0x129532, {0x3E}}, {0x1B6FD8, 0x1294F2, {0x3C}}, {0x1B6CCC, 0x1295F2, {0x1F, 0x81}},
+    {0x1B6CE6, 0x1295D2, {0x4D}}, {0x1B6792, 0x129612, {0x8F}}, {0x1B6D52, 0x129152, {0x28}},
+};
+const uint32_t kLine2Pals[8] = {0x1292B2, 0x1292F2, 0x129532, 0x1294F2, 0x1295F2, 0x1295D2, 0x129612, 0x129152};
+constexpr uint32_t PC_LOAD_LINE2 = 0x1B2650, LINE2_SRC = 0xFF726A;
+
+// Whether two of those palettes are the same colours ($1294F2 and $129532 are)
+bool same_line2(const MegaDrive& md, uint32_t a, uint32_t b) {
+    if (a == b) return true;
+    if (a + 32 > md.rom.size() || b + 32 > md.rom.size()) return false;
+    for (int i = 0; i < 16; i++) if (md.rom16(a + 2 * i) != md.rom16(b + 2 * i)) return false;
+    return true;
+}
+
+// The colours a map object type loads into line 2 (0: none)
+uint32_t line2_pal(uint8_t type) {
+    for (const Line2Load& l : kLine2Loads)
+        for (uint8_t t : l.types) if (t && t == type) return l.pal;
+    return 0;
+}
+
+// A boss's colours: the golden idol (and its pedestals), Jafar in his palace, the Rooftops' boss
+bool line2_boss(uint32_t pal) { return pal == 0x1292F2 || pal == 0x1295D2 || pal == 0x129152; }
+
+int line2_index(uint32_t pal) {
+    for (int i = 0; i < 8; i++) if (kLine2Pals[i] == pal) return i;
+    return -1;
+}
+
+// held loads: a byte each, slot << 3 | palette index (slot >= 1, so never 0)
+uint32_t line2_held_obj(uint32_t st, int k) { const uint32_t e = (st >> (8 * k)) & 0xFF; return e ? OBJECTS + (e >> 3) * OBJ_SIZE : 0; }
+uint32_t line2_held_pal(uint32_t st, int k) { return kLine2Pals[(st >> (8 * k)) & 7]; }
+
+void load_line2(MegaDrive& md, uint32_t pal) {   // as $1B2650: CRAM 32-47 (stored BGR333), the source at $FF726A
+    for (int i = 0; i < 16; i++) {
+        const uint16_t c = md.rom16(pal + 2 * i);
+        md.vdp.cram[32 + i] = (uint16_t)((((c >> 9) & 7) << 6) | (((c >> 5) & 7) << 3) | ((c >> 1) & 7));
+    }
+    md.set_ram32(LINE2_SRC, pal);
+}
+
+// Whether a piece of the object is in the sprite table being shown and inside the view as slid.
+bool object_in_view(const MegaDrive& md, uint32_t o) {
+    const uint32_t lo = md.ram32(o + 0x2E), hi = lo + (md.ram8(o + 0x29) + 1u) * 0x80;
+    if (!lo) return false;
+    const VDP& v = md.vdp;
+    const int E = v.ext, s = v.view_shift;
+    const uint32_t sat = (uint32_t)(v.reg[5] & 0x7E) << 9;
+    for (int e = 0, n = 0; n < 80; n++) {
+        const uint32_t a = sat + e * 8;
+        const uint32_t t = (uint32_t)(v.vram16(a + 4) & 0x7FF) * 32;
+        if (t >= lo && t < hi) {
+            const uint8_t size = v.vram[(a + 2) & 0xFFFF];
+            int x = v.vram16(a + 6) & (v.sprite_x10 ? 0x3FF : 0x1FF);
+            if (v.sprite_x10 && x >= 0x300) x -= 0x400;
+            x -= 128;
+            const int y = (v.vram16(a) & 0x3FF) - 128, w = (((size >> 2) & 3) + 1) * 8, h = ((size & 3) + 1) * 8;
+            if (x + w > -E + s && x < 320 + E + s && y + h > 0 && y < 224) return true;
+        }
+        e = v.vram[(a + 3) & 0xFFFF] & 0x7F;
+        if (!e) break;
+    }
+    return false;
+}
+
+// Whether an object alive (other than the held ones) is of a kind that loaded these colours - and, with `shown`, has a
+// piece in the view.
+bool line2_in_use(const MegaDrive& md, uint32_t pal, uint32_t st, bool shown = false) {
+    for (int i = 1; i < 32; i++) {
+        const uint32_t o = OBJECTS + i * OBJ_SIZE;
+        const uint32_t p = line2_pal(md.ram8(o + 0x34));
+        if (!md.ram8(o) || !p || !same_line2(md, p, pal)) continue;
+        bool held = false;
+        for (int k = 0; k < 4; k++) held |= line2_held_obj(st, k) == o;
+        if (!held && (!shown || object_in_view(md, o))) return true;
+    }
+    return false;
+}
+
+// The map block an object was spawned from: its block word (+$32 = word / 2) is unique in the map (row-major at $FF0000).
+bool object_block(const MegaDrive& md, uint32_t o, int& col, int& row) {
+    const uint16_t w = (uint16_t)(md.ram16(o + 0x32) * 2);
+    const int W = md.ram16(MAP_W), H = md.ram16(MAP_H);
+    for (int i = 0; w && i < W * H && i < 0x8000; i++)
+        if (md.ram16(0xFF0000 + 2 * i) == w) { col = i % W; row = i / W; return true; }
+    return false;
+}
+
+// At $1B2650 (a0 = the colours, a5 = the object): a map object's spawn handler outside the 4:3 window with other colours
+// than the line's, an object of the kind that loaded those on screen: the call is skipped, the load held.
+void line2_load(MegaDrive& md) {
+    const uint32_t sp = md.cpu.r[15] & 0xFFFFFF, ret = md.ram32(sp) & 0xFFFFFF;
+    const uint32_t o = md.cpu.r[13] & 0xFFFFFF, pal = md.cpu.r[8] & 0xFFFFFF;
+    const Line2Load* site = nullptr;
+    for (const Line2Load& l : kLine2Loads) if (l.ret == ret) site = &l;
+    if (!site || pal != site->pal || o <= OBJECTS || o >= OBJECTS + 32 * OBJ_SIZE || (o - OBJECTS) % OBJ_SIZE) return;
+    const int col = ((int16_t)md.ram16(o + 2) + 16) >> 4, row = ((int16_t)md.ram16(o + 4) - 240) >> 4;
+    uint32_t& st = md.module_state[MS_PAL2];
+    const uint32_t cur = md.ram32(LINE2_SRC) & 0xFFFFFF;
+    if (in_43_window(md, col, row) || same_line2(md, pal, cur) || !line2_in_use(md, cur, st, true)) return;   // (as the 4:3 game)
+    const uint32_t entry = (o - OBJECTS) / OBJ_SIZE << 3 | (uint32_t)line2_index(pal);
+    for (int k = 0; k < 4; k++) {
+        if (((st >> (8 * k)) & 0xFF) && line2_held_obj(st, k) != o) continue;
+        st = (st & ~(0xFFu << (8 * k))) | entry << (8 * k);
+        md.cpu.pc = ret;            // rts
+        md.cpu.r[15] = sp + 4;
+        return;
+    }
+}
+
+// After the gameplay loop's streaming: held loads whose object is gone, or whose colours the line has, are dropped; one
+// whose block has come into the 4:3 window loads, then one whose line is free (no object of the line's kind alive; for a
+// boss's colours, none on screen).
+void line2_held(MegaDrive& md) {
+    uint32_t& st = md.module_state[MS_PAL2];
+    auto drop_done = [&]() {
+        const uint32_t cur = md.ram32(LINE2_SRC) & 0xFFFFFF;
+        for (int k = 0; k < 4; k++) {
+            const uint32_t o = line2_held_obj(st, k);
+            if (o && (!md.ram8(o) || line2_pal(md.ram8(o + 0x34)) != line2_held_pal(st, k) || same_line2(md, line2_held_pal(st, k), cur)))
+                st &= ~(0xFFu << (8 * k));
+        }
+    };
+    drop_done();
+    for (int k = 0; k < 4 && st; k++) {
+        const uint32_t o = line2_held_obj(st, k);
+        int col, row;
+        if (!o || !object_block(md, o, col, row) || !in_43_window(md, col, row)) continue;
+        load_line2(md, line2_held_pal(st, k));
+        drop_done();
+    }
+    for (int k = 0; k < 4 && st; k++) {
+        if (!line2_held_obj(st, k)) continue;
+        const bool boss = line2_boss(line2_held_pal(st, k));
+        if (line2_in_use(md, md.ram32(LINE2_SRC) & 0xFFFFFF, st, boss)) continue;
+        load_line2(md, line2_held_pal(st, k));
+        drop_done();
     }
 }
 
@@ -1000,9 +1171,11 @@ public:
         apply_patches(md, rom_for(md, cfg));
         rom_attract_ = attract(md);
         md.clear_pc_hooks();
-        auto play = [](MegaDrive& m) { m.module_state[MS_PLAY] = (uint32_t)m.frame_count + 1; m.module_state[MS_FADE] = 0; };
+        auto play = [](MegaDrive& m) { m.module_state[MS_PLAY] = ((uint32_t)m.frame_count + 1) & PLAY_FRAME; m.module_state[MS_FADE] = 0; };
         auto leave = [](MegaDrive& m) { m.module_state[MS_PLAY] = 0; m.module_state[MS_FADE] = 0; };
-        md.add_pc_hook(PC_MAIN_LOOP, play);
+        // (an iteration of the gameplay loop is under way until its frame wait: in_play)
+        md.add_pc_hook(PC_MAIN_LOOP, [play](MegaDrive& m) { play(m); m.module_state[MS_PLAY] |= PLAY_BUSY; });
+        md.add_pc_hook(PC_FRAME_WAIT, [](MegaDrive& m) { m.module_state[MS_PLAY] &= ~PLAY_BUSY; });
         md.add_pc_hook(PC_PAUSE_LOOP, play);
         md.add_pc_hook(PC_LEVEL_END, leave);
         md.add_pc_hook(PC_DEATH, leave);
@@ -1018,7 +1191,9 @@ public:
                 md.add_pc_hook(ss.rts, [this, &ss](MegaDrive& m) { if (!rom_attract_ && in_play(m)) slot_search_done(m, ss); });
             for (const BossHandler& h : kBossHandlers)
                 md.add_pc_hook(h.at, [this, &h](MegaDrive& m) { if (!rom_attract_) boss_tune_spawned(m, h); });
-            md.add_pc_hook(PC_STREAMED, [](MegaDrive& m) { boss_tune_held(m); });
+            md.add_pc_hook(PC_LOAD_LINE2, [this](MegaDrive& m) { if (!rom_attract_) line2_load(m); });
+            md.add_pc_hook(PC_STREAMED, [this](MegaDrive& m) { boss_tune_held(m); if (!rom_attract_) line2_held(m); });
+            md.add_pc_hook(PC_LEVEL_LOAD, [](MegaDrive& m) { m.module_state[MS_PAL2] = 0; });
         }
         wide_->md = &md;
         md.vdp.line_hook = wide ? line_hook : nullptr;
