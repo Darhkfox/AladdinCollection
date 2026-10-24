@@ -251,7 +251,9 @@ gradlew assembleDebug
   game's own camera is kept. After a mid-level width change, objects in the newly shown columns appear when the
   view next scrolls over them. Invincibility covers hits only: pits, lava and the Rug Ride's walls still cost a
   life. Developer Map View puts Aladdin back where the view is when it's switched off, so switch it off over solid
-  ground. The cheats apply in a game, not on the title screen or in the attract demos.
+  ground. The cheats apply in a game, not on the title screen or in the attract demos. In Jafar's Palace at 21:9
+  with CRT pixels, a knife thrown from the left edge can vanish as it hits when every other sprite is in view
+  (making room would mean removing a guard who is partly on screen).
 - Master System: the game's own camera is kept (Aladdin's position is an 8-bit screen coordinate), so near a
   stage's ends the scenery holds still while Aladdin walks for the first stretch of camera travel. Objects wake as
   they come within the original's margins of the view as shown, so those entering from the right act as much
