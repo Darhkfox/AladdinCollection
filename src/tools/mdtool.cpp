@@ -31,6 +31,8 @@ struct Tool {
     GameConfig cfg;
     FrameInfo info;
     std::vector<uint32_t> cart_log;      // writes to cartridge space: frame << 32 is too wide, so (addr, value) pairs
+    uint8_t  snap[0x10000] = {};         // RAM at the last mdt_snap_at hit
+    uint32_t snaps = 0;
 };
 
 void build_palette(std::vector<uint32_t>& lut) {
@@ -242,6 +244,21 @@ API void mdt_bp_add(void* h, uint32_t addr) {
     });
 }
 API void mdt_bp_clear(void* h) { Tool* t = (Tool*)h; t->md.clear_pc_hooks(); t->bp_log.clear(); }
+// RAM snapshot whenever PC reaches addr (e.g. a game loop's frame wait: the state between two iterations, wherever
+// the frame boundary falls); mdt_snap copies the last one (64 KB) and returns how many were taken. (A breakpoint
+// or snapshot at the same address replaces the other, as do the module's hooks: configure drops it.)
+API void mdt_snap_at(void* h, uint32_t addr) {
+    Tool* t = (Tool*)h;
+    t->md.add_pc_hook(addr, [t](MegaDrive& md) {
+        memcpy(t->snap, md.ram, sizeof(t->snap));
+        t->snaps++;
+    });
+}
+API uint32_t mdt_snap(void* h, uint8_t* out) {
+    Tool* t = (Tool*)h;
+    if (out) memcpy(out, t->snap, sizeof(t->snap));
+    return t->snaps;
+}
 API int mdt_bp_log(void* h, uint32_t* out, int max) {   // 20 words per hit
     Tool* t = (Tool*)h;
     int n = (int)std::min<size_t>(max, t->bp_log.size());
@@ -331,6 +348,17 @@ API int mdt_module_can_configure(void* h, int ext, int hud_anchor, const char* c
     std::string k;
     while (std::getline(ss, k, ',')) if (!k.empty()) c.cheats[k] = true;
     return t->module->can_configure(t->md, c) ? 1 : 0;
+}
+// The module's own part of a save state (GameModule::save_ext / load_ext), as the app keeps it next to the core's.
+API int mdt_module_save_ext(void* h, uint8_t* out, int max) {
+    Tool* t = (Tool*)h;
+    const std::vector<uint8_t> d = t->module ? t->module->save_ext() : std::vector<uint8_t>();
+    if (out && max >= (int)d.size()) memcpy(out, d.data(), d.size());
+    return (int)d.size();
+}
+API void mdt_module_load_ext(void* h, const uint8_t* data, int n) {
+    Tool* t = (Tool*)h;
+    if (t->module) t->module->load_ext(data, (size_t)n);
 }
 API int mdt_module_start_level(void* h, int entry, int variant) {
     Tool* t = (Tool*)h;

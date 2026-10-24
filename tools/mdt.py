@@ -85,6 +85,13 @@ if hasattr(_dll, 'mdt_module_can_configure'):
     _dll.mdt_module_play.argtypes = [C.c_void_p, C.c_int]
     if hasattr(_dll, 'mdt_module_music_request'):
         _dll.mdt_module_music_request.argtypes = [C.c_void_p, C.c_int]
+if hasattr(_dll, 'mdt_module_save_ext'):
+    _dll.mdt_module_save_ext.argtypes = [C.c_void_p, C.c_void_p, C.c_int]
+    _dll.mdt_module_load_ext.argtypes = [C.c_void_p, C.c_char_p, C.c_int]
+if hasattr(_dll, 'mdt_snap_at'):
+    _dll.mdt_snap_at.argtypes = [C.c_void_p, C.c_uint32]
+    _dll.mdt_snap.restype = C.c_uint32
+    _dll.mdt_snap.argtypes = [C.c_void_p, C.c_void_p]
 if hasattr(_dll, 'mdt_debug_layers'):
     _dll.mdt_debug_layers.argtypes = [C.c_void_p, C.c_int]
 if hasattr(_dll, 'mdt_view'):
@@ -288,6 +295,16 @@ class MD:
                          **{'a%d' % j: regs[8 + j] for j in range(8)}})
         return hits
 
+    def snap_at(self, addr):
+        """take a RAM snapshot whenever PC reaches addr (configure / bp_clear drop it)"""
+        _dll.mdt_snap_at(self.h, addr)
+
+    def snap(self):
+        """(snapshots taken so far, RAM at the last one)"""
+        buf = (C.c_uint8 * 0x10000)()
+        n = _dll.mdt_snap(self.h, buf)
+        return n, bytes(buf)
+
     def watch(self, lo, hi=None):
         if hi is None:
             hi = lo
@@ -340,6 +357,20 @@ class ModuleMD(MD):
         """whether configure() could change the ROM now without pulling code from under the 68000 (the app
         waits for such a frame end before a width / cheat change)"""
         return bool(_dll.mdt_module_can_configure(self.h, ext, 1 if hud_anchor else 0, ','.join(cheats).encode()))
+
+    def save_full(self):
+        """a save state as the app keeps it: the core's and the module's own part (save_ext)"""
+        n = _dll.mdt_module_save_ext(self.h, None, 0)
+        buf = (C.c_uint8 * max(n, 1))()
+        _dll.mdt_module_save_ext(self.h, buf, n)
+        return self.save(), bytes(buf[:n])
+
+    def load_full(self, st):
+        """load a save_full() state as the app does: configure for it, the core's state, then the module's part"""
+        core, ext = st
+        self.configure(*self.config)
+        self.load(core)
+        _dll.mdt_module_load_ext(self.h, ext, len(ext))
 
     def start_level(self, entry, variant=0):
         return _dll.mdt_module_start_level(self.h, entry, variant)
