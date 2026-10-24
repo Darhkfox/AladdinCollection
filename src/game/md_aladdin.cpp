@@ -54,8 +54,9 @@ constexpr uint32_t PC_LEVEL_INIT = 0x1AA484;  // level init (after the story car
 
 // module_state: [0] frame (+1) the gameplay loop last ran in, 0 after it was left; [1] the developer flags the cheats
 // set (bit 0 cheat mode, bit 1 map view), to clear them when they are switched off; [2] a level's fade-in is running
-// (shown as play: the picture is already the level's, so it starts wide and slid instead of jumping when play begins)
-enum { MS_PLAY = 0, MS_DEV = 1, MS_FADE = 2 };
+// (shown as play: the picture is already the level's, so it starts wide and slid instead of jumping when play begins);
+// [3..6] boss tunes held back (boss_tune_held)
+enum { MS_PLAY = 0, MS_DEV = 1, MS_FADE = 2, MS_BOSS = 3, MS_BOSS_N = 4 };
 
 enum : int { L_ROOFTOPS = 0, L_MARKET, L_ABU_AGRABAH, L_DESERT, L_DUNGEON, L_CAVE, L_ABU_CAVE, L_ESCAPE, L_RUG_RIDE,
              L_LAMP, L_PALACE, L_JAFAR_PALACE, L_JAFAR_QUARTERS };
@@ -557,6 +558,78 @@ void pre_line_hook(void* host, int line) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+// The boss tune. Four map object types start BOSS TUNE (50) from their spawn handler ($4154 table), right after
+// spawning: $18 -> $1B6C5A (Agrabah Rooftops' end), $28 -> $1B6D1E (Rooftops, while Aladdin's Y is in [$2AD, $2F4)),
+// $4D -> $1B6CCE (Jafar's Palace), $F5 -> $1B6D90 (the Cave of Wonders' golden idol: the pedestal at block column 129,
+// row 29). The 4:3 game spawns them as their block enters its plane window - columns L/16 .. L/16 + 22, rows Y/16 ..
+// Y/16 + 15 - so the tune starts as the arena is about to come into its view. The widened spawning (the caves' band
+// columns, the widened rows) brings that moment up to 128 px earlier at 21:9, and from places the 4:3 view never
+// starts it: in the Cave of Wonders, up on the ledges right of and above the idol's arena, as the camera came down a
+// little the widened row reached the pedestal at the bottom-left corner of the view and the boss tune started with
+// Aladdin nowhere near the fight. So a boss object spawned outside the 4:3 window keeps everything else (it is there,
+// with its palette and its animation, as the wider view needs) but its tune is held (the handler's stop-all and start
+// skipped) until its block lies in the 4:3 window - when the 4:3 game would have spawned it and started the tune.
+// Then the module queues the same commands (stop all; BOSS TUNE if the music option is on, $FFF57F) right after the
+// gameplay loop's streaming ($1A8CE8, after `bsr $1AAA2A`), in the frame the 4:3 game's would have spawned it. Held entries (slot, block column / row) live in module_state, so save states and rewind keep them.
+constexpr uint32_t OBJECTS = 0xFF7E40, OBJ_TYPES = 0xFFAE87;   // the object table (32 x $42), the block type table
+constexpr int OBJ_SIZE = 0x42;
+struct BossHandler { uint32_t at, skip; };   // the handler's stop-all (movem before it) and the code after the start
+const BossHandler kBossHandlers[] = {{0x1B6C64, 0x1B6C94}, {0x1B6CEC, 0x1B6D1C}, {0x1B6D52, 0x1B6D82}, {0x1B6DA4, 0x1B6DD4}};
+constexpr uint32_t MUSIC_ON = 0xFFF57F;
+constexpr uint32_t PC_STREAMED = 0x1A8CE8;   // the gameplay loop, right after its column / row streaming ($1AAA2A)
+constexpr uint8_t BOSS_TUNE = 50;
+bool boss_type(uint8_t t) { return t == 0x18 || t == 0x28 || t == 0x4D || t == 0xF5; }
+
+// The GEMS command FIFO in Z80 RAM ($1B40, 64 bytes, write index at $0036): $FF, command, arguments ($1E57F4).
+void gems_command(MegaDrive& md, std::initializer_list<uint8_t> bytes) {
+    uint8_t i = md.zram[0x0036];
+    md.zram[0x1B40 + i] = 0xFF;
+    i = (i + 1) & 0x3F;
+    for (uint8_t b : bytes) {
+        md.zram[0x1B40 + i] = b;
+        i = (i + 1) & 0x3F;
+    }
+    md.zram[0x0036] = i;
+}
+
+bool in_43_window(const MegaDrive& md, int col, int row) {
+    const int L = md.ram16(STREAM_X) >> 4, Y = md.ram16(STREAM_Y) >> 4;
+    return col >= L && col <= L + 22 && row >= Y && row <= Y + 15;
+}
+
+// At a boss handler's stop-all (a5 = the object it spawned at its block: x = 16 col - 16, y = 16 row + 240)
+void boss_tune_spawned(MegaDrive& md, const BossHandler& h) {
+    const uint32_t o = md.cpu.r[13] & 0xFFFFFF;
+    const int col = ((int16_t)md.ram16(o + 2) + 16) >> 4, row = ((int16_t)md.ram16(o + 4) - 240) >> 4;
+    if (o < OBJECTS || o >= OBJECTS + 32 * OBJ_SIZE || in_43_window(md, col, row)) return;   // (as the 4:3 game)
+    for (int k = 0; k < MS_BOSS_N; k++) {
+        uint32_t& e = md.module_state[MS_BOSS + k];
+        if (e) continue;
+        e = 0x80000000u | (uint32_t)((o - OBJECTS) / OBJ_SIZE) << 24 | (uint32_t)(row & 0xFF) << 16 | (uint32_t)(col & 0xFFFF);
+        md.cpu.pc = h.skip;
+        return;
+    }
+}
+
+// After the gameplay loop's streaming: a held tune whose block has come into the 4:3 window starts; one whose object is
+// gone (despawned, the level left) is dropped.
+void boss_tune_held(MegaDrive& md) {
+    for (int k = 0; k < MS_BOSS_N; k++) {
+        uint32_t& e = md.module_state[MS_BOSS + k];
+        if (!e) continue;
+        const uint32_t o = OBJECTS + ((e >> 24) & 0x1F) * OBJ_SIZE;
+        if (!md.ram8(o) || !boss_type(md.ram8(o + 0x34))) { e = 0; continue; }
+        if (!in_43_window(md, (int)(e & 0xFFFF), (int)((e >> 16) & 0xFF))) continue;
+        gems_command(md, {0x16});
+        if (md.ram8(MUSIC_ON)) {
+            gems_command(md, {0x12, BOSS_TUNE});
+            gems_command(md, {0x10, BOSS_TUNE});
+        }
+        e = 0;
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
 // Room for objects. The widened view keeps more objects alive than the game was sized for: its object slots (32 at
 // $FF7E40, $42 bytes; each kind of object looks for a free one in its own range) and its sprite-tile pool (below) can
 // run out where the 4:3 game's never do. An object that finds no room is not spawned (a free-slot search fails: its
@@ -569,8 +642,7 @@ void pre_line_hook(void* host, int line) {
 // screen-fixed (+6 bit 3), not one the game never despawns (+$3C bit 1) and not one the code at hand works on (a0-a6)
 // - the farthest first, despawned the game's way ($1AE0B0, mirrored: object cleared, tiles freed, map block back, the
 // same for its linked object at +$3E). Inside the view nothing changes.
-constexpr uint32_t OBJECTS = 0xFF7E40, OBJ_TYPES = 0xFFAE87;
-constexpr int OBJ_SIZE = 0x42, ROOM_MARGIN = 32;
+constexpr int ROOM_MARGIN = 32;
 
 // how far an object lies outside the view as slid (0: inside or touching it)
 int outside_view(const MegaDrive& md, uint32_t o) {
@@ -599,7 +671,7 @@ bool on_screen(const MegaDrive& md, uint32_t o) {
 // An object that may be despawned to make room for one `than` px outside the view (0: inside it): farther out than
 // that, and either 32 px out (past the spawn band) or with nothing of it on screen.
 bool evictable(const MegaDrive& md, uint32_t o, int than) {
-    if (o == OBJECTS || !md.ram8(o)) return false;
+    if (o == OBJECTS || !md.ram8(o) || boss_type(md.ram8(o + 0x34))) return false;   // (a respawn: the tune again)
     const uint8_t f6 = md.ram8(o + 6);
     if ((f6 & 8) || !(f6 & 0x20) || !md.ram8(o + 0x34) || (md.ram8(o + 0x3C) & 2)) return false;
     for (int r = 8; r < 15; r++) if ((md.cpu.r[r] & 0xFFFFFF) == o) return false;
@@ -944,6 +1016,9 @@ public:
             md.add_pc_hook(PC_TILES_FULL, [this](MegaDrive& m) { if (!rom_attract_) tile_pool_make_room(m); });
             for (const SlotSearch& ss : kSlotSearches)
                 md.add_pc_hook(ss.rts, [this, &ss](MegaDrive& m) { if (!rom_attract_ && in_play(m)) slot_search_done(m, ss); });
+            for (const BossHandler& h : kBossHandlers)
+                md.add_pc_hook(h.at, [this, &h](MegaDrive& m) { if (!rom_attract_) boss_tune_spawned(m, h); });
+            md.add_pc_hook(PC_STREAMED, [](MegaDrive& m) { boss_tune_held(m); });
         }
         wide_->md = &md;
         md.vdp.line_hook = wide ? line_hook : nullptr;
@@ -1188,17 +1263,6 @@ private:
     std::unique_ptr<Wide> wide_{new Wide};
     bool rom_attract_ = false;   // the ROM is the attract mode's (original)
 
-    // The GEMS command FIFO in Z80 RAM ($1B40, 64 bytes, write index at $0036): $FF, command, arguments ($1E57F4).
-    static void gems_command(MegaDrive& md, std::initializer_list<uint8_t> bytes) {
-        uint8_t i = md.zram[0x0036];
-        md.zram[0x1B40 + i] = 0xFF;
-        i = (i + 1) & 0x3F;
-        for (uint8_t b : bytes) {
-            md.zram[0x1B40 + i] = b;
-            i = (i + 1) & 0x3F;
-        }
-        md.zram[0x0036] = i;
-    }
 };
 
 }  // namespace

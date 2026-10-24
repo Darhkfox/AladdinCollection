@@ -114,6 +114,23 @@ drawing there.
     of tiles any more but one at Jafar's Palace at 21:9 (CRT): a knife thrown from the left extension that needs a
     larger run as it hits, when every object holding tiles is in view (and the same object drop as the 4:3 game's own
     in Jafar's Quarters).
+* **Boss tune**: four object types start BOSS TUNE (50) from their spawn handler (`$4154`), right after spawning:
+  `$18` → `$1B6C5A` and `$28` → `$1B6D1E` (Agrabah Rooftops' end; `$28` only while Aladdin's Y is in [`$2AD`,
+  `$2F4`)), `$4D` → `$1B6CCE` (Jafar's Palace), `$F5` → `$1B6D90` (the Cave of Wonders' golden idol, block column 129,
+  row 29). The 4:3 game spawns them as their block enters its plane window (columns L/16 … L/16 + 22, rows Y/16 …
+  Y/16 + 15), so the tune starts as the arena is about to come into view. The widened spawning brought that up to
+  128 px earlier at 21:9 and, through the widened rows, from places the 4:3 game never starts it: a player up on the
+  ledges right of and above the idol's arena heard the boss tune as the camera came down a little and the widened row
+  reached the pedestal in the view's bottom-left corner. Now a boss object spawned outside the 4:3 window keeps the
+  rest of its handler (the object, its palette and animation, as the wider view shows it) but the handler's stop-all
+  and start are skipped (hooks at the stop-all: `$1B6C64` / `$1B6CEC` / `$1B6D52` / `$1B6DA4`, resuming at the code
+  after the start) and held in `module_state` [3..6] (slot, block column / row: save states and rewind keep it) until
+  the block lies in the 4:3 window; then, right after the gameplay loop's streaming (`$1A8CE8`), the module queues the
+  same commands (stop all; BOSS TUNE if the music option `$FFF57F` is on) - in the iteration the 4:3 game would have.
+  Boss objects are never evicted for room (a respawn runs the handler again). `md_boss_tune.py cave`: the camera
+  coming down right of the arena starts no tune at 4:3 or now at 21:9 (it did at camera 2169, 229 before); in from the
+  left at the arena's height the tune is queued at camera 1716 at 4:3 and 1716 / 1724 at 16:9 / 21:9 (one map-view
+  step; before: 1652 / 1588); the Rooftops' and Jafar's Palace's likewise within a step of 4:3.
 * **Sprite clip** (`$1ABA0A`): map objects' pieces need VDP X in [0, `$1BF`) — now [−o, 448 + 2E) with
   o = max(0, 2E − 96) (`$1ABAD0` → `jsr $7180.w`: the compare runs on a biased copy on the stack, so the X written is
   the piece's own, negative left of X 0); screen-fixed objects (+6 bit 3) [0, 448 + 2E) (`$1ABA8C` → `jsr $71C0.w`).
