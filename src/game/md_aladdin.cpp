@@ -651,11 +651,14 @@ void boss_tune_held(MegaDrive& md) {
 // left brings the bat at block (109, 36) into the spawn band, and the idol and its pedestals took the bat's dark red,
 // yellow and magenta for the rest of the fight (the 4:3 game's window never reaches that bat from the arena). So when a
 // map object spawned outside the 4:3 window would load other colours while an object of the kind that loaded the
-// line's colours is on screen, the handler's call is skipped and the load held (object slot, palette:
-// module_state[MS_PAL2], four entries of a byte); the object is drawn in the line's colours meanwhile. Right after the
-// gameplay loop's streaming (as the boss tune) a held load is done when the object's block comes into the 4:3 window -
-// when the 4:3 game would spawn it and load them - or once no object of the line's kind is alive any more (a boss's
-// colours: none on screen, so the boss doesn't come in in another's colours while one of those lingers in view).
+// line's colours is on screen (a boss: alive), the handler's call is skipped and the load held; the object is drawn
+// in the line's colours meanwhile. Right after the gameplay loop's streaming (as the boss tune) a held load is done when
+// the object's block comes into the 4:3 window - when the 4:3 game would spawn it and load them - or once no object of
+// the line's kind is alive any more (a boss's colours: none on screen, so the boss doesn't come in in another's colours
+// while one of those lingers in view). A load let through outside the 4:3 window is noted too and done again at the
+// object's 4:3 moment if another kind has loaded its colours since (as the 4:3 game, which loads them in that order):
+// the Cave's leaping fish ($3E) loaded early under the arena, a bat's held load done at its 4:3 moment, and the fish
+// stayed in the bat's colours. Held and early loads: module_state[MS_PAL2] (line2_entry).
 struct Line2Load { uint32_t ret; uint32_t pal; uint8_t types[5]; };   // a spawn handler's call (return address)
 const Line2Load kLine2Loads[] = {
     {0x1B6C2C, 0x1292B2, {0x23, 0x24}}, {0x1B6C4C, 0x1292B2, {0x25}}, {0x1B75F4, 0x1292B2, {0x2D, 0x2E, 0x2F, 0x4E, 0x4F}},
@@ -689,9 +692,27 @@ int line2_index(uint32_t pal) {
     return -1;
 }
 
-// held loads: a byte each, slot << 3 | palette index (slot >= 1, so never 0)
-uint32_t line2_held_obj(uint32_t st, int k) { const uint32_t e = (st >> (8 * k)) & 0xFF; return e ? OBJECTS + (e >> 3) * OBJ_SIZE : 0; }
-uint32_t line2_held_pal(uint32_t st, int k) { return kLine2Pals[(st >> (8 * k)) & 7]; }
+// The objects whose colours go into line 2 at another moment than the 4:3 game's: three entries of 10 bits in
+// module_state[MS_PAL2] - slot (>= 1), palette index << 5, bit 8: loaded already (before its 4:3 moment), else held.
+constexpr int L2_N = 3;
+struct Line2Entry { uint32_t obj = 0, pal = 0; bool early = false; };
+Line2Entry line2_entry(uint32_t st, int k) {
+    const uint32_t e = (st >> (10 * k)) & 0x3FF;
+    Line2Entry r;
+    if (e & 31) { r.obj = OBJECTS + (e & 31) * OBJ_SIZE; r.pal = kLine2Pals[(e >> 5) & 7]; r.early = (e & 0x100) != 0; }
+    return r;
+}
+void line2_set(uint32_t& st, int k, uint32_t o, uint32_t pal, bool early) {
+    const uint32_t e = o ? ((o - OBJECTS) / OBJ_SIZE | (uint32_t)line2_index(pal) << 5 | (early ? 0x100u : 0u)) : 0u;
+    st = (st & ~(0x3FFu << (10 * k))) | e << (10 * k);
+}
+bool line2_held(uint32_t st, uint32_t o) {
+    for (int k = 0; k < L2_N; k++) {
+        const Line2Entry e = line2_entry(st, k);
+        if (e.obj == o && !e.early) return true;
+    }
+    return false;
+}
 
 void load_line2(MegaDrive& md, uint32_t pal) {   // as $1B2650: CRAM 32-47 (stored BGR333), the source at $FF726A
     for (int i = 0; i < 16; i++) {
@@ -731,10 +752,8 @@ bool line2_in_use(const MegaDrive& md, uint32_t pal, uint32_t st, bool shown = f
     for (int i = 1; i < 32; i++) {
         const uint32_t o = OBJECTS + i * OBJ_SIZE;
         const uint32_t p = line2_pal(md.ram8(o + 0x34));
-        if (!md.ram8(o) || !p || !same_line2(md, p, pal)) continue;
-        bool held = false;
-        for (int k = 0; k < 4; k++) held |= line2_held_obj(st, k) == o;
-        if (!held && (!shown || object_in_view(md, o))) return true;
+        if (!md.ram8(o) || !p || !same_line2(md, p, pal) || line2_held(st, o)) continue;
+        if (!shown || object_in_view(md, o)) return true;
     }
     return false;
 }
@@ -748,55 +767,61 @@ bool object_block(const MegaDrive& md, uint32_t o, int& col, int& row) {
     return false;
 }
 
-// At $1B2650 (a0 = the colours, a5 = the object): a map object's spawn handler outside the 4:3 window with other colours
-// than the line's, an object of the kind that loaded those on screen: the call is skipped, the load held.
+// At $1B2650 (a0 = the colours, a5 = the object), from a map object's spawn handler outside the 4:3 window with other
+// colours than the line's: with an object of the kind that loaded those on screen (a boss's: alive) the call is skipped
+// and the load held, else it loads now and is noted as early, to be done again at its 4:3 moment if the line has other
+// colours by then.
 void line2_load(MegaDrive& md) {
     const uint32_t sp = md.cpu.r[15] & 0xFFFFFF, ret = md.ram32(sp) & 0xFFFFFF;
     const uint32_t o = md.cpu.r[13] & 0xFFFFFF, pal = md.cpu.r[8] & 0xFFFFFF;
     const Line2Load* site = nullptr;
     for (const Line2Load& l : kLine2Loads) if (l.ret == ret) site = &l;
     if (!site || pal != site->pal || o <= OBJECTS || o >= OBJECTS + 32 * OBJ_SIZE || (o - OBJECTS) % OBJ_SIZE) return;
-    const int col = ((int16_t)md.ram16(o + 2) + 16) >> 4, row = ((int16_t)md.ram16(o + 4) - 240) >> 4;
     uint32_t& st = md.module_state[MS_PAL2];
+    int k = -1;   // its entry (a new object in a slot an entry was left for: that one is over), else a free one
+    for (int i = 0; i < L2_N && k < 0; i++) if (line2_entry(st, i).obj == o) k = i;
+    if (k >= 0) line2_set(st, k, 0, 0, false);
+    for (int i = 0; i < L2_N && k < 0; i++) if (!line2_entry(st, i).obj) k = i;
+    const int col = ((int16_t)md.ram16(o + 2) + 16) >> 4, row = ((int16_t)md.ram16(o + 4) - 240) >> 4;
     const uint32_t cur = md.ram32(LINE2_SRC) & 0xFFFFFF;
-    if (in_43_window(md, col, row) || same_line2(md, pal, cur) || !line2_in_use(md, cur, st, true)) return;   // (as the 4:3 game)
-    const uint32_t entry = (o - OBJECTS) / OBJ_SIZE << 3 | (uint32_t)line2_index(pal);
-    for (int k = 0; k < 4; k++) {
-        if (((st >> (8 * k)) & 0xFF) && line2_held_obj(st, k) != o) continue;
-        st = (st & ~(0xFFu << (8 * k))) | entry << (8 * k);
-        md.cpu.pc = ret;            // rts
-        md.cpu.r[15] = sp + 4;
-        return;
-    }
+    if (in_43_window(md, col, row) || same_line2(md, pal, cur) || k < 0) return;   // (as the 4:3 game)
+    if (!line2_in_use(md, cur, st, !line2_boss(cur))) { line2_set(st, k, o, pal, true); return; }
+    line2_set(st, k, o, pal, false);
+    md.cpu.pc = ret;            // rts
+    md.cpu.r[15] = sp + 4;
 }
 
-// After the gameplay loop's streaming: held loads whose object is gone, or whose colours the line has, are dropped; one
-// whose block has come into the 4:3 window loads, then one whose line is free (no object of the line's kind alive; for a
-// boss's colours, none on screen).
-void line2_held(MegaDrive& md) {
+// After the gameplay loop's streaming. Entries whose object is gone are dropped (a held one whose colours the line has
+// counts as loaded early). One whose block has come into the 4:3 window - when the 4:3 game would spawn the object and
+// load its colours - loads them if the line has others, and is done. Then a held one whose line is free (no object of
+// the line's kind alive; for a boss's colours, none on screen) loads, noted as early.
+void line2_moments(MegaDrive& md) {
     uint32_t& st = md.module_state[MS_PAL2];
-    auto drop_done = [&]() {
+    if (!st) return;
+    auto tidy = [&]() {
         const uint32_t cur = md.ram32(LINE2_SRC) & 0xFFFFFF;
-        for (int k = 0; k < 4; k++) {
-            const uint32_t o = line2_held_obj(st, k);
-            if (o && (!md.ram8(o) || line2_pal(md.ram8(o + 0x34)) != line2_held_pal(st, k) || same_line2(md, line2_held_pal(st, k), cur)))
-                st &= ~(0xFFu << (8 * k));
+        for (int k = 0; k < L2_N; k++) {
+            const Line2Entry e = line2_entry(st, k);
+            if (!e.obj) continue;
+            if (!md.ram8(e.obj) || line2_pal(md.ram8(e.obj + 0x34)) != e.pal) line2_set(st, k, 0, 0, false);
+            else if (!e.early && same_line2(md, e.pal, cur)) line2_set(st, k, e.obj, e.pal, true);
         }
     };
-    drop_done();
-    for (int k = 0; k < 4 && st; k++) {
-        const uint32_t o = line2_held_obj(st, k);
+    tidy();
+    for (int k = 0; k < L2_N; k++) {
+        const Line2Entry e = line2_entry(st, k);
         int col, row;
-        if (!o || !object_block(md, o, col, row) || !in_43_window(md, col, row)) continue;
-        load_line2(md, line2_held_pal(st, k));
-        drop_done();
+        if (!e.obj || !object_block(md, e.obj, col, row) || !in_43_window(md, col, row)) continue;
+        if (!same_line2(md, e.pal, md.ram32(LINE2_SRC) & 0xFFFFFF)) load_line2(md, e.pal);
+        line2_set(st, k, 0, 0, false);
+        tidy();
     }
-    for (int k = 0; k < 4 && st; k++) {
-        if (!line2_held_obj(st, k)) continue;
-        const bool boss = line2_boss(line2_held_pal(st, k));
-        if (line2_in_use(md, md.ram32(LINE2_SRC) & 0xFFFFFF, st, boss)) continue;
-        load_line2(md, line2_held_pal(st, k));
-        drop_done();
+    for (int k = 0; k < L2_N; k++) {
+        const Line2Entry e = line2_entry(st, k);
+        if (!e.obj || e.early || line2_in_use(md, md.ram32(LINE2_SRC) & 0xFFFFFF, st, line2_boss(e.pal))) continue;
+        load_line2(md, e.pal);
+        line2_set(st, k, e.obj, e.pal, true);
+        tidy();
     }
 }
 
@@ -1192,7 +1217,7 @@ public:
             for (const BossHandler& h : kBossHandlers)
                 md.add_pc_hook(h.at, [this, &h](MegaDrive& m) { if (!rom_attract_) boss_tune_spawned(m, h); });
             md.add_pc_hook(PC_LOAD_LINE2, [this](MegaDrive& m) { if (!rom_attract_) line2_load(m); });
-            md.add_pc_hook(PC_STREAMED, [this](MegaDrive& m) { boss_tune_held(m); if (!rom_attract_) line2_held(m); });
+            md.add_pc_hook(PC_STREAMED, [this](MegaDrive& m) { boss_tune_held(m); if (!rom_attract_) line2_moments(m); });
             md.add_pc_hook(PC_LEVEL_LOAD, [](MegaDrive& m) { m.module_state[MS_PAL2] = 0; });
         }
         wide_->md = &md;
