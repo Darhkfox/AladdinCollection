@@ -431,11 +431,10 @@
   a screen's background is one plain colour, it fills the width in that
   colour.
 
-  Attract-mode demos are recorded button presses. The SNES and Master
-  System show them in their original shape, exactly as recorded; on the
-  Mega Drive in widescreen (where enemies wake a little earlier) they can
-  play out differently. With widescreen off everything is exactly the
-  original.
+  Attract-mode demos are recorded button presses. All three games show
+  them in their original shape, exactly as recorded, at every width and
+  with any cheat switched on. With widescreen off everything is exactly
+  the original.
 
 
 --------------------------------------------------------------------------------
