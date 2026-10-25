@@ -86,6 +86,14 @@ constexpr uint32_t kBandCount = 0x80C602, kBandBounds = 0x80C606;
 // Rooftops) or a few lines after an NMI that ran past the frame's top.
 constexpr uint32_t kHdmaOn = 0x808345;
 constexpr uint32_t kLavaTable = 0x7EF400;                             // the Lava Cavern's HDMA table (count, word)
+// The lamp's beam at the Underground River's end (level $05; a screen task, $82:84CB, a frame at a time from $82:8514):
+// a column of light 17 px wide from world x $0E78, colour math (add, fixed colour) inside window 2 on the lines of an
+// HDMA table on WH2 / WH3 (channel 7, indirect: $7E:F532 / $F533 the beam's edges). Its left edge on the screen is
+// $0E78 - camera - shake, its right edge 16 px on, clipped at 255 ($82:853F); with the left edge past the screen
+// (CMP #$0100, $82:8534) the beam is switched off (fixed colour 0, $82:85A1).
+constexpr int kLampLevel = 0x05, kLampBeamX = 0x0E78, kLampBeamW = 16;
+constexpr uint32_t kLampBeamTest = 0x828534, kLampBeamOn = 0x828556;
+constexpr uint8_t kLampOffL = 0xFF, kLampOffR = 0xFE;   // (WH2 / WH3 for a beam in the right margin: empty on the screen)
 
 inline uint8_t rd8(const Snes& s, uint32_t a) { return s.wram[a & 0x1FFFF]; }
 // An attract demo playing (the game's own flag: input from its recording at $84:F700). Demos replay recorded input:
@@ -132,7 +140,7 @@ public:
         if (ext_ > 0)
             for (uint32_t pc : {kDrawTest, kKeepTest, kSpawnInitCam, kSpawnInitRight, kSpawnInitLeft, kSpawnInitCount,
                                 kSpawnFrameCam, kSpawnRowX, kSpawnEdgeLeft, kSpawnEdgeRight, kStubRetryR + 4,
-                                kStubRetryL + 4, kSweepDelete, kHdmaOn})
+                                kStubRetryL + 4, kSweepDelete, kHdmaOn, kLampBeamTest})
                 s.markExec(pc, true);
         write_stub(s);
     }
@@ -279,6 +287,22 @@ public:
                 if (col >= (cam + 0x120) >> 5 || col <= floor_shr(cam - 0x40, 5)) wr8(s, kSpawnedBits + idx, 0);
             }
             return false;
+        }
+        case kLampBeamTest: {
+            // The lamp's beam with its left edge in the right margin (A: its screen x, 16 bits): kept on (fixed colour,
+            // colour math) with an empty window on the game's screen, WH2 > WH3; the margin draws it at its place
+            // (beginLine). (Up to the widest right side, 2 * ext: past the picture it isn't drawn anyway.)
+            const int x = (int16_t)r.a;
+            if (x < 0x100 || x >= 0x100 + 2 * ext_) return false;
+            wr8(s, 0x002C, (uint8_t)x);
+            wr8(s, 0x002D, (uint8_t)(x >> 8));
+            wr8(s, 0x7EF532, kLampOffL);
+            wr8(s, 0x03A8, kLampOffL);
+            wr8(s, 0x7EF533, kLampOffR);
+            wr8(s, 0x03A9, kLampOffR);
+            r.mf = true;   // (SEP #$20, as at $82:853C)
+            r.pc = (uint16_t)kLampBeamOn;
+            return true;
         }
         default:
             return false;
@@ -477,6 +501,30 @@ public:
             p.wideDimHi = 256;
         }
         p.wideDimSpare = row < kHudLines ? 0x04 : 0;
+        lamp_window(s, p);
+    }
+
+    // The lamp's beam (level $05's end): window 2 clipped at the screen's right edge, which the margin would continue
+    // to the picture's edge (a wall of light right of the pedestal), or kept empty while the beam is in the margin
+    // (exec hook): in the margins the window is the beam's own 17 px, from its place in the world.
+    void lamp_window(const Snes& s, Ppu& p) const {
+        if (rd8(s, kLevel) != kLampLevel || (p.windowSelect(5) & 0x0F) != 0x0C || (p.colorWindowSel() & 0x30) != 0x20 ||
+            p.fixedColor() == 0)
+            return;
+        const int lo = kLampBeamX - unwrap10(p.bgHofs(0), near_x_[0]);   // (the camera with the shake, as the task's)
+        const int wl = p.windowLeft(1), wr = p.windowRight(1);
+        Ppu::WideWin& w = p.wideWin[1];
+        w.on = true;
+        if (wl == kLampOffL && wr == kLampOffR) {           // (in the right margin)
+            w.lo = lo;
+            w.hi = lo + kLampBeamW;
+        } else if (wl <= wr && wl == lo && wr == std::min(lo + kLampBeamW, 255)) {
+            w.lo = lo;
+            w.hi = lo + kLampBeamW;
+        } else {                                            // (the lines outside it; the beam closing as the lamp is taken)
+            w.lo = wl;
+            w.hi = wr;
+        }
     }
 
     int fetchWideTile(Ppu& p, int layer, int mapX, int mapY, int screenX, uint16_t* entry) override {
