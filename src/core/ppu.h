@@ -114,6 +114,13 @@ public:
   int wideDimLo = -kMaxExt, wideDimHi = 256 + kMaxExt;
   uint8_t wideDimSpare = 0;
   int winShift = 0;          // windows moved right by this much on this line (a hook's overlay)
+  // Per line: window w's true edges for the margins, in screen x (inclusive; may lie outside 0-255), used there instead
+  // of the edge pixel's value (a window the game clips at its screen's edge, or keeps empty while its object is off it).
+  struct WideWin {
+    bool on = false;
+    int lo = 0, hi = -1;
+  };
+  WideWin wideWin[2];
   // Per-sprite X relative to the 4:3 screen, set by the game layer for
   // sprites whose 9-bit OAM X is ambiguous in a wide view (it repeats every
   // 512 px: at 21:9, objects exist further out than that); used when set.
@@ -150,6 +157,10 @@ public:
   uint8_t windowLeft(int w) const { return winL_[w]; }
   uint8_t windowRight(int w) const { return winR_[w]; }
   uint8_t mainScreenWindow() const { return tmw_; }
+  uint8_t windowSelect(int layer) const { return winSel_[layer]; }   // (0-3 BG1-4, 4 OBJ, 5 colour)
+  uint8_t colorWindowSel() const { return cgwsel_; }
+  uint8_t colorMathSel() const { return cgadsub_; }
+  uint16_t fixedColor() const { return (uint16_t)(fixedR_ | (fixedG_ << 5) | (fixedB_ << 10)); }
   uint16_t bgCharBase(int l) const { return bg_[l].charBase; }
   uint16_t tileEntry(int l, int tx, int ty) const { return mapEntry(l, tx, ty); }
   bool bgBigTiles(int l) const { return bg_[l].bigTiles; }
