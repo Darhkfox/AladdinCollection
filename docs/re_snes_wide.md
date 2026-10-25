@@ -275,6 +275,31 @@ identical (also from near a level's end: its `state` argument).
 - **Sprites:** the OAM builder (`$81:9309`) stores each piece's 16-bit screen x (`$81:938B`, flipped `$81:93F9`, X =
   OAM index * 4); recorded at those stores, latched at the NMI's OAM DMA (`$80:81B2`), the PPU places them by their
   true x (`objTrueX`). `tools/re/snes_oam_writers.py`: no other code writes sprite x in any level.
+- **The Lava Cavern's limits** (level `$06`; widescreen only, a deliberate change of the game's rules). Its camera
+  scrolls right by itself: camera mode `$083D` = 2 (`$81:C5C2`, table `$81:C5AA`) adds `$00A0` to the 24-bit camera
+  `$1772` a frame (0.625 px) up to the level's last camera x (`$1A04` = 4352, the camera never moves in y). Three
+  rules hold it to the game's 4:3 screen:
+  - the scroll holds Aladdin at camera + `$F0` (`$81:C5DF`: `ADC #$00F0` / `STA $08E7`; skipped while `$1427` & 15):
+    an invisible wall 16 px inside the screen's right edge;
+  - the level's edge rule (`$145B` = 3, set at its start `$81:89E1`; the rules by `$145B`, `$81:E97D` -> table
+    `$81:E986`: 0 every walking level, x held within camera + 16 .. + 240 (`$80:C9B9`); 1 the two carpet rides, the
+    same plus y within camera y + 24 .. + 216; 3 the Lava Cavern; 4 a life being lost) kills Aladdin
+    (`$83:8052`, the instant death the cheats don't cover) once he is 48 px past either edge of the screen
+    (`$81:EA11`: `SBC #$0030` with a `BMI` for the level's start, `ADC #$0130`). Nothing pushes him: he stands still
+    and is *left behind*. In the wide picture that happened while he was still in view (58 px inside the picture's
+    left edge at 106, 92 at 140);
+  - its objects (the falling lava and fire, types `$55`, `$54`, `$3C`, ...) delete themselves 32 px past either edge
+    of the screen (`$83:9738` / `$83:9749`, shared by all levels): they vanished in the left margin.
+  The hooks answer those immediates with the picture's edges for the logic's camera (`object_split`: left edge camera
+  - extL, right edge camera + 256 + extR): the wall at the picture's right edge - 16, left behind 48 px past its left
+  edge (or right edge), the objects deleted 32 px past it (only in this level). The view stops at the level's ends
+  (section 3), so the wall stays inside the level: at the end (camera 4352, extR 0) it is camera + `$F0` = 4592, the
+  exit's x (`$80:EC1E`: 4592, 104, within 8 px), as in the original. Nothing is saved: the hooks read the camera and
+  the view's split, which states already carry. At 4:3 the hooks aren't set.
+  The two carpet rides (the Carpet Escape: camera mode 6, 3 px a frame; A Whole New World: mode `$0A`) scroll by
+  themselves too, but under rule 1: Aladdin is only held inside the 4:3 screen (16 px from its sides), never killed
+  at its edges, and the rides' obstacles come in at the 4:3 screen's edge. Left as they are (A Whole New World's
+  `$35`s also delete themselves 32 px into the left margin; the Carpet Escape's objects don't use those tests).
 
 ## 5. Status bar and texts
 
@@ -325,6 +350,16 @@ margins and, where the view is split, moved to the picture's middle (`(extR - ex
   HDMA table match `$0E78` - BG1's scroll every frame (on the screen, and in the margin with the hook); the game's
   256 px against the 4:3 run with the same input: identical (but one frame of a sprite, as before); `snes_motion.py`,
   `snes_rewind.py` at 106 and 140 and `snes_edges.py` / `snes_motion.py` in levels 4-5: as before.
+- `snes_lava.py [widths] [turbo]`: the Lava Cavern at 0, 46, 106 and 140, Remove Slowdown off and on (section 4):
+  RIGHT held, Aladdin stops at the picture's right edge - 16 (camera + 240 / 286 / 346 / 380); left standing,
+  he is left behind 48 px past its left edge (to the pixel), the level starts again; carried to its end and walked
+  right, he reaches the exit at 4586 and the level ends 236 frames after the camera stops (the Carpet Escape next),
+  the same at every width; no object deletes itself inside the picture (24-37 a run do, outside it). Before: the wall
+  and the death 106 / 140 px inside the picture, and every self-delete (34 / 32 a run) inside it. `snes_edges.py` and
+  `snes_rewind.py` (106, 140, from the end state too) as before; `snes_motion.py` level 6: no BG2 or "still" frame,
+  BG1 off in 2 frames of a life lost's fade instead of 1 (the wide run now plays differently from the 4:3 one with the
+  same input), from the end state as before (the drifting lava bands' listed pixel counts are higher: more fire alive
+  in the margins).
 - `snes_dusk_end.py`: the Market at Dusk from its start through the boss to STAGE CLEAR, 24 runs a width (Remove
   Slowdown off and on, three ways there, four ways to fight). Before the edge-column retry and the sweep's rule, at
   106 none of the 12 runs that beat the boss could finish (Aladdin walked to x 1616, no Jasmine) and at 140 the boss

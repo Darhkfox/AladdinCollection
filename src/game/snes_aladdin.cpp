@@ -13,7 +13,8 @@
 // camera at the picture's middle (its parallax, raster bands, phases, an object: band_adj). Objects: the draw-list
 // and keep-alive range tests and the level-object spawner follow the wider view; sprites are placed by their true
 // 16-bit x. The status bar (BG3, the top 40 lines) is split to the picture's edges; the game's centred texts (PAUSE)
-// stay at the picture's middle.
+// stay at the picture's middle. In the Lava Cavern, which scrolls by itself, the limits the game sets at its screen's
+// edges (the wall ahead, being left behind, its objects' lifetime) follow the picture's edges instead.
 #include "game.h"
 #include "snes_common.h"
 #include "../core/snes.h"
@@ -86,6 +87,13 @@ constexpr uint32_t kBandCount = 0x80C602, kBandBounds = 0x80C606;
 // Rooftops) or a few lines after an NMI that ran past the frame's top.
 constexpr uint32_t kHdmaOn = 0x808345;
 constexpr uint32_t kLavaTable = 0x7EF400;                             // the Lava Cavern's HDMA table (count, word)
+// The Lava Cavern's 4:3 limits (level $06: its camera scrolls right by itself, $083D = 2, $81:C5C2, 0.625 px a frame).
+// The scroll holds Aladdin at camera + $F0 (ADC #$00F0: an invisible wall 16 px inside the screen's right edge); its
+// edge rule ($145B = 3, $81:EA11) kills him 48 px past either edge of the screen (SBC #$0030 / ADC #$0130: left behind);
+// its objects delete themselves past camera - $20 / + $120 ($83:9738 SBC #$001F with carry clear, $83:9749 ADC #$0120).
+constexpr uint32_t kLavaWall = 0x81C5E3, kLavaBehind = 0x81EA17, kLavaAhead = 0x81EA31;
+constexpr uint32_t kObjGoneLeft = 0x83973D, kObjGoneRight = 0x83974E;
+constexpr int kLavaLevel = 0x06;
 // The lamp's beam at the Underground River's end (level $05; a screen task, $82:84CB, a frame at a time from $82:8514):
 // a column of light 17 px wide from world x $0E78, colour math (add, fixed colour) inside window 2 on the lines of an
 // HDMA table on WH2 / WH3 (channel 7, indirect: $7E:F532 / $F533 the beam's edges). Its left edge on the screen is
@@ -106,6 +114,13 @@ inline bool playing_level(const Snes& s) { return s.wram[0x035E] < 0x14 && !demo
 inline uint16_t rd16(const Snes& s, uint32_t a) { return (uint16_t)(s.wram[a & 0x1FFFF] | (s.wram[(a + 1) & 0x1FFFF] << 8)); }
 inline void wr8(Snes& s, uint32_t a, uint8_t v) { s.wram[a & 0x1FFFF] = v; }
 inline uint16_t rom16(const Snes& s, uint32_t a) { return s.peek16(a); }
+// A 16-bit result in A with its N and Z flags (an immediate ADC / SBC answered by a hook; the code after it tests N or
+// sets the carry again itself).
+inline void set_a(CpuRegs& r, uint16_t v) {
+    r.a = v;
+    r.n = (v & 0x8000) != 0;
+    r.z = v == 0;
+}
 // A 10-bit scroll register completed to the world position nearest `near`.
 inline int unwrap10(int reg, int near) { return near + ((((reg - near) & 0x3FF) + 0x200) & 0x3FF) - 0x200; }
 
@@ -140,7 +155,8 @@ public:
         if (ext_ > 0)
             for (uint32_t pc : {kDrawTest, kKeepTest, kSpawnInitCam, kSpawnInitRight, kSpawnInitLeft, kSpawnInitCount,
                                 kSpawnFrameCam, kSpawnRowX, kSpawnEdgeLeft, kSpawnEdgeRight, kStubRetryR + 4,
-                                kStubRetryL + 4, kSweepDelete, kHdmaOn, kLampBeamTest})
+                                kStubRetryL + 4, kSweepDelete, kHdmaOn, kLampBeamTest, kLavaWall, kLavaBehind,
+                                kLavaAhead, kObjGoneLeft, kObjGoneRight})
                 s.markExec(pc, true);
         write_stub(s);
     }
@@ -288,6 +304,26 @@ public:
             }
             return false;
         }
+        // The Lava Cavern's limits follow the picture's edges instead of the game's screen's (the view stops at the
+        // level's ends, so the wall stays inside the level: at its end camera + $F0 is the exit's x either way).
+        case kLavaWall:     // ADC #$00F0 (carry clear): the wall 16 px inside the picture's right edge
+            set_a(r, (uint16_t)(r.a + 0xF0 + er));
+            r.pc = (uint16_t)(pc + 3);
+            return true;
+        case kLavaBehind:   // SEC / SBC #$0030 (BMI next): left behind 48 px past the picture's left edge
+            set_a(r, (uint16_t)(r.a - 0x30 - el));
+            r.pc = (uint16_t)(pc + 3);
+            return true;
+        case kLavaAhead:    // CLC / ADC #$0130: 48 px past its right edge
+            set_a(r, (uint16_t)(r.a + 0x130 + er));
+            r.pc = (uint16_t)(pc + 3);
+            return true;
+        case kObjGoneLeft:  // REP #$21 / SBC #$001F (BMI next): an object 32 px past the picture's left edge is deleted
+        case kObjGoneRight: // REP #$21 / ADC #$0120: or past its right edge
+            if (rd8(s, kLevel) != kLavaLevel) return false;
+            set_a(r, (uint16_t)(pc == kObjGoneLeft ? r.a - 0x20 - el : r.a + 0x120 + er));
+            r.pc = (uint16_t)(pc + 3);
+            return true;
         case kLampBeamTest: {
             // The lamp's beam with its left edge in the right margin (A: its screen x, 16 bits): kept on (fixed colour,
             // colour math) with an empty window on the game's screen, WH2 > WH3; the margin draws it at its place

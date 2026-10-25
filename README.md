@@ -148,7 +148,11 @@ achievements of its own: *A Whole New World* (defeat Jafar in all three versions
   the console. The Carpet Escape's wave and A Whole New World widen too. Objects appear, act and are drawn across the
   whole width; the HUD and the PAUSE / ACTION texts are re-anchored. Boss arenas and events (the Market at Dusk,
   the end of the Cave of Wonders, Sultan's Dungeon and Jafar's Palace, Jafar) keep the original camera; their sides
-  show the level at full brightness, dimmed only past the level's ends and beside Jafar's fire floor. The attract
+  show the level at full brightness, dimmed only past the level's ends and beside Jafar's fire floor. In the Lava
+  Cavern, which scrolls by itself, the screen's limits follow the wide picture's edges (in widescreen only, a small
+  change to the original's rules): Aladdin can run on to 16 px from the picture's right edge, is only left behind
+  once he is 48 px past its left edge (before, he was killed while still in view in the left side), and the falling
+  lava and fire stay until they leave the picture. The level's end and exit are the same at every width. The attract
   demos stay in their original shape and play exactly as recorded at every width, with Remove Slowdown and cheats
   on too.
 - **Level select**: all 19 levels in the order the game plays them, A Whole New World included, started through
