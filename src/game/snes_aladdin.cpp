@@ -13,7 +13,8 @@
 // camera at the picture's middle (its parallax, raster bands, phases, an object: band_adj). Objects: the draw-list
 // and keep-alive range tests and the level-object spawner follow the wider view; sprites are placed by their true
 // 16-bit x. The status bar (BG3, the top 40 lines) is split to the picture's edges; the game's centred texts (PAUSE)
-// stay at the picture's middle.
+// stay at the picture's middle. In the Lava Cavern, which scrolls by itself, the limits the game sets at its screen's
+// edges (the wall ahead, being left behind, its objects' lifetime) follow the picture's edges instead.
 #include "game.h"
 #include "snes_common.h"
 #include "../core/snes.h"

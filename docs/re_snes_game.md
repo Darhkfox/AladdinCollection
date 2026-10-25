@@ -93,6 +93,7 @@ plays (`re_snes_wide.md` section 1); a first version let the first demo land a f
 | `$0347` | Aladdin's state flags (2 hurt, `$80` leaving the level) |
 | `$08E3` bit 7 | blinking after a hit (hits ignored) |
 | `$1773` / `$1777` | camera x / y; `$1A04` / `$1A06` the level's last camera x / y; `$1A40` / `$1A42` a zone's limits; `$1A10` / `$1A12` camera held in x / y |
+| `$083D` / `$145B` | the camera's mode (`$81:C5AA`: 2 the Lava Cavern's scroll, 6 / `$0A` the carpet rides') / the screen-edge rule for Aladdin (`$81:E986`: 0 held on the screen, 1 also in y, 3 the Lava Cavern's left behind, 4 a life being lost; `re_snes_wide.md` section 4) |
 | `$1B2B` | Jafar's cobra beaten |
 
 Screens (`$035E` >= `$14`): `$14-$1C` the attract demos' levels (stage 8; `$1C` is also the staff roll's carpet ride),
@@ -114,7 +115,7 @@ the last act of a stage (`$80:C6F2` set) goes to STAGE CLEAR, the others to `$30
 | 3 | 0-3 | `$03` | Market at Dusk | boss in a camera-limited arena (`$1A42` = `$0400`, then `$0500`); ends by an event (Jasmine, object `$56`) |
 | 4 | 1-0 | `$04` | Cave of Wonders | ends by an event (object `$6B`) |
 | 5 | 1-1 | `$05` | Underground River | ~80 frames of object set-up at its start |
-| 6 | 2-0 | `$06` | Lava Cavern | |
+| 6 | 2-0 | `$06` | Lava Cavern | auto-scroller (0.625 px a frame); left behind 48 px past the screen's left edge; exit at x 4592 |
 | 7 | 2-1 | `$07` | Carpet Escape | auto-scroller; the wave is a picture on BG2 |
 | 8-10 | 3-0..2 | `$08-$0A` | Inside the Lamp 1-3 | `$0A` climbs a one-page-wide tower |
 | 11-13 | 4-0..2 | `$0B-$0D` | Sultan's Dungeon 1-3 | boss at the end of `$0D` |
