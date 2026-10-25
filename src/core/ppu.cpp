@@ -674,6 +674,10 @@ void Ppu::computeWindows(int x0, int x1) {
       if ((ex < 0 || ex > 255) && wideWindowMode == 1) {
         w1 = inv1;
         w2 = inv2;
+      } else if ((ex < 0 || ex > 255) && (wideWin[0].on || wideWin[1].on)) {
+        const int c = ex < 0 ? 0 : 255;
+        w1 = (wideWin[0].on ? ex >= wideWin[0].lo && ex <= wideWin[0].hi : c >= winL_[0] && c <= winR_[0]) != inv1;
+        w2 = (wideWin[1].on ? ex >= wideWin[1].lo && ex <= wideWin[1].hi : c >= winL_[1] && c <= winR_[1]) != inv2;
       } else {
         if (ex < 0) ex = 0;
         if (ex > 255) ex = 255;
@@ -760,6 +764,7 @@ void Ppu::renderLine(int line) {
   wideDimHi = 256 + kMaxExt;
   wideDimSpare = 0;
   winShift = 0;
+  wideWin[0].on = wideWin[1].on = false;
   if (hooks) hooks->beginLine(*this, row);
   wideShowLo = std::min(0, wideShowLo);   // (the margins only: the game's own 256 px are always drawn)
   wideShowHi = std::max(256, wideShowHi);

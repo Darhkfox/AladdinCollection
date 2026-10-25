@@ -191,6 +191,32 @@ and two columns of zeros. BG2 holding an object's picture (mode `$12`) isn't dra
 scrolled with the camera at 512, is shown on the game's screen only (its map's repeat had shown at the far left at
 21:9).
 
+**Windows: the lamp's beam** (the Underground River's end, level `$05`). The window effect seen in play is the
+column of light over the lamp (a screen task, `$82:84CB`, every frame from `$82:8514`): colour math (add, fixed
+colour 8, 8, 16; CGWSEL `$20`, CGADSUB `$33`) inside window 2 (WOBJSEL `$C0`: the colour window is window 2
+inverted, and math is prevented inside it), on the lines of an HDMA table on WH2 / WH3 (channel 7, indirect, from
+`$7E:F500`; the beam's edges at `$F532` / `$F533`, the lines above and below it `$FF` / `$00`). Its left edge on the
+screen is `$0E78` - camera - shake, its right edge 16 px on, **clipped at 255** (`$82:853F`); with the left edge past
+255 (`CMP #$0100`, `$82:8534`) the beam is switched off (fixed colour 0, `$82:85A1`). The PPU continues a window past
+the screen's edges with the edge pixel's value, so while the beam was cut by the screen's right edge the whole right
+margin was inside it: a wall of light from the beam to the picture's edge, down to the pedestal (the user's report:
+"extra blue to the right of the lamp" at 21:9). And with the beam in the margin, not yet on the game's screen, the game
+had it switched off: it appeared only as it reached the screen. Now the PPU takes a window's true edges for the
+margins from the hook (`Ppu::wideWin`, per line, in screen x; used outside 0-255 only): on the beam's lines the beam's
+own 17 px (`[L, L + 16]`, L from BG1's scroll register on the line, which matches the task's edge every frame), on
+the others the registers' (empty). With the left edge in the right margin (up to 256 + 2 * ext) an exec hook at
+`$82:8534` keeps the beam on and writes an empty window for the game's screen (WH2 `$FF`, WH3 `$FE`, both to the
+shadows and the HDMA table), and the margin draws it at its place: it slides in from the picture's edge with the
+pedestal. The game's 256 px are unchanged (the 4:3 run against the wide one with the same input, line 40 down, from
+the user's state: identical but one frame of a sprite, as before the change); at 4:3 nothing is hooked. When the lamp
+is taken the beam closes (`$82:85CE`, its edges move in a pixel a frame) with the camera at its last x, the beam
+on the screen. The screen tasks of `$82:8000` hold other window effects (an iris `$82:860B`, a sprite mask
+`$82:86CF`, a shape by line `$82:819A` that an object spawns at `$83:AB36`, the Market at Dusk's end at `$83:EA10`),
+and `$81:9F5F-$81:A178` set colour windows; the play bot (3,000 frames a level at 106, the shadow registers each
+gameplay frame) met none of them in play. Jafar's room enables the colour window (WOBJSEL `$80`) with colour math
+prevented everywhere (CGWSEL `$30`): nothing to see. The levels' ends and events the bot doesn't reach were not
+scanned.
+
 A state made at another width (or the width switched on from 4:3) shows its first frame where the view stops already
 (the level's extent at the camera), not centred.
 
@@ -295,6 +321,10 @@ margins and, where the view is split, moved to the picture's middle (`(extR - ex
   while the struct was being written (Inside the Lamp 3, the Underground River: now right). At 4:3 identical. The
   fire's dim starts in the frame the fire does, at 106 and 140; *Past Level Ends: Black* still blacks out the same
   areas.
+- The lamp's beam (section 3), from a state at the Underground River's end (camera 3331): the beam's edges in the
+  HDMA table match `$0E78` - BG1's scroll every frame (on the screen, and in the margin with the hook); the game's
+  256 px against the 4:3 run with the same input: identical (but one frame of a sprite, as before); `snes_motion.py`,
+  `snes_rewind.py` at 106 and 140 and `snes_edges.py` / `snes_motion.py` in levels 4-5: as before.
 - `snes_dusk_end.py`: the Market at Dusk from its start through the boss to STAGE CLEAR, 24 runs a width (Remove
   Slowdown off and on, three ways there, four ways to fight). Before the edge-column retry and the sweep's rule, at
   106 none of the 12 runs that beat the boss could finish (Aladdin walked to x 1616, no Jasmine) and at 140 the boss
