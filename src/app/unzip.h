@@ -1,4 +1,4 @@
-// Minimal .zip reading for zipped ROMs: stored and deflated entries (no ZIP64, no encryption).
+// Minimal .zip reading for zipped ROMs: stored, deflated and LZMA entries (no ZIP64, no encryption).
 #pragma once
 #include <cstdint>
 #include <string>
@@ -12,6 +12,8 @@ struct ZipEntry {
 
 // Reads the archive's central directory. False if it is not a zip this reader handles.
 bool zip_list(const std::wstring& path, std::vector<ZipEntry>& out);
+// Whether zip_read can unpack the entry: not encrypted, and stored, deflated or LZMA-compressed.
+bool zip_supported(const ZipEntry& e);
 // Extracts one entry and checks its CRC32.
 bool zip_read(const std::wstring& path, const ZipEntry& e, std::vector<uint8_t>& out);
 // Raw deflate (RFC 1951) decoder; `expected` is the output size, which must come out exactly.

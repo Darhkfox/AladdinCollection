@@ -149,16 +149,27 @@ const uint32_t* Session::frame(int& w, int& h) {
     if (!info_.gameplay && ext > 0) {
         bar_l = plain_bar(ext, ext + kEdgeStrip, +1, w, h);
         bar_r = plain_bar(w - ext - kEdgeStrip, w - ext, -1, w, h);
+        // Only a plain screen fills: both edges plain in one colour. Scenery plain at one edge only (a wall in an
+        // attract demo) keeps the black.
+        if (bar_l != bar_r) bar_l = bar_r = black;
     }
-    // A side whose edge stops being plain for a moment (a logo or a fade's first frames crossing it) keeps its colour
-    // for a few frames instead of flickering to black.
+    // A side whose edge stops being plain for a moment (a logo or an uneven fade crossing it) keeps its colour for a
+    // few frames instead of flickering to black. While the edge's rows are still each one colour (a fade that darkens
+    // some lines first), the bar follows their average colour, for as long as that keeps changing.
     uint32_t* bars[2] = {&bar_l, &bar_r};
     for (int i = 0; i < 2; i++) {
         if (*bars[i] != black || info_.gameplay) {
             bar_last_[i] = *bars[i];
             bar_hold_[i] = info_.gameplay ? 0 : kBarHold;
         } else if (bar_hold_[i] > 0) {
-            bar_hold_[i]--;
+            const int x0 = i == 0 ? ext + kEdgeStrip : w - ext - 2 * kEdgeStrip;   // (inside a blanked border column)
+            const uint32_t now = even_rows(x0, x0 + kEdgeStrip, w, h);
+            if (now != 0 && now != bar_last_[i]) {
+                bar_last_[i] = now;
+                bar_hold_[i] = kBarHold;
+            } else {
+                bar_hold_[i]--;
+            }
             *bars[i] = bar_last_[i];
         }
     }
@@ -239,6 +250,34 @@ uint32_t Session::plain_edge(int x0, int x1, int w, int h, uint32_t otherwise) c
     int best = 0;
     for (int k = 1; k < kinds; k++) if (count[k] > count[best]) best = k;
     return kinds > 0 && total > 0 && count[best] * 100 >= total * 97 ? colour[best] : otherwise;
+}
+
+// The average colour of the rows of a strip of columns [x0, x1) that are one colour across (sprites not counted), when
+// at least half of the rows are; else 0.
+uint32_t Session::even_rows(int x0, int x1, int w, int h) const {
+    x0 = std::max(0, x0);
+    x1 = std::min(w, x1);
+    if (x1 <= x0 || h <= 0) return 0;
+    const bool marks = sprite_.size() >= (size_t)w * h;
+    uint64_t sum[3] = {}, rows = 0;
+    for (int y = 0; y < h; y++) {
+        const size_t r = (size_t)y * w;
+        uint32_t c = 0;
+        bool even = true, any = false;
+        for (int x = x0; x < x1 && even; x++) {
+            if (marks && sprite_[r + x]) continue;
+            if (any && pixels_[r + x] != c) even = false;
+            c = pixels_[r + x];
+            any = true;
+        }
+        if (!even || !any) continue;
+        rows++;
+        for (int k = 0; k < 3; k++) sum[k] += (c >> (k * 8)) & 0xFF;
+    }
+    if (rows * 2 < (uint64_t)h) return 0;
+    uint32_t c = 0xFF000000u;
+    for (int k = 0; k < 3; k++) c |= (uint32_t)((sum[k] + rows / 2) / rows) << (k * 8);
+    return c;
 }
 
 void Session::set_audio_rate(double out_rate) {
