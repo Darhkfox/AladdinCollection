@@ -165,7 +165,10 @@ console's don't. `tools/re/snes_motion.py` measures each layer's motion from the
   22-28, mode `$12`: placed by an object). From that frame the margins are dimmed on the lines from the arch's first
   row down (line 163; the fire's starts at 167), where they show the room's stored floor; the wall above is the
   room's and stays bright. The dim comes in the frame the fire appears on the game's screen (frame by frame: neither
-  before nor after).
+  before nor after). The fire's row is found from BG1's vertical scroll taken as signed: as the arch rises the room
+  shakes a few lines above 0 (register 1016-1022). Read as 248-254, the row came out at -87 and the whole side,
+  wall included, was dimmed in every shaking frame, blinking at about 7.5 Hz (`tools/qa` round 2, N2: 672 of 5998
+  fire frames at 106; now none, the only full dims being the fight's fade-out).
 - Everywhere else the margins show the level as stored, at full brightness, also where the game's camera can't go now:
   a zone's camera limits (`$1A40` / `$1A42`: the Market at Dusk's wait at `$400` and its boss at `$500`, Sultan's
   Dungeon 3's boss at `$A00`, the end of Jafar's Palace 3 at `$11A0`), an arena (the Cave of Wonders' end, Jafar's
@@ -217,15 +220,26 @@ gameplay frame) met none of them in play. Jafar's room enables the colour window
 prevented everywhere (CGWSEL `$30`): nothing to see. The levels' ends and events the bot doesn't reach were not
 scanned.
 
+**Windows: the others** (`clipped_windows`). The screen tasks' boxes clip their windows at the screen's edges too: the
+"ABU NO!" box after the lamp is taken (a box around Aladdin, then the treasure, as the camera pans to it) had the
+margin on the side it ran off continue its inside to the picture's edge for about 13 frames - the cave wall 88 px
+(106) / 140 px (140) past the box's edge, then the rocks and the waterfall (`tools/qa` round 2, N3). In a level, a
+window that isn't the beam's and doesn't cover the whole line (0-255) now ends at the screen's edge in the margins
+(`Ppu::wideWin` with the registers' edges): the box keeps its 4:3 width with the margins outside it, as on the
+console's screen. A window over the whole line (a full-screen effect, the box's first frame) still covers them.
+`r2_iris2.py` frame by frame at 0 / 106 / 140: the box never reaches the margins; at 4:3 nothing is hooked.
+
 A state made at another width (or the width switched on from 4:3) shows its first frame where the view stops already
 (the level's extent at the camera), not centred.
 
-**Save states and rewind** (the app saves one every 2 frames while rewinding is possible): `save_ext` (version 4)
+**Save states and rewind** (the app saves one every 2 frames while rewinding is possible): `save_ext` (version 5)
 carries the view (span, offset, whether it may stop; two words that held the dimmed range are written as 0 and not
 read), the sprites' recorded x - both the latched set and the one being built for the next OAM DMA - how many frames
 ago the level loop's top ran, so a state saved in a frame the game's logic didn't finish in still counts as a level,
 the band routines' inputs (both snapshots, whether this logic frame's is taken, the ratchet's difference) and whether
-a level is being played (section 1; an older state: a level index, no demo and the main task in the level loop).
+a level is being played (section 1; an older state: a level index, no demo and the main task in the level loop),
+and (version 5) the level objects deleted, swept or refused since the level's start, whose spawn is running, and the
+Lava Cavern's eased limits (section 4).
 `tools/re/snes_rewind.py` rewinds as the app does and compares every rewound picture with the straight run's:
 identical (also from near a level's end: its `state` argument).
 
@@ -249,6 +263,20 @@ identical (also from near a level's end: its `state` argument).
   margins get only theirs (`tools/qa` round 1, F1: no duplicates in any level after any widening; the margins hold
   what a level start there spawns). The request waits through screens that aren't the level loop yet (the
   Underground River's set-up) and is dropped when a level's own start spawn (`$82:A72C`) runs for the new width.
+  **Nothing the game has deleted comes back.** Every object's end goes through one delete (`$83:96E2`, DP the
+  object): killed, collected, out of the keep range, swept, past the screen's edge. It clears the spawned bits (but
+  a once-only object's), so the game's own spawner brings an enemy back when its edge crosses the column again -
+  but the width change's spawn took every cleared object in its columns at once. In the Market at Dusk, widening in
+  the half second after the arena's sweep (or F9 of a narrower state saved there) brought back the two `$4D`
+  guards the sweep had just deleted. They took the sprite VRAM banks, the boss (`$57`) was refused at the spawn and
+  at both edge-column retries and never tried again: the level could not end (`tools/qa` round 2, N1: 0->106 and
+  46->106 at k = 0-24 frames after the sweep, 106->140 at 0). The module now counts the deletes (an exec hook that
+  only reads, at every width - 4:3 too, so a width switched on later or a 4:3 state loaded wide knows them - reset
+  by the level's start spawn, kept in states), and the width change's spawn skips every object deleted since the
+  level's start (exec hook at the spawner's test `$82:A8C0`, while that spawn runs). With the play bot in all 19
+  levels (900 and 1,800 frames, invincible, apples, then a switch with the camera still, 46->140, 0->106,
+  106->140), objects deleted earlier in the level that the switch brought back: 33 / 28 before (guards `$20`,
+  `$4D`, `$2F`, `$6D`, `$87`, ...), now 0.
 - **Refused spawns.** The allocator (`$82:AA2B`) refuses an object when no slot is free or, for a type with graphics
   of its own (`$82:AA61`, by `$82:B000`), no sprite VRAM bank is: four banks (`$15E9-$15EC` users, `$15ED-$15F0` the
   type; a type takes 1-3 adjacent ones by `$7F:E900`, `$82:ABCE` / `AC10` / `AC34`, shared while loaded). Its spawned
@@ -262,6 +290,16 @@ identical (also from near a level's end: its `state` argument).
   (left: - `$40`) and the one before it on that side (the original's crossings are up to 31 px off the 32-px grid),
   where an object it would take now isn't out (`$82:A8C0`: spawned bits & `$81` clear, y in range): it gets its chance
   at the original's moment; then the margin's own column. None pending (the usual case), the game's JSR runs as it is.
+  These original's columns leave out what the game deleted for good (killed, collected, swept in view): an enemy
+  defeated just inside the screen's edge sat in the column before the original's edge and came back. They still
+  take one that deleted itself past the 4:3 screen's edge or that the sweep took beyond the original's edges (the
+  margins had it early: the exec hooks at `$83:973D` / `$83:974E` and `$81:9D8E` mark its delete).
+  A once-only object (a boss, Jasmine, an item; list flags bit 7) refused by the allocator (`$82:A8E8`, carry set)
+  is also tried again once a frame while its column is within the original's spawn edges (camera - `$40` ..
+  camera + `$120`) and its row within the spawner's, its column run for it alone (a stub at `$60:8040` from the
+  frame spawner's camera, `$82:A7AA`, back to its start `$82:A7A3`): whatever held the banks, he comes once they
+  free (a 4:3 state of the arena loaded at 106 with the deletes unknown: the guards come back, leave the keep range,
+  and the boss comes 90 frames in).
   (Stubs at `$60:8020` / `$60:8028`; `$82:A780` with Y = 1 runs one column; an exec hook after it takes the next from
   X, so a state saved mid-way needs nothing of the module's.)
 - **The sweep.** An event can delete every object (`$81:9D82`: the Market at Dusk's arena at camera `$400`, `$80:A176`;
@@ -294,12 +332,23 @@ identical (also from near a level's end: its `state` argument).
   - extL, right edge camera + 256 + extR): the wall at the picture's right edge - 16, left behind 48 px past its left
   edge (or right edge), the objects deleted 32 px past it (only in this level). The view stops at the level's ends
   (section 3), so the wall stays inside the level: at the end (camera 4352, extR 0) it is camera + `$F0` = 4592, the
-  exit's x (`$80:EC1E`: 4592, 104, within 8 px), as in the original. Nothing is saved: the hooks read the camera and
-  the view's split, which states already carry. At 4:3 the hooks aren't set.
+  exit's x (`$80:EC1E`: 4592, 104, within 8 px), as in the original. At 4:3 the hooks act only while easing (below).
+  A width change moves the picture's edges at once, and the wall followed: Aladdin pressed against it went from
+  x - camera 346 to 286 in one frame (106->46), and 46 more to 4:3, which could drop him off a rock into the lava
+  (`tools/qa` round 2, N4). The limits now ease (kept in states): the wall (a clamp, `CMP $08E7` / `STA`) never
+  comes in past Aladdin - it holds its place in the world while he stands beyond its new place, so the scroll
+  (0.625 px a frame) brings it there, or follows him as he steps back; the left-behind limit comes in at most 2 px a
+  frame faster than the camera, so a narrower picture never kills him on the spot; the one ahead stays at least 64
+  px past the wall. Switched to 4:3, the hooks act until the limits reach the screen's, then run the original code.
+  `r2_lava.py` switch, RIGHT held at the wall, 106->46->0->140->106->0: x - camera moves at most 2 px a frame
+  (before: jumps of 60 and 46).
   The two carpet rides (the Carpet Escape: camera mode 6, 3 px a frame; A Whole New World: mode `$0A`) scroll by
   themselves too, but under rule 1: Aladdin is only held inside the 4:3 screen (16 px from its sides), never killed
-  at its edges, and the rides' obstacles come in at the 4:3 screen's edge. Left as they are (A Whole New World's
-  `$35`s also delete themselves 32 px into the left margin; the Carpet Escape's objects don't use those tests).
+  at its edges, and the rides' obstacles come in at the 4:3 screen's edge. Left as they are, but A Whole New World's
+  objects take the Lava Cavern's lifetime rule: its gems (`$35`) flying past deleted themselves 32 px into the left
+  margin, 74 px (106) / 108 px (140) inside the picture (`tools/qa` round 2, N5: 14 in 2,400 frames); now they leave
+  by the picture's edges. (The Carpet Escape's objects don't use those tests.) `r2_vanish.py` at 46, 106 and 140,
+  all 19 levels, 2,400 frames: no self-delete inside the picture anywhere.
 
 ## 5. Status bar and texts
 

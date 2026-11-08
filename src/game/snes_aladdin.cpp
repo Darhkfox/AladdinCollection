@@ -169,7 +169,8 @@ public:
         if (ext_ > 0)
             for (uint32_t pc : {kDrawTest, kKeepTest, kSpawnInitCam, kSpawnInitRight, kSpawnInitLeft, kSpawnInitCount,
                                 kSpawnFrameCam, kSpawnRowX, kSpawnEdgeLeft, kSpawnEdgeRight, kStubRetryR + 4,
-                                kStubRetryL + 4, kSweepDelete, kHdmaOn, kLampBeamTest, kObjGoneLeft, kObjGoneRight, kSpawnTest, kSpawnAllocated})
+                                kStubRetryL + 4, kSweepDelete, kHdmaOn, kLampBeamTest, kObjGoneLeft, kObjGoneRight,
+                                kSpawnTest, kSpawnAllocated})
                 s.markExec(pc, true);
         write_stub(s);
     }
