@@ -150,13 +150,16 @@ achievements of its own: *A Whole New World* (defeat Jafar in all three versions
   by line — its parallax, and the raster bands, phases and objects the game scrolls it with in seven levels, worked
   out as the game's own code would place them with its camera at the picture's middle — so every layer moves as on
   the console. The Carpet Escape's wave and A Whole New World widen too. Objects appear, act and are drawn across the
-  whole width; the HUD and the PAUSE / ACTION texts are re-anchored. Boss arenas and events (the Market at Dusk,
+  whole width; the HUD and the PAUSE / ACTION texts are re-anchored. A width change mid-level (or a save state made
+  at another width) brings out only the objects the new sides add: never an enemy already defeated, collected or
+  swept away by an event. Boss arenas and events (the Market at Dusk,
   the end of the Cave of Wonders, Sultan's Dungeon and Jafar's Palace, Jafar) keep the original camera; their sides
   show the level at full brightness, dimmed only past the level's ends and beside Jafar's fire floor. In the Lava
   Cavern, which scrolls by itself, the screen's limits follow the wide picture's edges (in widescreen only, a small
   change to the original's rules): Aladdin can run on to 16 px from the picture's right edge, is only left behind
   once he is 48 px past its left edge (before, he was killed while still in view in the left side), and the falling
-  lava and fire stay until they leave the picture. The level's end and exit are the same at every width. The attract
+  lava and fire stay until they leave the picture; on a width change these limits ease to the new edges instead of
+  moving Aladdin. A Whole New World's gems, too, fly on until they leave the picture. The level's end and exit are the same at every width. The attract
   demos stay in their original shape and play exactly as recorded at every width, with Remove Slowdown and cheats
   on too.
 - **Level select**: all 19 levels in the order the game plays them, A Whole New World included, started through
@@ -298,7 +301,10 @@ gradlew assembleDebug
   included), which only stays on its path with the original code. Invincibility and infinite health don't prevent
   pits, crushes or being left behind by the scrolling. Infinite Gems keeps the counter at 99, so every gem completes
   a hundred (an extra heart, then an extra life). Jafar's fire floor stays in the 4:3 area (the game paints it
-  only there): beside it the room's floor is shown dimmed. In the levels with a half-speed
+  only there): beside it the room's floor is shown dimmed. The carpet rides keep Aladdin within the 4:3 area, and
+  the game's screen-wide boxes (the "ABU NO!" box after the lamp) stay 4:3 with the sides dark outside them.
+  Narrowing the picture while Aladdin presses against the Lava Cavern's wall leaves him past the new wall (even
+  beside the picture) until the scrolling catches up with him, rather than pushing him. In the levels with a half-speed
   background, up to about 70 px of that background is shown mirrored at a level's start at 21:9 (the level itself
   is real to the edge). In Agrabah Rooftops the far hills behind the palace can show a seam in the left side area:
   the game never scrolls that far into them, so their picture doesn't join up there. The staff roll stays 4:3. The

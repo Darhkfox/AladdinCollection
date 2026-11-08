@@ -75,6 +75,13 @@ constexpr uint32_t kSpawnOneColumn = 0x82A780;
 // an event such as an arena's start: JSL $83:96D0 per slot, Y the slot).
 constexpr uint32_t kSpawnedBits = 0x7EC600, kObjList = 0x828A7A, kObjListOff = 0x006D;
 constexpr uint32_t kSweepDelete = 0x819D8E;
+// The delete every object's end goes through ($83:96E2, DP the object, +$34 its list index: killed, collected, out of
+// the keep range, swept, past the screen's edge): it clears the spawned bits unless the object is once only.
+constexpr uint32_t kObjDelete = 0x8396E2;
+// The spawner's test of one list object in a column ($82:A8C0: X its index, spawned bits & $81; the next object at
+// $82:A8EF) and the allocator's answer for it (after JSL $82:AA2B: carry set = refused; $0012 the index). The frame
+// spawner's start ($82:A7A3: REP #$30, LDX #0, STZ $2A, then the camera at $82:A7AA).
+constexpr uint32_t kSpawnTest = 0x82A8C0, kSpawnNext = 0x82A8EF, kSpawnAllocated = 0x82A8E8, kSpawnFrameTop = 0x82A7A3;
 // The spawner's columns: objects per 32-px column ($7E:C100), the first one's list index ($7E:C200); its camera y.
 constexpr uint32_t kColCount = 0x7EC100, kColFirst = 0x7EC200, kSpawnCamY = 0x1BF1;
 // The level's main loop (its top: the stack is the task's own, nothing in flight) and its frame wait (the frame's
@@ -94,6 +101,10 @@ constexpr uint32_t kLavaTable = 0x7EF400;                             // the Lav
 constexpr uint32_t kLavaWall = 0x81C5E3, kLavaBehind = 0x81EA17, kLavaAhead = 0x81EA31;
 constexpr uint32_t kObjGoneLeft = 0x83973D, kObjGoneRight = 0x83974E;
 constexpr int kLavaLevel = 0x06;
+// A Whole New World (level $12, a carpet ride scrolling by itself): its gems ($35) fly past and delete themselves at
+// the same tests, 32 px into the left margin (tools/qa round 2, N5); there too the objects' lifetime follows the
+// picture's edges.
+constexpr int kRideLevel = 0x12;
 // The lamp's beam at the Underground River's end (level $05; a screen task, $82:84CB, a frame at a time from $82:8514):
 // a column of light 17 px wide from world x $0E78, colour math (add, fixed colour) inside window 2 on the lines of an
 // HDMA table on WH2 / WH3 (channel 7, indirect: $7E:F532 / $F533 the beam's edges). Its left edge on the screen is
@@ -149,14 +160,17 @@ public:
         ext_ = cfg.ext;
         last_ext_ = ext_;
         s.ppu.hooks = this;
+        // (kObjDelete only reads: the objects deleted are counted at every width, so a width switched on later, or a
+        // 4:3 state loaded wide, knows them)
         for (uint32_t pc :
-             {kOamPiece, kOamPieceFlip, kOamBuild, kOamDma, kLevelLoop, kLevelWait, kTaskYield, kSpawnInit})
+             {kOamPiece, kOamPieceFlip, kOamBuild, kOamDma, kLevelLoop, kLevelWait, kTaskYield, kSpawnInit, kObjDelete,
+              kLavaWall, kLavaBehind, kLavaAhead})
             s.markExec(pc, true);
         if (ext_ > 0)
             for (uint32_t pc : {kDrawTest, kKeepTest, kSpawnInitCam, kSpawnInitRight, kSpawnInitLeft, kSpawnInitCount,
                                 kSpawnFrameCam, kSpawnRowX, kSpawnEdgeLeft, kSpawnEdgeRight, kStubRetryR + 4,
-                                kStubRetryL + 4, kSweepDelete, kHdmaOn, kLampBeamTest, kLavaWall, kLavaBehind,
-                                kLavaAhead, kObjGoneLeft, kObjGoneRight})
+                                kStubRetryL + 4, kSweepDelete, kHdmaOn, kLampBeamTest, kObjGoneLeft, kObjGoneRight,
+                                kSpawnTest, kSpawnAllocated})
                 s.markExec(pc, true);
         write_stub(s);
     }
@@ -188,7 +202,27 @@ public:
         case kSpawnInit:
             respawn_ = false;   // (a level's start spawn: for the width set now)
             armed_ = playing_level(s);
+            // (its set-up clears every spawned bit: nothing is deleted or refused in the level yet)
+            std::memset(gone_, 0, sizeof(gone_));
+            std::memset(again_, 0, sizeof(again_));
+            std::memset(refused_, 0, sizeof(refused_));
+            spawn_mode_ = kSpawnGame;
+            wall_valid_ = behind_valid_ = false;   // (the Lava Cavern's limits: from the picture's edges)
             return false;
+        case kObjDelete: {
+            // A level object deleted (killed, collected, swept, out of range, its own end): the module's own spawns
+            // (a width change's, the retries) don't create it again; the game's spawner does as usual when its edge
+            // crosses the object's column again. Unless it deleted itself past the 4:3 screen's edge, or the sweep
+            // took it beyond the original's spawn edges (pending_again_): the original would only have it later,
+            // and it gets that chance (the edge-column retry).
+            const uint8_t idx = rd8(s, r.dp + 0x34);
+            if (idx != 0) {
+                set_bit(gone_, idx, true);
+                set_bit(again_, idx, r.dp == pending_again_);
+            }
+            pending_again_ = 0;
+            return false;
+        }
         case kTaskYield:
             // Remove Slowdown ends wherever the level's main task gives the CPU back: its frame wait, the pause loop's,
             // and the restart that leaves the level (an exit, a life lost: the next screen keeps the console's timing).
@@ -200,12 +234,17 @@ public:
             s.turboActive = s.cpuTurbo > 1 && active(s);
             loop_frame_ = s.frameCount();
             logic_done_ = band_taken_ = false;
+            spawn_mode_ = kSpawnGame;   // (also the way back from the width change's spawn)
             if (respawn_ && active(s)) {
                 // A width change mid-level: the spawner's edge columns move to the new margins, and the game's own
                 // level-start spawn runs again past its set-up, which would clear the spawned bits: objects already
-                // out are skipped by them, so the new margins get only theirs.
+                // out are skipped by them, so the new margins get only theirs. Objects the game has deleted since
+                // the level's start (gone_) are skipped too: the Market at Dusk's arena sweep had just cleared two
+                // guards, which came back and took the boss's sprite banks (tools/qa round 2, N1); an enemy
+                // defeated in view would have come back the same way.
                 respawn_ = false;
                 if (ext_ > 0) {
+                    spawn_mode_ = kSpawnWidth;
                     r.pb = 0x60;
                     r.pc = (uint16_t)kStubRespawn;
                     return true;
@@ -214,6 +253,16 @@ public:
             return false;
         default:
             break;
+        }
+        if (ext_ == 0 && active(s) && (pc == kLavaWall || pc == kLavaBehind || pc == kLavaAhead)) {
+            // Widescreen just switched off in the Lava Cavern: its limits ease to the 4:3 screen's edges as above,
+            // then the original code runs again (nothing is held once they are there, so 4:3 play is the original).
+            if (!(pc == kLavaBehind ? behind_valid_ : wall_valid_)) return false;
+            const int target = (int16_t)r.a + (pc == kLavaWall ? 0xF0 : pc == kLavaBehind ? -0x30 : 0x130);
+            lava_limit(s, pc, 0, 0);
+            if (pc == kLavaWall && wall_x_ == target) wall_valid_ = false;
+            if (pc == kLavaBehind && behind_x_ == target) behind_valid_ = false;
+            return true;
         }
         if (ext_ == 0 || !active(s)) return false;   // (a demo, a story scene, the title: the original ranges)
         int el, er;
@@ -233,12 +282,42 @@ public:
             }
             return true;
         }
+        case kSpawnFrameCam: {
+            // A once-only object (a boss, Jasmine, an item) the allocator refused is otherwise never tried again
+            // while the camera stays (an arena): once a frame, while its column is within the original's spawn
+            // edges, its column is run again for it alone (the stub comes back to the frame spawner's start).
+            spawn_mode_ = kSpawnGame;
+            if (retry_frame_ != s.frameCount()) {
+                retry_frame_ = s.frameCount();
+                int col = 0;
+                const int idx = refused_pending(s, col);
+                if (idx != 0) {
+                    spawn_mode_ = kSpawnRefused;
+                    retry_idx_ = idx;
+                    r.x = (uint16_t)col;
+                    r.pb = (uint8_t)(kStubRetryRefused >> 16);
+                    r.pc = (uint16_t)kStubRetryRefused;
+                    return true;
+                }
+            }
+            r.a = (uint16_t)(rd16(s, kCamX) - el + ext_);
+            r.pc = (uint16_t)(pc + 3);
+            return true;
+        }
         case kSpawnInitCam:
-        case kSpawnFrameCam:
             // The spawner's camera: the picture's middle (the camera where the view is centred on it).
             r.a = (uint16_t)(rd16(s, kCamX) - el + ext_);
             r.pc = (uint16_t)(pc + 3);
             return true;
+        case kSpawnTest:        // one list object (X): skipped by the module's own spawns as they require (skip)
+            if (spawn_mode_ == kSpawnGame || !skip(r.x & 0xFF)) return false;
+            r.pc = (uint16_t)kSpawnNext;
+            return true;
+        case kSpawnAllocated: { // the allocator's answer (carry set: refused): a once-only object to try again
+            const uint8_t idx = rd8(s, 0x0012);
+            if (r.c && idx != 0 && (rom16(s, list_entry(s, idx)) & 0x8000)) set_bit(refused_, idx, true);
+            return false;
+        }
         case kSpawnInitRight:   // ADC #$0120: the right column past the view's right margin
             r.a = (uint16_t)(r.a + 0x120 + ext_ + (r.c ? 1 : 0));
             r.pc = (uint16_t)(pc + 3);
@@ -272,6 +351,7 @@ public:
             const int i = next_column(s, cols, n, -1);
             if (i == n - 1) return false;
             r.x = cols[i];
+            spawn_mode_ = kSpawnEdge;
             r.pb = (uint8_t)(kStubRetryR >> 16);
             r.pc = (uint16_t)(right ? kStubRetryR : kStubRetryL);
             return true;
@@ -284,10 +364,13 @@ public:
             const uint8_t done = (uint8_t)(r.x - 1);
             for (int i = 0; i + 1 < n; i++)
                 if (cols[i] == done) {
-                    r.x = cols[next_column(s, cols, n, i)];
+                    const int k = next_column(s, cols, n, i);
+                    spawn_mode_ = k == n - 1 ? kSpawnGame : kSpawnEdge;   // (the margin's own column: the game's)
+                    r.x = cols[k];
                     r.pc = (uint16_t)(right ? kStubRetryR : kStubRetryL);
                     return true;
                 }
+            spawn_mode_ = kSpawnGame;
             return false;
         }
         case kSweepDelete: {
@@ -298,32 +381,34 @@ public:
             const uint16_t obj = r.y;
             const uint8_t idx = rd8(s, obj + 0x34);
             if (rd8(s, obj) != 0 && idx != 0) {
-                const uint32_t e = kObjList + (uint32_t)((idx - 1) * 6 + rd16(s, kObjListOff));
-                const int col = (rom16(s, e + 2) & 0x3FFF) >> 5, cam = (int16_t)rd16(s, kCamX);
-                if (col >= (cam + 0x120) >> 5 || col <= floor_shr(cam - 0x40, 5)) wr8(s, kSpawnedBits + idx, 0);
+                const int col = (rom16(s, list_entry(s, idx) + 2) & 0x3FFF) >> 5, cam = (int16_t)rd16(s, kCamX);
+                if (col >= (cam + 0x120) >> 5 || col <= floor_shr(cam - 0x40, 5)) {
+                    wr8(s, kSpawnedBits + idx, 0);
+                    pending_again_ = obj;   // (its delete follows: not gone for the edge-column retry)
+                }
             }
             return false;
         }
         // The Lava Cavern's limits follow the picture's edges instead of the game's screen's (the view stops at the
         // level's ends, so the wall stays inside the level: at its end camera + $F0 is the exit's x either way).
-        case kLavaWall:     // ADC #$00F0 (carry clear): the wall 16 px inside the picture's right edge
-            set_a(r, (uint16_t)(r.a + 0xF0 + er));
-            r.pc = (uint16_t)(pc + 3);
-            return true;
-        case kLavaBehind:   // SEC / SBC #$0030 (BMI next): left behind 48 px past the picture's left edge
-            set_a(r, (uint16_t)(r.a - 0x30 - el));
-            r.pc = (uint16_t)(pc + 3);
-            return true;
-        case kLavaAhead:    // CLC / ADC #$0130: 48 px past its right edge
-            set_a(r, (uint16_t)(r.a + 0x130 + er));
-            r.pc = (uint16_t)(pc + 3);
-            return true;
+        case kLavaWall:
+        case kLavaBehind:
+        case kLavaAhead:
+            return lava_limit(s, pc, el, er);
         case kObjGoneLeft:  // REP #$21 / SBC #$001F (BMI next): an object 32 px past the picture's left edge is deleted
-        case kObjGoneRight: // REP #$21 / ADC #$0120: or past its right edge
-            if (rd8(s, kLevel) != kLavaLevel) return false;
-            set_a(r, (uint16_t)(pc == kObjGoneLeft ? r.a - 0x20 - el : r.a + 0x120 + er));
+        case kObjGoneRight: { // REP #$21 / ADC #$0120: or past its right edge
+            const bool wide = rd8(s, kLevel) == kLavaLevel || rd8(s, kLevel) == kRideLevel;   // (follow the picture)
+            const uint16_t lim = (uint16_t)(pc == kObjGoneLeft ? r.a - 0x20 - (wide ? el : 0)
+                                                               : r.a + 0x120 + (wide ? er : 0));
+            // (the test's outcome, CMP $0C: deleted when x <= the left limit (not negative) / x > the right limit; a
+            // delete past the 4:3 screen's edge of an object the margins brought out early isn't "gone" for good)
+            const uint16_t x = rd16(s, r.dp + 0x0C);
+            if (pc == kObjGoneLeft ? !(lim & 0x8000) && lim >= x : lim < x) pending_again_ = r.dp;
+            if (!wide) return false;
+            set_a(r, lim);
             r.pc = (uint16_t)(pc + 3);
             return true;
+        }
         case kLampBeamTest: {
             // The lamp's beam with its left edge in the right margin (A: its screen x, 16 bits): kept on (fixed colour,
             // colour math) with an empty window on the game's screen, WH2 > WH3; the margin draws it at its place
@@ -538,6 +623,58 @@ public:
         }
         p.wideDimSpare = row < kHudLines ? 0x04 : 0;
         lamp_window(s, p);
+        clipped_windows(p);
+    }
+
+    // The game's other windows (the screen tasks' boxes and irises, $82:8000: the "ABU NO!" box at the Underground
+    // River's end, ...) are clipped at its screen's edges: a window reaching one is cut there, and the PPU would
+    // continue it into the margin with the edge pixel's value - the inside of a box running off the screen's edge
+    // to the picture's edge (tools/qa round 2, N3). In the margins such a window ends at the screen's edge, as at
+    // 4:3 (its true edges only where known: the lamp's beam). A window over the whole line (0-255) still covers the
+    // margins: a full-screen effect.
+    static void clipped_windows(Ppu& p) {
+        for (int w = 0; w < 2; w++) {
+            Ppu::WideWin& ww = p.wideWin[w];
+            const int l = p.windowLeft(w), r = p.windowRight(w);
+            if (ww.on || (l == 0 && r == 255)) continue;
+            ww.on = true;
+            ww.lo = l;
+            ww.hi = r;
+        }
+    }
+
+    // The Lava Cavern's limits (exec hooks at the immediates; A the camera) for the picture's edges el / er.
+    bool lava_limit(Snes& s, uint32_t pc, int el, int er) {
+        CpuRegs& r = s.cpu.r;
+        // A width change moves the picture's edges at once; the limits then ease to their new places so that the
+        // change itself neither pushes Aladdin nor kills him (tools/qa round 2, N4: 60 px in one frame, off a rock
+        // into the lava). The wall (world x, CMP $08E7 / STA: it holds him at most there) never comes in past him:
+        // it holds its place in the world while he stands beyond its new place, and the scroll brings it there
+        // (0.625 px a frame), or follows him as he steps back. The left-behind limit comes in at most 2 px a frame
+        // more than the camera; the one ahead stays 64 px past the wall.
+        if (pc == kLavaWall) {   // LDA $1773 / ADC #$00F0 (carry clear): the wall 16 px inside the picture's right edge
+            const int target = (int16_t)r.a + 0xF0 + er, x = (int16_t)rd16(s, 0x08E7);
+            wall_x_ = wall_valid_ ? std::max(target, std::min(wall_x_, x)) : target;
+            wall_valid_ = true;
+            set_a(r, (uint16_t)wall_x_);
+            r.pc = (uint16_t)(pc + 3);
+            return true;
+        }
+        if (pc == kLavaBehind) { // LDA $1773 / SEC / SBC #$0030 (BMI next): left behind 48 px past the picture's left edge
+            const int target = (int16_t)r.a - 0x30 - el;
+            behind_x_ = behind_valid_ && target > behind_x_ ? std::min(target, behind_x_ + 2) : target;
+            behind_valid_ = true;
+            set_a(r, (uint16_t)behind_x_);
+            r.pc = (uint16_t)(pc + 3);
+            return true;
+        }
+        {  // LDA $1773 / CLC / ADC #$0130: 48 px past its right edge
+            int lim = (int16_t)r.a + 0x130 + er;
+            if (wall_valid_) lim = std::max(lim, wall_x_ + 0x40);
+            set_a(r, (uint16_t)lim);
+            r.pc = (uint16_t)(pc + 3);
+            return true;
+        }
     }
 
     // The lamp's beam (level $05's end): window 2 clipped at the screen's right edge, which the margin would continue
@@ -597,7 +734,7 @@ public:
     // of the frame in progress too: its OAM DMA comes after the load) and how long ago the level loop's top ran.
     std::vector<uint8_t> save_ext() const {
         std::vector<uint8_t> v;
-        v.push_back(4);   // version
+        v.push_back(5);   // version
         v.push_back((uint8_t)((level_ ? 1 : 0) | (lim_valid_ ? 2 : 0) | (stop_ ? 4 : 0) | (respawn_ ? 16 : 0) |
                               (armed_ ? 32 : 0)));
         const uint32_t since = snes_ ? snes_->frameCount() - loop_frame_ : 255;
@@ -623,6 +760,17 @@ public:
             v.push_back((uint8_t)x);
             v.push_back((uint8_t)(x >> 8));
         }
+        // (version 5) the level objects deleted / refused, and whose spawn is running
+        v.push_back((uint8_t)spawn_mode_);
+        v.push_back((uint8_t)retry_idx_);
+        v.insert(v.end(), gone_, gone_ + 32);
+        v.insert(v.end(), again_, again_ + 32);
+        v.insert(v.end(), refused_, refused_ + 32);
+        v.push_back((uint8_t)((wall_valid_ ? 1 : 0) | (behind_valid_ ? 2 : 0)));
+        for (int x : {wall_x_, behind_x_}) {
+            v.push_back((uint8_t)x);
+            v.push_back((uint8_t)(x >> 8));
+        }
         return v;
     }
     void load_ext(const uint8_t* d, size_t n) {
@@ -634,11 +782,21 @@ public:
         respawn_ = true;   // (a state without the module's data: the margins' objects)
         logic_done_ = band_taken_ = false;
         band_next_.valid = band_shown_.valid = false;
+        // (a state without them: nothing known deleted or refused)
+        std::memset(gone_, 0, sizeof(gone_));
+        std::memset(again_, 0, sizeof(again_));
+        std::memset(refused_, 0, sizeof(refused_));
+        spawn_mode_ = kSpawnGame;
+        retry_idx_ = 0;
+        retry_frame_ = 0xFFFFFFFFu;
+        pending_again_ = 0;
+        wall_valid_ = behind_valid_ = false;
         // (a state without it: a level being played if one is on screen)
         armed_ = snes_ && playing_level(*snes_) && in_level(*snes_);
         const size_t need1 = 2 + 5 * 2 + 128 * 3, need2 = 3 + 7 * 2 + 2 * 128 * 3, need3 = need2 + 1 + 7 * 2;
-        if (n < 2 || d[0] < 1 || d[0] > 4 || (d[0] == 1 && n < need1) || (d[0] == 2 && n < need2) ||
-            (d[0] >= 3 && n < need3))
+        const size_t need5 = need3 + 2 + 3 * 32 + 5;
+        if (n < 2 || d[0] < 1 || d[0] > 5 || (d[0] == 1 && n < need1) || (d[0] == 2 && n < need2) ||
+            (d[0] >= 3 && n < need3) || (d[0] >= 5 && n < need5))
             return;
         level_ = (d[1] & 1) != 0;
         if (d[0] >= 4) armed_ = (d[1] & 32) != 0;
@@ -676,6 +834,19 @@ public:
             band_next_.cam = b[1]; band_next_.vcam = b[2]; band_next_.t = (uint16_t)b[3];
             band_shown_.cam = b[4]; band_shown_.vcam = b[5]; band_shown_.t = (uint16_t)b[6];
         }
+        if (d[0] >= 5) {
+            spawn_mode_ = d[o] <= kSpawnRefused ? d[o] : kSpawnGame;
+            retry_idx_ = d[o + 1];
+            o += 2;
+            std::memcpy(gone_, d + o, 32);
+            std::memcpy(again_, d + o + 32, 32);
+            std::memcpy(refused_, d + o + 64, 32);
+            o += 96;
+            wall_valid_ = (d[o] & 1) != 0;
+            behind_valid_ = (d[o] & 2) != 0;
+            wall_x_ = (int16_t)(d[o + 1] | (d[o + 2] << 8));
+            behind_x_ = (int16_t)(d[o + 3] | (d[o + 4] << 8));
+        }
     }
 
 private:
@@ -693,8 +864,24 @@ private:
     // Patch-ROM stubs for the spawner's edge columns (right / left): JSL kStubColumn (one column, X), then
     // JML $82:A7EE; an exec hook after the JSL (+4) sends X round again for the next column.
     static constexpr uint32_t kStubRetryR = 0x608020, kStubRetryL = 0x608028, kStubColumn = 0x608030;
+    // Patch-ROM stub for a refused once-only object's retry: JSL kStubColumn (X), JML $82:A7A3 (the frame spawner's
+    // start, which sets its registers again).
+    static constexpr uint32_t kStubRetryRefused = 0x608040;
+    // Whose spawn is running (spawn_mode_): the game's own, the width change's (kStubRespawn), the original's edge
+    // columns (kStubRetryR / L), a refused object's retry (kStubRetryRefused).
+    enum { kSpawnGame = 0, kSpawnWidth = 1, kSpawnEdge = 2, kSpawnRefused = 3 };
 
     const Snes* snes_ = nullptr;
+    // The level objects (by list index) deleted since the level's start (gone_), of them the ones whose last delete was
+    // past the 4:3 screen's edge or the sweep's beyond the original's edges (again_), and once-only objects the
+    // allocator refused (refused_). Bits by index.
+    uint8_t gone_[32] = {}, again_[32] = {}, refused_[32] = {};
+    int spawn_mode_ = kSpawnGame, retry_idx_ = 0;
+    uint32_t retry_frame_ = 0xFFFFFFFFu;
+    uint16_t pending_again_ = 0;   // the object whose delete follows: past the 4:3 screen's edge, or swept beyond
+    // The Lava Cavern's wall and left-behind limit as last given (world x), easing to a width change's new edges.
+    int wall_x_ = 0, behind_x_ = 0;
+    bool wall_valid_ = false, behind_valid_ = false;
     GameConfig cfg_;
     int ext_ = 0, last_ext_ = -1;
     bool level_ = false, respawn_ = false;
@@ -746,6 +933,9 @@ private:
         PatchAsm c(s, kStubColumn);
         c.b({0x0B, 0x8B, 0xE2, 0x30, 0xA0, 0x01});                      // PHD, PHB, SEP #$30, LDY #1
         for (uint8_t b : jml(kSpawnOneColumn)) c.b8(b);                 // JML $82:A780 (its PLB PLD RTL comes back)
+        PatchAsm f(s, kStubRetryRefused);
+        for (uint8_t b : jsl(kStubColumn)) f.b8(b);                     // JSL column (X)
+        for (uint8_t b : jml(kSpawnFrameTop)) f.b8(b);                  // JML $82:A7A3
     }
     // The columns for the spawner's new edge column, in order: the original's edge column (camera + $120 right, - $40
     // left, as $82:A742 works it out) and the one before it on that side (the original's crossings are up to 31 px
@@ -767,17 +957,60 @@ private:
     }
     // The next of those to spawn after index `i`: one of the original's with an object not out that the spawner would
     // take now ($82:A8C0: spawned bits & $81 clear, y within [$1BF1 - $40, + $140)), else the spawner's own (the last).
-    static int next_column(const Snes& s, const uint8_t* cols, int n, int i) {
+    // (Not one the game deleted where it had it, killed or swept in view: skip.)
+    int next_column(const Snes& s, const uint8_t* cols, int n, int i) const {
         for (i++; i < n - 1; i++) {
             const int count = rd8(s, kColCount + cols[i]), first = rd8(s, kColFirst + cols[i]);
             for (int k = 0; k < count; k++) {
                 const int idx = (first + 1 + k) & 0xFF;
-                const uint32_t e = kObjList + (uint32_t)((first + k) * 6 + rd16(s, kObjListOff));
-                const uint16_t dy = (uint16_t)(rom16(s, e + 4) + 0x40 - rd16(s, kSpawnCamY));
-                if (!(rd8(s, kSpawnedBits + idx) & 0x81) && dy < 0x180) return i;
+                if (idx == 0) continue;
+                const uint16_t dy = (uint16_t)(rom16(s, list_entry(s, idx) + 4) + 0x40 - rd16(s, kSpawnCamY));
+                if (!(rd8(s, kSpawnedBits + idx) & 0x81) && dy < 0x180 && !skip_edge(idx)) return i;
             }
         }
         return n - 1;
+    }
+    // A level object's list entry (type, flags - bit 7 once only -, x, y).
+    static uint32_t list_entry(const Snes& s, int idx) {
+        return kObjList + (uint32_t)((idx - 1) * 6 + rd16(s, kObjListOff));
+    }
+    static bool bit(const uint8_t* b, int i) { return (b[(i >> 3) & 31] >> (i & 7)) & 1; }
+    static void set_bit(uint8_t* b, int i, bool v) {
+        if (v) b[(i >> 3) & 31] |= (uint8_t)(1 << (i & 7));
+        else b[(i >> 3) & 31] &= (uint8_t)~(1 << (i & 7));
+    }
+    // What the module's own spawns leave out (spawn_mode_): a width change's, everything the game has deleted since the
+    // level's start; the original's edge columns, what it deleted for good (not past the 4:3 screen's edge, nor swept
+    // beyond the original's edges); the refused object's retry, everything but it.
+    bool skip_edge(int idx) const { return bit(gone_, idx) && !bit(again_, idx); }
+    bool skip(int idx) const {
+        switch (spawn_mode_) {
+        case kSpawnWidth: return bit(gone_, idx);
+        case kSpawnEdge: return skip_edge(idx);
+        case kSpawnRefused: return idx != retry_idx_;
+        default: return false;
+        }
+    }
+    // A once-only object the allocator refused, not out yet (spawned bits & $81 clear), its column within the
+    // original's spawn edges (camera - $40 .. camera + $120) and its row within the spawner's: its index and column.
+    int refused_pending(Snes& s, int& col) {
+        const int cam = (int16_t)rd16(s, kCamX);
+        const int lo = floor_shr(cam - 0x40, 5), hi = floor_shr(cam + 0x120, 5);
+        for (int idx = 1; idx < 256; idx++) {
+            if (!bit(refused_, idx)) continue;
+            if (rd8(s, kSpawnedBits + idx) & 0x81) {
+                set_bit(refused_, idx, false);
+                continue;
+            }
+            const uint32_t e = list_entry(s, idx);
+            const int c = (rom16(s, e + 2) & 0x3FFF) >> 5;
+            const uint16_t dy = (uint16_t)(rom16(s, e + 4) + 0x40 - rd16(s, kSpawnCamY));
+            if (c >= lo && c <= hi && dy < 0x180) {
+                col = c;
+                return idx;
+            }
+        }
+        return 0;
     }
 
     // A level screen: the main task waits in the level's main loop or its pause loop (task 0's saved return address).
@@ -964,8 +1197,11 @@ private:
     // to, the fire floor (BG1's map from row kFireRow) and the arch (BG2's map from its first row that isn't empty).
     static int painted_row(const Snes& s, const Ppu& p) {
         if (rd8(s, kLevel) != kJafarLevel || p.bgMapBase(0) != kFireRoom || p.bgMapBase(1) != kFireArch) return 0x10000;
-        // (a line shows map y = scroll + row + 1)
-        int row = kFireRow * 8 - 1 - (p.bgVofs(0) & 0xFF);
+        // (a line shows map y = scroll + row + 1; the room's scroll is signed: the shake as the arch rises takes it
+        // a few lines above 0, 1016-1022 in the register, which as 248-254 put the row at -87 and dimmed the whole
+        // side, wall included; tools/qa round 2, N2)
+        const int vofs = ((p.bgVofs(0) + 0x80) & 0xFF) - 0x80;
+        int row = kFireRow * 8 - 1 - vofs;
         for (int r = 0; r < 32; r++) {
             bool any = false;
             for (int c = 0; c < 32 && !any; c++) any = p.vram[(kFireArch + r * 32 + c) & 0x7FFF] != 0;
