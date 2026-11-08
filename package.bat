@@ -13,6 +13,7 @@ del /q "%OUT%\*.lnk" 2>nul
 copy /y build\bin\AladdinCollection.exe "%OUT%\" >nul
 copy /y README.md "%OUT%\README.md" >nul
 copy /y readme.txt "%OUT%\readme.txt" >nul
+copy /y LICENSE "%OUT%\LICENSE" >nul
 for %%f in (*.bin *.md *.gen *.smd *.sfc *.smc *.sms) do (
     if /i not "%%~nxf"=="README.md" copy /y "%%f" "%OUT%\roms\" >nul
 )

@@ -56,8 +56,9 @@
        - plain dumps: .bin / .md / .gen, .sfc, .sms
        - interleaved .smd dumps, and dumps with a 512-byte copier header
          (.smd, .smc / .swc / .fig)
-       - any of the above inside a .zip (no need to unzip). .7z and .rar
-         are not read -- extract those first.
+       - any of the above inside a .zip (no need to unzip), packed the
+         usual way (Deflate) or with LZMA. .7z and .rar files are not
+         read -- extract those first.
      The launcher looks next to the program, in its "roms" folder, and in
      the folder it was started from. ROMs you copy in while the launcher is
      open are picked up within a second or so.
@@ -67,6 +68,11 @@
      launcher says "Wrong ROM version", names the file and says what it is:
      "the European version", "the Japanese version", "the REV 01 version",
      or "a modified copy or a bad dump". Swap it for the one listed above.
+
+  CAN'T UNZIP THE ROM?
+     If a zip holds the right ROM but can't be unpacked (another kind of
+     compression, such as BZip2, or a password), the card says "Can't
+     unzip the ROM" and why. Unzip it, or zip it again the usual way.
 
 
 --------------------------------------------------------------------------------
@@ -131,7 +137,10 @@
 
   The fast forward, rewind, menu, quick save, quick load and screenshot
   keys and pad buttons can be changed under Options > Controls, like the
-  game buttons. Esc always opens the menu too.
+  game buttons. Esc always opens the menu too. Picking a key that is
+  already in use swaps the two. Only when a game button takes a hotkey's
+  key and its own old key is used by another console is the hotkey left
+  without one; a message then tells you to choose a new one.
 
 
 --------------------------------------------------------------------------------
@@ -210,9 +219,9 @@
                           opens the developers' TEST MODE). This version has
                           no lives -- continues are unlimited -- and its gems
                           are the health bar.
-     Pits, lava, crushes and the Rug Ride's walls still cost a life with
-     invincibility on -- turn on infinite lives as well if you want to be
-     safe.
+     Pits, lava, crushes, the Rug Ride's walls and falling behind a
+     screen that scrolls by itself still cost a life with invincibility
+     on -- turn on infinite lives as well if you want to be safe.
 
      The games' own secret codes work too:
        Mega Drive ....... Pause, then A B B A A B B A: skip the level. On
@@ -419,22 +428,41 @@
 --------------------------------------------------------------------------------
 
   More of each level really is drawn at the sides: the level, enemies and
-  items appear and move across the whole width. Near a level's ends the
+  items appear and move across the whole width, and the status bar moves
+  out to the screen edges (Re-anchor HUD). Near a level's ends the
   picture slides, so the extra width shows more of the level instead of
-  black, with the background still moving as on the console; the game's
-  own camera is untouched, so for the first stretch the scenery holds
-  still while Aladdin walks. Boss arenas keep the original camera, with
-  the parts you can't reach dimmed.
+  black, with the background still moving as on the console. The games'
+  own cameras are untouched, so on the Mega Drive and the Master System
+  the scenery holds still for the first stretch while Aladdin walks. The
+  width (and the cheats) can be changed at any time, also mid-level, and
+  save states remember the width they were made at. With CRT pixels the
+  21:9 picture fills a 3440x1440 or 2560x1080 screen.
+
+  Boss fights: on the Mega Drive the wider view settles on the arena (the
+  golden idol, Jafar) instead of following Aladdin, so the extra width
+  shows the arena; in widescreen the magic carpet comes as soon as the
+  idol is beaten. On the SNES the arenas keep the original camera, and
+  their sides are shown at full brightness. In the SNES Lava Cavern,
+  which scrolls by itself, the screen's limits follow the wide picture's
+  edges, so Aladdin can use the extra width (widescreen only).
+
+  The Mega Drive's Rug Ride is wide too. Its rocks and treasures still
+  come in at the original screen's right edge, so it plays exactly as it
+  always did; the extra width shows the cave you've flown through, with
+  the lava wave chasing you.
 
   Shown in their original shape: title screens, menus, story scenes, the
-  Mega Drive's bonus rounds and Rug Ride, the SNES staff roll. Where such
-  a screen's background is one plain colour, it fills the width in that
-  colour.
+  Mega Drive's bonus rounds and the SNES staff roll. Where such a screen's
+  background is one plain colour, it fills the width in that colour.
 
   Attract-mode demos are recorded button presses. All three games show
   them in their original shape, exactly as recorded, at every width and
   with any cheat switched on. With widescreen off everything is exactly
   the original.
+
+  The wider view shows parts of the levels the original screen never
+  did, and in a few places they aren't perfect: the README on GitHub
+  lists the known limitations.
 
 
 --------------------------------------------------------------------------------
@@ -460,6 +488,8 @@
      YouTube: https://www.youtube.com/adhgaming
      Reddit:  u/Darhkwing
      GitHub:  https://github.com/Darhkfox
+
+  The port's own code is released under the MIT licence: see LICENSE.
 
   Aladdin (c) Disney. The Mega Drive version (c) 1993 Sega / Virgin Games,
   the SNES version (c) 1993 Capcom, the Master System version (c) 1994

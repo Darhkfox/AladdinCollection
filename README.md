@@ -28,7 +28,7 @@ like the originals, then adds game-specific patches and a PC frontend.
 
 ROMs are found by their contents (CRC32), so file names don't matter. Raw dumps (`.bin` / `.md` / `.gen`,
 `.sfc`, `.sms`), interleaved `.smd` dumps, dumps with a 512-byte copier header (`.smd`, `.smc` / `.swc` / `.fig`)
-and all of these inside a `.zip` work. ROMs copied in while the launcher is open are picked up within a second.
+and all of these inside a `.zip` (Deflate or LZMA) work. ROMs copied in while the launcher is open are picked up within a second.
 
 **These exact versions are needed** (the USA cartridges, and the Master System's European one — it was only
 released in Europe and Brazil): the widescreen patches, level select, cheats and achievements are matched to
@@ -116,15 +116,19 @@ achievements of its own: *A Whole New World* (defeat Jafar in all three versions
   Objects that stay on the map once spawned (the Cave of Wonders' stepping stones, the Escape's lava rocks, the
   apples that appear when Aladdin has none) come in once, at the view's edge, as in the original. In a boss fight
   (the idol in the Cave of Wonders, Jafar) the wider view settles on the arena's centre instead of following Aladdin,
-  so the extra width shows the arena rather than what lies beyond its far end; it eases in and out over about a second.
+  so the extra width shows the arena rather than what lies beyond its far end; it eases in and out over about a second,
+  and lets go as soon as the boss is beaten (the carpet then flies Aladdin away with the view following as anywhere).
   In widescreen the magic carpet comes as soon as the golden idol is beaten, unlike the original, where a win beside
   the far pedestal makes you walk away and back before it appears (at 4:3 it stays the original's way).
   The Rug Ride is wide too, with all the extra width behind the carpet: the ride sends its rocks and treasures in at
   the 4:3 screen's right edge, so the view ends there as in the original (you see as far ahead, so the ride plays
   and is as hard as ever: it runs on the original game, unchanged to the frame) and shows the cave you have flown
   through on the left, with the lava wave chasing you and what you passed drifting away until it leaves the screen.
+  A level fades in and out in the shape it is played in (a death, a fall, a Rug Ride crash or the level's end fades
+  wide, without the picture jumping); the picture becomes 4:3 only once the screen is black.
   Abu's bonus rounds stay 4:3, and so do the title screens and the attract demos, which play exactly as recorded at
-  every width and with any cheat.
+  every width and with any cheat. A save state always goes on with the game it was saved in, wherever it is loaded
+  (the title screen, the attract demos, the Rug Ride).
 - **Level select**: all 13 entries in the game's own order (both of Abu's bonus rounds and the Rug Ride included),
   on Practice, Normal or Difficult. Each level starts with its own story card, as after the one before.
 - **Cheats**: invincibility, infinite health, lives, apples, gems and continues, and three of the developers'
@@ -235,7 +239,7 @@ package.bat                                       :: dist\Aladdin Collection: th
                                                   ::   ROMs in this folder, for local play
 powershell -ExecutionPolicy Bypass -File release.ps1
                                                   :: dist\Aladdin-Collection-v<version>-win64.zip:
-                                                  ::   the exe and readme.txt only (no ROMs)
+                                                  ::   the exe, readme.txt and LICENSE only (no ROMs)
 ```
 
 ### Android
