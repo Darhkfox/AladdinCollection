@@ -37,6 +37,16 @@ bool stage_mode(int m) { return m >= 2 && m <= 0x0B; }
 bool demo_playing(const Sms& s) { const int d = s.ram8(DEMO); return d >= 2 && d <= 0x0B; }
 // A stage being played (the widescreen view): stage modes, not a demo.
 bool in_stage(const Sms& s) { return stage_mode(s.ram8(MODE)) && s.ram8(STAGE) <= 9 && !demo_playing(s); }
+// A stage's picture fading out: the game sets the next mode (the stage number too, at an exit) before it fades the
+// stage out ($0913). The picture is the stage's until the screen is black (fade_hooks): module_state[6] bit 28, with
+// bits 24-27 the stage shown.
+constexpr int MS_SHOWN = 6, SHOWN_STAGE_SHIFT = 24;
+constexpr uint32_t SHOWN_STAGE_BITS = 0xFu << SHOWN_STAGE_SHIFT, FADING = 1u << 28;
+bool fading(const Sms& s) { return (s.module_state[MS_SHOWN] & FADING) != 0 && s.vdp.ext > 0; }
+bool shows_stage(const Sms& s) { return fading(s) || in_stage(s); }
+int shown_stage(const Sms& s) {
+    return fading(s) ? (int)((s.module_state[MS_SHOWN] & SHOWN_STAGE_BITS) >> SHOWN_STAGE_SHIFT) : s.ram8(STAGE);
+}
 
 // ---- levels: the ten stages, entered through the password screen like a player would -------------------
 struct Stage { const char* group; const char* name; const char* password; };
@@ -106,6 +116,9 @@ const std::vector<RomPatch> kInvincible = {
     // $B8B3 (which changes nothing) takes Aladdin straight to his death, past the tests above
     {0x32C76, {0xDC, 0x0F, 0xB9}, {0x00, 0x00, 0x00}},
     {0x329DA, {0xDC, 0x0F, 0xB9}, {0x00, 0x00, 0x00}},
+    // the Market's pursuer (stage 0's second figure, bank 12): its handler ends in `jp $B6D0`, the catch test, which
+    // takes Aladdin to his death ($C438 = $FF at $B74E) without a look at $C467: it returns there instead
+    {0x32984, {0xC3, 0xD0, 0xB6}, {0xC9, 0x00, 0x00}},
 };
 // The three ways a hit takes health: one half gem ($3F88), one but never the last ($3F76), two ($4A6F4). The
 // `dec a`s become `or a`: the test after them ("none left?") must see the health, not stale flags.
@@ -138,8 +151,13 @@ constexpr uint16_t CAVE_WAKE = 0x7A00, CAVE_GONE = 0x7A90, CAVE_FULL_A = 0x7AD0,
 constexpr uint16_t CAVE_WAKE_DECIDE = CAVE_WAKE + 11, CAVE_GONE_DE = CAVE_GONE + 19, CAVE_KEEP_A_DE = CAVE_KEEP_A + 19,
                    CAVE_BOULDER_DE = CAVE_BOULDER + 4;
 constexpr uint16_t CAVE_FULL_A_WIDE = CAVE_FULL_A + 16, CAVE_FULL_B_WIDE = CAVE_FULL_B + 16;   // (their wide paths)
+// the Z80 cycles the wake and leave tests' caves take more than the instructions they replace (given back: slot_begin)
+constexpr int CAVE_WAKE_COST = 75 - 16, CAVE_GONE_COST = 97 - 10, CAVE_KEEP_COST = 97 - 10;
+constexpr uint16_t CAVE_KEEP_B_END = CAVE_KEEP_B + 16;   // (its `pop af`, both paths)
 constexpr uint8_t QUEUE_SLOTS = 7, QUEUE_WIDE = 12;   // the queue stages' object slots: original, wide (see below)
 constexpr uint16_t QUEUE_LOOP_COUNT = 0x3D14, RECORD_INDEX = 0xC680;
+constexpr uint16_t OBJECTS = 0xCA00;     // 7 (stages 0/1/5/7/8) or up to 16 objects, $40 bytes each
+constexpr int OBJ_SIZE = 0x40, MAX_OBJECTS = 16;
 
 std::vector<RomPatch> wide_patches(int E) {
     auto zeros = [](size_t n) { return std::vector<uint8_t>(n, 0x00); };
@@ -250,7 +268,15 @@ std::vector<RomPatch> wide_patches(int E) {
         {0x3D13, {0x06, QUEUE_SLOTS}, {0x06, QUEUE_WIDE}},
         {0x425B, {0x06, QUEUE_SLOTS}, {0x06, QUEUE_WIDE}},
         {0x4B25A, {0x06, QUEUE_SLOTS}, {0x06, QUEUE_WIDE}},
+        // (the other loops over them: stage 8's flying figure drops what waits for it - pots, type $51 - once the
+        // camera reaches it (bank $0C $AE96: past the seventh slot they waited at x 256 for good, awake, in the right
+        // side); the Market's pursuer runs into what is on the screen (bank $0C $B5C0))
+        {0x32E9A, {0x06, QUEUE_SLOTS}, {0x06, QUEUE_WIDE}},
+        {0x335C4, {0x06, QUEUE_SLOTS}, {0x06, QUEUE_WIDE}},
         {0x4AAEB, {0x7C, 0xB7, 0xC8}, {0xCD, lo(CAVE_BOULDER), hi(CAVE_BOULDER)}},
+        // (the Treasure Room's bats, type $0D, bank $12 $AC16, the same test: one that flew off came home at x -2, the
+        // top left corner of the original screen, and swooped out of the wide view's left side)
+        {0x4AC23, {0x7C, 0xB7, 0xC8}, {0xCD, lo(CAVE_BOULDER), hi(CAVE_BOULDER)}},
         {CAVE_BOULDER, zeros(boulder.size()), boulder},
         {0x3E50, {0x2A, 0x82, 0xC4}, {0xCD, lo(CAVE_WAKE), hi(CAVE_WAKE)}},
         {CAVE_WAKE, zeros(wake.size()), wake},
@@ -304,7 +330,7 @@ int map_pages(const Sms& s, int stage) {
 // The name-table entry the column streamer ($2E3A) builds for world x `wx`, playfield cell row `row` (0..19 =
 // table rows 2..21), or -1 outside the map. Metatiles are 16x16: 8 bytes, the TL TR BL BR entries.
 int map_entry(const Sms& s, int wx, int row) {
-    const int stage = s.ram8(STAGE);
+    const int stage = shown_stage(s);
     if (stage > 9 || row < 0 || row >= 20 || wx < 0) return -1;
     const int bank = s.rom_orig8(0x3306 + stage);
     const int stride = s.ram16(MAP_STRIDE);
@@ -371,7 +397,7 @@ constexpr int ARENA_STAGE = 9, ARENA_FROM = 128, ARENA_PERIOD = 128;
 void level_bounds(const Sms& s, int& lo, int& hi) {
     lo = s.ram16(CAM_MIN);
     hi = s.ram16(CAM_MAX);
-    const int stage = s.ram8(STAGE);
+    const int stage = shown_stage(s);
     if (stage > 9) return;
     if (paged_map(stage)) hi = std::min(hi, map_pages(s, stage) * 256 - 256);
     else hi = std::min(hi, lo + s.ram16(MAP_STRIDE) * 16 - 256);
@@ -384,6 +410,19 @@ void level_bounds(const Sms& s, int& lo, int& hi) {
 // state of an earlier version has the width they were placed for when loaded (old_wake_shift) instead.
 constexpr int MS_CAM_NEXT = 4, MS_CAM = 5, MS_UNDRAWN = 6, MS_PLACEMENT = 7;
 constexpr uint32_t PLACED_AT_WAKE = 0x40000000;
+// module_state[7] also holds the queue loop's slot being timed (slot_time): bits 0-19 the Z80 cycle (in its frame,
+// + SLOT_BIAS) at which it began, bit 20 that frame's parity, bit 21 a slot is being timed, bit 22 its time is free
+constexpr uint32_t SLOT_START = 0xFFFFF, SLOT_PARITY = 1u << 20, SLOT_OPEN = 1u << 21, SLOT_FREE = 1u << 22;
+constexpr int SLOT_BIAS = 0x40000, SLOT_CREDIT = 0x8000;
+// module_state[6]: bits 0-15 the undrawn objects, bits 16-23 how far Aladdin is left behind past the original
+// screen's left edge (push_left)
+constexpr uint32_t UNDRAWN_BITS = 0xFFFF;
+constexpr int BEHIND_SHIFT = 16;
+constexpr uint16_t AL_X = 0xC402, PIT = 0xC461;
+int behind(const Sms& m) { return (int)((m.module_state[MS_UNDRAWN] >> BEHIND_SHIFT) & 0xFF); }
+void set_behind(Sms& m, int d) {
+    m.module_state[MS_UNDRAWN] = (m.module_state[MS_UNDRAWN] & ~(0xFFu << BEHIND_SHIFT)) | ((uint32_t)d << BEHIND_SHIFT);
+}
 int shown_cam(const Sms& s) { return (int)(s.module_state[MS_CAM] & 0xFFFF); }
 // The camera a line of the camera's band was drawn with: the one whose low byte its scroll register (-camera) has,
 // next to the frame's (a line interrupt can load it from the next frame's logic)
@@ -399,7 +438,7 @@ int band_camera(const Sms& s, int hs) {
 // rest masked). Jafar's room keeps the original camera (its sides are dimmed scenery). From the camera alone, so
 // save states and width changes need nothing more.
 int view_slide(const Sms& s, int cam, int E) {
-    if (!in_stage(s) || s.ram8(STAGE) == ARENA_STAGE || E == 0) return 0;
+    if (!shows_stage(s) || shown_stage(s) == ARENA_STAGE || E == 0) return 0;
     int lo, hi;
     level_bounds(s, lo, hi);
     const int end = hi + 256, vw = 256 + 2 * E;
@@ -422,15 +461,21 @@ int view_slide(const Sms& s, int cam, int E) {
 int left_entry_frames_per_px(int type) { return type == 0x46 ? 4 : type == 0x3B ? 1 : 0; }
 
 // A Whole New World's birds from the left (types $46 / $3B, bank $12 $B1FC / $B374; still flying in: +$3E / +$2F
-// = 0, screen-space) that are not yet where the original starts them (x -16 / -32) when the original would have
-// (the camera at their X): 3 px a frame more until they are. (A PC hook on their handlers.)
+// = 0, screen-space) that are behind the original's once the original's has started (the camera at their X): 1 px
+// a frame more until they are where it is by then - on its path from then on, without a dash across the side.
+// (A PC hook on their handlers.)
+constexpr int BIRD_CATCH_UP = 1;
 void bird_catch_up(Sms& m, int start_x, uint8_t state) {
     if (m.bank[2] != 0x12 || !in_stage(m) || m.ram8(STAGE) != 7) return;
     const uint16_t o = m.z80.ix;
     if (m.ram8((uint16_t)(o + state)) || m.ram8((uint16_t)(o + 0x20))) return;
-    const int x = (int16_t)m.ram16((uint16_t)(o + 2));
-    if (x < start_x && m.ram16(CAM_X) >= m.ram16((uint16_t)(o + 0x28)))
-        m.set_ram16((uint16_t)(o + 2), (uint16_t)(x + std::min(3, start_x - x)));
+    const int x = (int16_t)m.ram16((uint16_t)(o + 2)), cam = m.ram16(CAM_X), X = m.ram16((uint16_t)(o + 0x28));
+    if (cam < X) return;
+    // (where the original's is by now: it started at start_x when the camera reached X, the carpet's camera moving
+    // 2 px a frame, and it flies 1 px every fpp frames)
+    const int fpp = left_entry_frames_per_px(m.ram8((uint16_t)(o + 0x15)));
+    const int target = start_x + (fpp ? (cam - X) / (2 * fpp) : 0);
+    if (x < start_x || x < target - 1) m.set_ram16((uint16_t)(o + 2), (uint16_t)(x + std::min(BIRD_CATCH_UP, target - x)));
 }
 
 void wake_decide(Sms& m) {
@@ -455,6 +500,81 @@ void wake_decide(Sms& m) {
     m.z80.hl = 0xFFFF;
 }
 
+// The objects' CPU time. A wide view keeps more objects awake (they wake earlier and leave later), the queue stages
+// (0/1/5/7/8) in more slots (QUEUE_WIDE): the objects' loop no longer fit the frame, and the auto-scrolling stages
+// lagged (the logic missed frames: the scroll stalled, the Rooftops took 18 % longer at 21:9). A pass of the loop (a
+// slot: queue stages $3D15..$3D39, the others $3CBC..$3CE4) the original would not have made takes no time: an
+// object awake outside the original's window (queue stages: x beyond 256, where it would still wait, or past -32,
+// where it would have left; the others: outside [-64, 304)), and a waiting or empty slot past the original's seven.
+// The pass runs with the clock stopped: slot_begin gives the Z80 a credit of cycles (wait_cycles, negative), so the
+// run goes on without the lines or the interrupts moving on, and slot_end takes back what the pass did not use. The
+// caves' extra instructions are taken off the same way (CAVE_*_COST). The original's own work keeps its cost, and
+// its slowdowns.
+int cycle_now(const Sms& m) { return m.line_cycle() + m.current_line() * Sms::kCyclesPerLine; }
+
+void slot_begin(Sms& m, bool queue) {
+    uint32_t& st = m.module_state[MS_PLACEMENT];
+    st &= ~(SLOT_START | SLOT_PARITY | SLOT_OPEN | SLOT_FREE);
+    if (!in_stage(m) || queue_objects(m.ram8(STAGE)) != queue) return;
+    const uint16_t o = m.z80.ix;
+    const int slot = (o - OBJECTS) / OBJ_SIZE;
+    const bool awake = !m.ram8((uint16_t)(o + 0x14)) && m.ram8((uint16_t)(o + 0x1D));
+    const int x = (int16_t)m.ram16((uint16_t)(o + 2));
+    bool original;
+    if (queue) original = awake ? x >= -32 && x <= 256 : slot < QUEUE_SLOTS;
+    else original = !awake || (x >= -64 && x < 304);   // (the other stages keep all their objects: $3E1F's window)
+    if (original) return;
+    st |= SLOT_OPEN | SLOT_FREE | ((m.frame_count & 1) ? SLOT_PARITY : 0) | ((uint32_t)(cycle_now(m) + SLOT_BIAS) & SLOT_START);
+    m.z80.wait_cycles -= SLOT_CREDIT;   // (the run goes on, the lines and the interrupts wait)
+}
+
+void slot_end(Sms& m) {
+    uint32_t& st = m.module_state[MS_PLACEMENT];
+    if (!(st & SLOT_OPEN)) return;
+    const bool same_frame = ((st & SLOT_PARITY) != 0) == ((m.frame_count & 1) != 0);
+    const int start = (int)(st & SLOT_START) - SLOT_BIAS;
+    st &= ~(SLOT_START | SLOT_PARITY | SLOT_OPEN | SLOT_FREE);
+    // (the clock back where the pass began: what is left of the credit; none if the pass took it all and the frame
+    // went on)
+    const int back = start - cycle_now(m);
+    if (same_frame && back > 0) { m.z80.wait_cycles += back; }
+}
+
+// Left behind by the scroll (stages 1 and 8, $34A5 each frame): while the scroll pushes Aladdin ($C41C: standing
+// still, or held by a wall) his X goes down 2 px a frame, and once it would go below 0 the game counts him lost (the pit
+// flag $C461, health 0, $34BC) and carries him on to x -32 ($34C7), where he waits until TRY AGAIN - under the
+// original's blanked column, out of sight; in a wide view 70 px inside the picture. His X is an 8-bit screen position
+// for the game, so in a wide view it stays at 0 while the module counts how much further left the scroll carries him
+// (behind: the sprite writer's hook draws him so much further left) and the game takes him once he is as far past the
+// view's left edge as the original takes him past its own (its blanked column: 8 px). A step right takes it back
+// first (push_left_frame).
+constexpr int BEHIND_MARGIN = 8;
+void push_left_frame(Sms& m) {   // ($34A5's entry)
+    const int d = behind(m);
+    if (!d || m.ram8(PIT)) return;
+    const int real = (int16_t)m.ram16(AL_X) - d;
+    m.set_ram16(AL_X, (uint16_t)std::max(real, 0));
+    set_behind(m, std::max(-real, 0));
+}
+void push_left(Sms& m) {         // ($34B4: hl = his X less 2, the test whether that is below 0)
+    const int nx = (int16_t)m.z80.hl, E = m.vdp.ext;
+    if (nx >= 0 || !in_stage(m)) return;
+    const int real = nx - behind(m), edge = -(E - view_slide(m, m.ram16(CAM_X), E));
+    if (real < edge - BEHIND_MARGIN || -real > 0xFF) return;   // lost, as in the original (and drawn as far left)
+    m.set_ram16(AL_X, 0);
+    set_behind(m, -real);
+    m.z80.pc = 0x34BB;   // (ret)
+}
+// ($36B8, the pad's walk, when nothing pushes him: below x 24 the game puts him at 24, a rescue that never reaches
+// further than the blanked column there; one left behind further catches up at 4 px a frame instead, unless he walks
+// right himself)
+void push_left_release(Sms& m) {
+    const int d = behind(m);
+    if (!d || m.ram8(PIT) || m.ram8(0xC41C) || (m.ram8(0xC206) & 0x08)) return;
+    set_behind(m, std::max(d - 4, 0));
+    m.z80.pc = 0x36C9;   // (ret)
+}
+
 // Increments of a band that moves 1 px on the frames whose counter c has (c & mask) == 0, over the next n frames
 // (n < 0: taken back over the last -n).
 int band_steps(int c, int n, int mask) {
@@ -464,17 +584,13 @@ int band_steps(int c, int n, int mask) {
     return k;
 }
 
-
-constexpr uint16_t OBJECTS = 0xCA00;     // 7 (stages 0/1/5/7/8) or up to 16 objects, $40 bytes each
-constexpr int OBJ_SIZE = 0x40, MAX_OBJECTS = 16;
-
 // The pieces of an object the sprite table had no room for, drawn by the VDP after the table's 64 (as $0C45 would
 // have: frame data in bank $12 at +$0F, count then dy / dx / tile per piece; the 16-bit Y / X at +$00 / +$02).
 void extra_sprites(Sms& s) {
     SmsVdp& v = s.vdp;
     v.extra_count = 0;
-    const uint32_t undrawn = s.module_state[MS_UNDRAWN];
-    s.module_state[MS_UNDRAWN] = 0;
+    const uint32_t undrawn = s.module_state[MS_UNDRAWN] & UNDRAWN_BITS;
+    s.module_state[MS_UNDRAWN] &= ~UNDRAWN_BITS;
     const int E = v.ext;
     for (int i = 0; i < MAX_OBJECTS && undrawn; i++) {
         if (!(undrawn & (1u << i))) continue;
@@ -647,7 +763,12 @@ public:
             std::memset(page_, 0, sizeof(page_));
         }
         wide_ = wide;
-        if (!wide) return;
+        if (!wide) {
+            s.module_state[MS_PLACEMENT] &= ~(SLOT_START | SLOT_PARITY | SLOT_OPEN | SLOT_FREE);
+            set_behind(s, 0);
+            s.module_state[MS_SHOWN] &= ~FADING;
+            return;
+        }
         // (until the next VBlank: the camera of the frame just drawn)
         s.module_state[MS_CAM_NEXT] = s.module_state[MS_CAM] = (uint32_t)(s.ram16(CAM_X) | (s.ram8(FRAMES) << 16));
         apply_view(s);
@@ -657,15 +778,18 @@ public:
         s.on_frame_start = [this](Sms& m) { apply_view(m); };
         // sprite pieces: the player ($23C2), the large second figure ($3C63) and the objects ($0C99), each with
         // hl = the piece's 16-bit screen X just before the "off screen" test (`ld a,h`)
-        s.add_pc_hook(0x23C2, [this](Sms& m) { piece_x(m, (m.z80.de - SAT_XT) >> 1); });
+        s.add_pc_hook(0x23C2, [this](Sms& m) {
+            m.z80.hl = (uint16_t)(m.z80.hl - behind(m));   // (left behind by the scroll: see push_left)
+            piece_x(m, (m.z80.de - SAT_XT) >> 1);
+        });
         s.add_pc_hook(0x3C63, [this](Sms& m) { piece_x(m, (m.z80.de - SAT_XT) >> 1); });
         s.add_pc_hook(0x0C99, [this](Sms& m) {
             // stack: the piece's table pointer, two counters, the object ($0C45 pushed ix)
             auto word = [&](int o) { return (uint16_t)(m.peek((uint16_t)(m.z80.sp + o)) | (m.peek((uint16_t)(m.z80.sp + o + 1)) << 8)); };
             const uint16_t obj = word(6);
             // An object parked at the window's left end (x = -64, not moving with the camera: Jafar's room keeps two
-            // there) is never seen in the original: its pieces stay hidden
-            const bool parked = m.ram16(obj + 2) == 0xFFC0 && !m.ram8((uint16_t)(obj + 0x20));
+            // there) is never seen in the original: its pieces stay hidden (only there: elsewhere it is one passing by)
+            const bool parked = m.ram8(STAGE) == ARENA_STAGE && m.ram16(obj + 2) == 0xFFC0 && !m.ram8((uint16_t)(obj + 0x20));
             piece_x(m, (word(0) - SAT_XT) >> 1, parked);
         });
         // an object the slot allocator has no room for (the caves of wide_patches): drawn as extra sprites
@@ -675,32 +799,60 @@ public:
         };
         // the objects' margins around the view of the frame (the logic's camera: the one the next frame shows)
         auto slide_now = [](const Sms& m) { return view_slide(m, m.ram16(CAM_X), m.vdp.ext); };
-        s.add_pc_hook(CAVE_WAKE_DECIDE, [](Sms& m) { wake_decide(m); });
+        s.add_pc_hook(CAVE_WAKE_DECIDE, [](Sms& m) { wake_decide(m); m.z80.wait_cycles -= CAVE_WAKE_COST; });
         s.add_pc_hook(0xB1FC, [](Sms& m) { bird_catch_up(m, -16, 0x3E); });   // (types $46 / $3B, bank $12)
         s.add_pc_hook(0xB374, [](Sms& m) { bird_catch_up(m, -32, 0x2F); });
         // (one that shows nowhere - flown off the top, fallen off the bottom - leaves where the original lets it go,
         // freeing its slot for the next of the list as there)
         s.add_pc_hook(CAVE_GONE_DE, [slide_now](Sms& m) {
             m.z80.de = (uint16_t)(off_screen_vertically(m, m.z80.ix) ? 32 : 32 + m.vdp.ext - slide_now(m));
+            m.z80.wait_cycles -= CAVE_GONE_COST;
         });
-        s.add_pc_hook(CAVE_KEEP_A_DE, [slide_now](Sms& m) { m.z80.de = (uint16_t)(64 + m.vdp.ext - slide_now(m)); });
+        s.add_pc_hook(CAVE_KEEP_A_DE, [slide_now](Sms& m) {
+            m.z80.de = (uint16_t)(64 + m.vdp.ext - slide_now(m));
+            m.z80.wait_cycles -= CAVE_KEEP_COST;
+        });
+        s.add_pc_hook(CAVE_KEEP_B_END, [](Sms& m) { m.z80.wait_cycles -= CAVE_KEEP_COST; });
         s.add_pc_hook(CAVE_BOULDER_DE, [slide_now](Sms& m) { m.z80.de = (uint16_t)(64 + m.vdp.ext - slide_now(m)); });
         s.add_pc_hook(CAVE_FULL_A_WIDE, undrawn);
         s.add_pc_hook(CAVE_FULL_B_WIDE, undrawn);
+        // the objects' loops, a pass per object (queue stages $3D15..$3D39, the others $3CBC..$3CE4): CPU time the
+        // original would not have spent is given back (slot_begin)
+        s.add_pc_hook(0x3D15, [](Sms& m) { slot_begin(m, true); });
+        s.add_pc_hook(0x3D39, [](Sms& m) { slot_end(m); });
+        s.add_pc_hook(0x3CBC, [](Sms& m) { slot_begin(m, false); });
+        s.add_pc_hook(0x3CE4, [](Sms& m) { slot_end(m); });
+        // a stage fading out after its end (the next mode set: a story scene, the next stage, TRY AGAIN): still the
+        // stage's picture, wide, until the fade ($0913) is over
+        s.add_pc_hook(0x0913, [](Sms& m) {
+            static const uint16_t ends[] = {0x1523, 0x167B, 0x35D7},   // (the stage's exits: the stage number is up)
+                lost[] = {0x1503, 0x1652, 0x1C44, 0x20DC, 0x34F7, 0x36A9, 0x37BF, 0x394B, 0x2794};   // (TRY AGAIN, Jafar)
+            const uint16_t ret = (uint16_t)(m.peek(m.z80.sp) | (m.peek((uint16_t)(m.z80.sp + 1)) << 8));
+            int st = -1;
+            for (uint16_t a : ends) if (ret == a) st = m.ram8(STAGE) - 1;
+            for (uint16_t a : lost) if (ret == a) st = m.ram8(STAGE);
+            if (st < 0 || st > 9 || demo_playing(m)) return;
+            m.module_state[MS_SHOWN] = (m.module_state[MS_SHOWN] & ~SHOWN_STAGE_BITS) | FADING | ((uint32_t)st << SHOWN_STAGE_SHIFT);
+        });
+        s.add_pc_hook(0x092D, [](Sms& m) { m.module_state[MS_SHOWN] &= ~FADING; });
+        // left behind by the scroll: lost at the view's left edge
+        s.add_pc_hook(0x34A5, [](Sms& m) { push_left_frame(m); });
+        s.add_pc_hook(0x34B4, [](Sms& m) { push_left(m); });
+        s.add_pc_hook(0x36B8, [](Sms& m) { push_left_release(m); });
         // the VBlank's sprite table upload ($02D9): in reverse order on odd frames (the game's flicker)
         s.add_pc_hook(0x02D9, [this](Sms& m) {
             const bool rev = m.ram8(FRAMES) & 1;
             for (int w = 0; w < 4; w++) m.module_state[w] = 0;
             for (int i = 0; i < 64; i++)
                 m.module_state[i >> 4] |= (uint32_t)page_[rev ? 63 - i : i] << ((i & 15) * 2);
-            if (in_stage(m)) extra_sprites(m);
+            if (shows_stage(m)) extra_sprites(m);
             else m.vdp.extra_count = 0;
         });
     }
 
     void post_frame(Sms& s, const GameConfig& cfg, FrameInfo& info) override {
         const int E = cfg.ext;
-        info.gameplay = in_stage(s);
+        info.gameplay = shows_stage(s);
         if (!info.gameplay || E == 0) return;
         // What lies outside the level: only where it is narrower than the view (view_slide centres it), and the sides
         // of Jafar's room (shown dimmed)
@@ -708,7 +860,7 @@ public:
         int lo, hi;
         level_bounds(s, lo, hi);
         const int left = std::clamp(lo - view, 0, E), right = std::clamp(view + 256 + 2 * E - (hi + 256), 0, E);
-        if (s.ram8(STAGE) == ARENA_STAGE) {
+        if (shown_stage(s) == ARENA_STAGE) {
             info.dim_left = left;
             info.dim_right = right;
         } else {
@@ -936,7 +1088,8 @@ private:
             }
             if (s.rom8(QUEUE_LOOP_COUNT) > QUEUE_SLOTS) resize_queue(s, QUEUE_SLOTS, s.rom8(QUEUE_LOOP_COUNT));
         }
-        s.module_state[MS_PLACEMENT] = PLACED_AT_WAKE;
+        // (the slot being timed, slot_begin, stays: it is the frame's)
+        s.module_state[MS_PLACEMENT] = PLACED_AT_WAKE | ((was & PLACED_AT_WAKE) ? was & (SLOT_START | SLOT_PARITY | SLOT_OPEN | SLOT_FREE) : 0);
     }
 
     Sms* sms_ = nullptr;
@@ -973,11 +1126,12 @@ private:
         SmsVdp& v = m.vdp;
         const int before = shown_cam(m);   // (the frame before's)
         m.module_state[MS_CAM] = m.module_state[MS_CAM_NEXT];
-        const int E = v.ext, cam = shown_cam(m), stage = m.ram8(STAGE);
+        const int E = v.ext, cam = shown_cam(m), stage = shown_stage(m);
+        if (!shows_stage(m) || m.ram8(STAGE_INIT)) set_behind(m, 0);   // (a stage (re)starting)
         v.sprite_shift = view_slide(m, cam, E);
         for (int& b : band_start_) b = 999;
         cam_band_ = 0;
-        if (in_stage(m) && (stage == 0 || stage == 1)) {
+        if (shows_stage(m) && (stage == 0 || stage == 1)) {
             int at = 2 * m.ram8(0xC499) + 3;
             for (int k = 0; k < 3 && at < 192; k++) {
                 band_start_[k] = at;
@@ -1022,7 +1176,7 @@ private:
         const int cam = shown_cam(s);
         if (k == mod.cam_band_) return vs - (band_camera(s, s.vdp.reg[8]) - cam);
         const int live = (int16_t)(s.ram16(CAM_X) - cam);    // how far the logic has moved the camera since
-        if (s.ram8(STAGE) == 0) return (k == 1 ? 2 : 3) * (vs - live);
+        if (shown_stage(s) == 0) return (k == 1 ? 2 : 3) * (vs - live);
         static const int mask[3] = {3, 1, 0};
         // ($C495 is loaded at the VBlank with the camera; the others by line interrupts, maybe from newer logic)
         const int d = k == 0 ? 0 : live / 2;
@@ -1047,7 +1201,9 @@ private:
         (void)line;
         const Sms& s = *((SmsAladdin*)host)->sms_;
         const SmsVdp& v = s.vdp;
-        if (!in_stage(s)) return -1;
+        if (!shows_stage(s)) return -1;
+        // (the table's 28 rows wrap: Jafar's turn into the snake shakes the screen with the vertical scroll, 222 / 224)
+        vrow %= 28;
         // the status bar (rows 0-1): blank beyond the 256 px; below the playfield: see line_hook
         if (vrow < 2) return v.name_entry(0, vrow) & 0x1FFF;
         if (vrow >= 22) return -1;
@@ -1055,13 +1211,13 @@ private:
         if (mod.line_band_[line % SmsVdp::kMaxLines] != mod.cam_band_) return -1;   // a parallax band: it repeats every 256 px
         const int hs = v.reg[8];
         int wx = band_camera(s, hs) + hs + vcol * 8;
-        if (s.ram8(STAGE) == ARENA_STAGE) {   // past the arena's ends: its pillars carry on (dimmed by post_frame)
+        if (shown_stage(s) == ARENA_STAGE) {   // past the arena's ends: its pillars carry on (dimmed by post_frame)
             const int lo = s.ram16(CAM_MIN), end = lo + s.ram16(MAP_STRIDE) * 16;
             if (wx < lo || wx >= end) wx = lo + ARENA_FROM + (((wx - lo - ARENA_FROM) % ARENA_PERIOD) + ARENA_PERIOD) % ARENA_PERIOD;
         }
         int e = map_entry(s, wx, vrow - 2);
         const int tile = e & 0x1FF;
-        if (e >= 0 && s.ram8(STAGE) == 7) {
+        if (e >= 0 && shown_stage(s) == 7) {
             SmsAladdin& m7 = *(SmsAladdin*)host;
             if (!m7.s7_built_) { m7.s7_.build(s); m7.s7_built_ = true; }
             SmsVdp& vv = m7.sms_->vdp;
@@ -1084,7 +1240,7 @@ private:
     static int sprite_x(void* host, int index, int x, int y, int pattern) {
         (void)y; (void)pattern;
         const Sms& s = *((SmsAladdin*)host)->sms_;
-        if (!in_stage(s)) return x;
+        if (!shows_stage(s)) return x;
         switch ((s.module_state[index >> 4] >> ((index & 15) * 2)) & 3) {
         case PAGE_RIGHT: return x + 256;
         case PAGE_LEFT: return x - 256;
@@ -1098,7 +1254,7 @@ private:
         const Sms& s = *mod.sms_;
         const SmsVdp& v = s.vdp;
         const int E = v.ext;
-        if (!in_stage(s)) {
+        if (!shows_stage(s)) {
             // pillarboxed screens: the blanked left column as the hardware shows it
             if (v.reg[0] & 0x20) {
                 for (int i = E; i < E + 8; i++) { bg[i] = (uint8_t)(0x10 | (v.reg[7] & 0x0F)); spr[i] = 0; }
