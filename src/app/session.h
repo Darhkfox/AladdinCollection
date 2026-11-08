@@ -124,6 +124,7 @@ private:
     int bar_hold_[2] = {0, 0};
     uint32_t plain_edge(int x0, int x1, int w, int h, uint32_t otherwise) const;
     uint32_t plain_bar(int x0, int x1, int inward, int w, int h);
+    uint32_t even_rows(int x0, int x1, int w, int h) const;
     FrameInfo info_;
     std::vector<uint32_t> pixels_;
     std::vector<uint8_t> sprite_;

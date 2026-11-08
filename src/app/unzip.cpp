@@ -175,6 +175,170 @@ bool dynamic_block(Inflater& s) {
     return s.codes(lencode, distcode);
 }
 
+// ---------------------------------------------------------------------------
+// LZMA (zip method 14, as 7-Zip can write it), after the LZMA specification's reference decoder: a range coder,
+// adaptive bit probabilities, literals coded against the previous byte and matches against four recent distances
+// ---------------------------------------------------------------------------
+struct RangeDecoder {
+    const uint8_t* in;
+    size_t n, pos = 0;
+    uint32_t range = 0xFFFFFFFFu, code = 0;
+    bool err = false;
+
+    RangeDecoder(const uint8_t* i, size_t len) : in(i), n(len) {}
+    uint8_t byte() {
+        if (pos >= n) { err = true; return 0; }
+        return in[pos++];
+    }
+    bool init() {
+        if (byte() != 0) return false;
+        for (int i = 0; i < 4; i++) code = (code << 8) | byte();
+        return !err && code != range;
+    }
+    void normalize() {
+        if (range < (1u << 24)) { range <<= 8; code = (code << 8) | byte(); }
+    }
+    unsigned bit(uint16_t& p) {
+        const uint32_t bound = (range >> 11) * p;
+        unsigned b;
+        if (code < bound) { p += (2048 - p) >> 5; range = bound; b = 0; }
+        else { p -= p >> 5; code -= bound; range -= bound; b = 1; }
+        normalize();
+        return b;
+    }
+    uint32_t direct(int count) {
+        uint32_t res = 0;
+        while (count-- > 0) {
+            range >>= 1;
+            code -= range;
+            const uint32_t t = 0u - (code >> 31);
+            code += range & t;
+            if (code == range) err = true;
+            normalize();
+            res = (res << 1) + (t + 1);
+        }
+        return res;
+    }
+    unsigned tree(uint16_t* p, int bits) {   // most significant bit first
+        unsigned m = 1;
+        for (int i = 0; i < bits; i++) m = (m << 1) + bit(p[m]);
+        return m - (1u << bits);
+    }
+    unsigned tree_rev(uint16_t* p, int bits) {   // least significant bit first
+        unsigned m = 1, sym = 0;
+        for (int i = 0; i < bits; i++) {
+            const unsigned b = bit(p[m]);
+            m = (m << 1) + b;
+            sym |= b << i;
+        }
+        return sym;
+    }
+};
+
+struct LzmaLength {
+    uint16_t choice = 1024, choice2 = 1024, low[16][8], mid[16][8], high[256];
+    LzmaLength() {
+        std::fill(&low[0][0], &low[0][0] + 16 * 8, (uint16_t)1024);
+        std::fill(&mid[0][0], &mid[0][0] + 16 * 8, (uint16_t)1024);
+        std::fill(high, high + 256, (uint16_t)1024);
+    }
+    unsigned decode(RangeDecoder& rc, unsigned pos_state) {
+        if (!rc.bit(choice)) return rc.tree(low[pos_state], 3);
+        if (!rc.bit(choice2)) return 8 + rc.tree(mid[pos_state], 3);
+        return 16 + rc.tree(high, 8);
+    }
+};
+
+// `in`: the zip entry's data (a 4-byte LZMA SDK version / properties size, the 5 property bytes, the stream).
+bool lzma_zip(const uint8_t* in, size_t n, std::vector<uint8_t>& out, size_t expected) {
+    out.clear();
+    if (n < 9 || (in[2] | (in[3] << 8)) != 5 || in[4] >= 9 * 5 * 5) return false;
+    const unsigned lc = in[4] % 9, lp = in[4] / 9 % 5, pb = in[4] / 45;
+    out.reserve(expected);
+    RangeDecoder rc(in + 9, n - 9);
+    if (!rc.init()) return false;
+    std::vector<uint16_t> lit((size_t)0x300 << (lc + lp), 1024);
+    uint16_t is_match[12 << 4], is_rep[12], is_rep_g0[12], is_rep_g1[12], is_rep_g2[12], is_rep0_long[12 << 4];
+    uint16_t pos_slot[4][64], pos_special[115], align[16];
+    for (uint16_t* a : {is_match, is_rep0_long}) std::fill(a, a + (12 << 4), (uint16_t)1024);
+    for (uint16_t* a : {is_rep, is_rep_g0, is_rep_g1, is_rep_g2}) std::fill(a, a + 12, (uint16_t)1024);
+    std::fill(&pos_slot[0][0], &pos_slot[0][0] + 4 * 64, (uint16_t)1024);
+    std::fill(pos_special, pos_special + 115, (uint16_t)1024);
+    std::fill(align, align + 16, (uint16_t)1024);
+    LzmaLength len_dec, rep_len_dec;
+    uint32_t rep0 = 0, rep1 = 0, rep2 = 0, rep3 = 0;
+    unsigned state = 0;
+    // The size is known (the zip says it), so decoding stops there; an end marker after it isn't needed.
+    while (out.size() < expected) {
+        if (rc.err) return false;
+        const unsigned pos_state = (unsigned)out.size() & ((1u << pb) - 1);
+        if (!rc.bit(is_match[(state << 4) + pos_state])) {
+            const unsigned prev = out.empty() ? 0 : out.back();
+            uint16_t* probs = &lit[(size_t)0x300 * ((((unsigned)out.size() & ((1u << lp) - 1)) << lc) + (prev >> (8 - lc)))];
+            unsigned sym = 1;
+            if (state >= 7) {   // after a match: the byte at rep0 steers the first bits
+                if (rep0 >= out.size()) return false;
+                unsigned match = out[out.size() - rep0 - 1];
+                do {
+                    const unsigned mb = (match >> 7) & 1;
+                    match <<= 1;
+                    const unsigned b = rc.bit(probs[((1 + mb) << 8) + sym]);
+                    sym = (sym << 1) | b;
+                    if (mb != b) break;
+                } while (sym < 0x100);
+            }
+            while (sym < 0x100) sym = (sym << 1) | rc.bit(probs[sym]);
+            out.push_back((uint8_t)sym);
+            state = state < 4 ? 0 : state < 10 ? state - 3 : state - 6;
+            continue;
+        }
+        unsigned len;
+        if (rc.bit(is_rep[state])) {
+            if (out.empty()) return false;
+            if (!rc.bit(is_rep_g0[state])) {
+                if (!rc.bit(is_rep0_long[(state << 4) + pos_state])) {   // one byte from rep0
+                    if (rep0 >= out.size()) return false;
+                    state = state < 7 ? 9 : 11;
+                    out.push_back(out[out.size() - rep0 - 1]);
+                    continue;
+                }
+            } else {
+                uint32_t dist;
+                if (!rc.bit(is_rep_g1[state])) {
+                    dist = rep1;
+                } else {
+                    if (!rc.bit(is_rep_g2[state])) dist = rep2;
+                    else { dist = rep3; rep3 = rep2; }
+                    rep2 = rep1;
+                }
+                rep1 = rep0;
+                rep0 = dist;
+            }
+            len = rep_len_dec.decode(rc, pos_state);
+            state = state < 7 ? 8 : 11;
+        } else {
+            rep3 = rep2; rep2 = rep1; rep1 = rep0;
+            len = len_dec.decode(rc, pos_state);
+            state = state < 7 ? 7 : 10;
+            const unsigned slot = rc.tree(pos_slot[std::min(len, 3u)], 6);
+            if (slot < 4) {
+                rep0 = slot;
+            } else {
+                const int direct = (int)(slot >> 1) - 1;
+                rep0 = (2 | (slot & 1)) << direct;
+                if (slot < 14) rep0 += rc.tree_rev(pos_special + rep0 - slot, direct);
+                else rep0 += (rc.direct(direct - 4) << 4) + rc.tree_rev(align, 4);
+            }
+            if (rep0 == 0xFFFFFFFFu) break;   // the end marker
+        }
+        len += 2;
+        if (rep0 >= out.size() || out.size() + len > expected) return false;
+        const size_t from = out.size() - rep0 - 1;
+        for (size_t k = 0; k < len; k++) out.push_back(out[from + k]);
+    }
+    return !rc.err && out.size() == expected;
+}
+
 uint16_t rd16(const uint8_t* p) { return (uint16_t)(p[0] | (p[1] << 8)); }
 uint32_t rd32(const uint8_t* p) { return p[0] | (p[1] << 8) | (p[2] << 16) | ((uint32_t)p[3] << 24); }
 
@@ -238,10 +402,13 @@ bool zip_list(const std::wstring& path, std::vector<ZipEntry>& out) {
     return true;
 }
 
+bool zip_supported(const ZipEntry& e) {
+    return !(e.flags & 1) && (e.method == 0 || e.method == 8 || e.method == 14);   // not encrypted; stored, deflate, LZMA
+}
+
 bool zip_read(const std::wstring& path, const ZipEntry& e, std::vector<uint8_t>& out) {
     out.clear();
-    if ((e.flags & 1) || e.size > kMaxEntry || e.comp_size > kMaxEntry) return false;   // encrypted / too big
-    if (e.method != 0 && e.method != 8) return false;
+    if (!zip_supported(e) || e.size > kMaxEntry || e.comp_size > kMaxEntry) return false;
     struct Closer { FILE* f; ~Closer() { if (f) fclose(f); } } file{open_file(path, "rb")};
     FILE* f = file.f;
     if (!f) return false;
@@ -253,7 +420,8 @@ bool zip_read(const std::wstring& path, const ZipEntry& e, std::vector<uint8_t>&
     if (e.method == 0) {
         if (e.comp_size != e.size) return false;
         out = std::move(comp);
-    } else if (!inflate_raw(comp.data(), comp.size(), out, e.size)) {
+    } else if (e.method == 14 ? !lzma_zip(comp.data(), comp.size(), out, e.size)
+                              : !inflate_raw(comp.data(), comp.size(), out, e.size)) {
         return false;
     }
     return crc32_of(out.data(), out.size()) == e.crc;

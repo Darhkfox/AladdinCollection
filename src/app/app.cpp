@@ -548,6 +548,13 @@ Rect App::game_rect(int fw, int fh, Rect area, System sys) {
     float scale = std::min(area.w / dw, area.h / dh);
     if (settings_.integer_scale && scale >= 1.0f) scale = std::floor(scale);
     float w = dw * scale, h = dh * scale;
+    // CRT pixels are a TV's approximate shape anyway: a picture within 2% of the screen's shape fills it, so the
+    // widescreen widths (whole pixels, 2.39-2.41:1 at 21:9) leave no thin bars on a 2560x1080 (2.37:1) or 3440x1440
+    // (2.39:1) screen, nor 16:9 on 1920x1080.
+    if (!settings_.integer_scale && settings_.aspect == AspectMode::Crt && w > 0 && h > 0) {
+        const float shape = (w / h) / (area.w / area.h);
+        if (shape < 1.02f && shape > 1.0f / 1.02f) w = area.w, h = area.h;
+    }
     return {std::floor(area.x + (area.w - w) * 0.5f), std::floor(area.y + (area.h - h) * 0.5f), w, h};
 }
 
@@ -623,8 +630,10 @@ void App::reset_game() {
 
 void App::launch(int g) {
     if (!games_[g].rom.found) {
-        menu_.toast(games_[g].rom.other_file.empty() ? "ROM not found - see the game card for details"
-                                                     : "Wrong ROM version - see the game card for details");
+        const RomMatch& r = games_[g].rom;
+        menu_.toast(r.other_file.empty() ? "ROM not found - see the game card for details"
+                    : r.other_zip        ? "The ROM's zip can't be unpacked - see the game card for details"
+                                         : "Wrong ROM version - see the game card for details");
         return;
     }
     session_ = Session::create(games_[g].module.get());

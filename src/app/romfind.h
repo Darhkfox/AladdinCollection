@@ -22,6 +22,9 @@ struct RomMatch {
     // Not found: a file holding another version of the game (or a modified copy), and what it is.
     std::wstring other_file;
     std::string other_desc;      // "the European version", "the REV 01 version", ...
+    // Or: other_file is a zip holding the ROM itself (its listing shows the right size and CRC32) that can't be
+    // unpacked; other_desc then says why ("LZMA2 compression", "a password", "damaged").
+    bool other_zip = false;
 };
 
 uint32_t crc32_of(const uint8_t* data, size_t n);
