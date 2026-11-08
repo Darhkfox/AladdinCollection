@@ -28,7 +28,7 @@ like the originals, then adds game-specific patches and a PC frontend.
 
 ROMs are found by their contents (CRC32), so file names don't matter. Raw dumps (`.bin` / `.md` / `.gen`,
 `.sfc`, `.sms`), interleaved `.smd` dumps, dumps with a 512-byte copier header (`.smd`, `.smc` / `.swc` / `.fig`)
-and all of these inside a `.zip` work. ROMs copied in while the launcher is open are picked up within a second.
+and all of these inside a `.zip` (Deflate or LZMA) work. ROMs copied in while the launcher is open are picked up within a second.
 
 **These exact versions are needed** (the USA cartridges, and the Master System's European one — it was only
 released in Europe and Brazil): the widescreen patches, level select, cheats and achievements are matched to
@@ -239,7 +239,7 @@ package.bat                                       :: dist\Aladdin Collection: th
                                                   ::   ROMs in this folder, for local play
 powershell -ExecutionPolicy Bypass -File release.ps1
                                                   :: dist\Aladdin-Collection-v<version>-win64.zip:
-                                                  ::   the exe and readme.txt only (no ROMs)
+                                                  ::   the exe, readme.txt and LICENSE only (no ROMs)
 ```
 
 ### Android

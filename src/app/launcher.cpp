@@ -185,14 +185,19 @@ void App::draw_launcher() {
             draw_game_view(1 + i, *g.preview, pr, 1.0f, 0.35f * (1.0f - an));
         } else {
             video_.fill_round_rect(pr, rad * 0.5f, 0xFF0A0D14);
-            // What is missing (or which file is the wrong version), shrunk to fit the preview area.
+            // What is missing (or which file is the wrong version, or a zip with the ROM that can't be unpacked), shrunk
+            // to fit the preview area.
             const bool other = !g.rom.other_file.empty();
-            const std::string head = other ? "Wrong ROM version" : "ROM not found";
+            const std::string head = !other ? "ROM not found" : g.rom.other_zip ? "Can't unzip the ROM" : "Wrong ROM version";
             char crc[64];
             snprintf(crc, sizeof(crc), "(CRC32 %08X, %u KB%s).", g.module->rom_crc32(), g.module->rom_size() / 1024,
                      other ? "" : "; zipped is fine");
             std::vector<std::string> lines;
-            if (other) {
+            if (other && g.rom.other_zip) {
+                lines.push_back("holds the ROM, but it can't be unpacked");
+                lines.push_back("(" + g.rom.other_desc + "). Unzip it, or zip it");
+                lines.push_back("again with the usual Deflate compression");
+            } else if (other) {
                 lines.push_back("is " + g.rom.other_desc + ".");
                 lines.push_back(std::string("Needs ") + g.module->rom_hint());
             } else {
