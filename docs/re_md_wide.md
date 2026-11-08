@@ -28,7 +28,7 @@ module's level select and skips its story card (START) until the first frame of 
    view reaches too, the despawn window follows the slid view, an object short of an object slot or sprite tiles gets
    room from objects out of sight (the tile pool compacted), and the sprite clip covers ±2E (§3).
 4. HUD sprites are moved to the screen edges and kept still while the view slides (`sprite_xoff`, §4).
-5. Gameplay = a level fading in, the gameplay or pause loop ran in the last 4 frames, or an iteration of the gameplay
+5. Gameplay = a level fading in or out, the gameplay or pause loop ran in the last 4 frames, or an iteration of the gameplay
    loop is still under way (PC hooks, §6); Abu's bonus rounds are shown 4:3. The attract mode (title, demos) runs on the original ROM, cheats off (§6).
 6. The Rug Ride runs on the 4:3 game's ROM (the cheats only) and is shown with all the extra width behind the carpet:
    the view slid by −E for good, objects the game despawns there drawn on by the module (ghosts, animated by the game's
@@ -286,7 +286,12 @@ the idol on the far pedestal cut at the right edge; in Jafar's hall at the left 
 * A fight is on while a boss object is alive - one of the four kinds whose spawn starts BOSS TUNE (§3: `$18`, `$28`,
   `$4D`, `$F5`), the game's own mark of a boss fight - and its tune isn't held back (it has come into the 4:3 window,
   when the 4:3 game starts the fight), with the camera at the arena's height (the 4:3 view within 112 px of its rows:
-  the idol's pedestal lives on while Aladdin falls into the river 300 px below).
+  the idol's pedestal lives on while Aladdin falls into the river 300 px below). The idol's fight ends with its tenth
+  hit (`$FFF112` set): the pedestal objects (`$8B`, spawned from `$F5` / `$F6`) live on after it, and the framing stayed
+  on while the carpet flew Aladdin over the treasure, switching off and on as the carpet crossed the arena's height
+  band (QA round 2 F3: 320 of 562 carpet frames, Aladdin carried to screen x 452 of 576). Now the fight bit drops at
+  the kill and the slide eases back to the level's own (21:9, beaten from the left pedestal: 125 → 0 over 60 frames,
+  the fight bit off from the first frame after the kill, never on again on the carpet).
 * Its arena: the boss's block and, within a plane window of it, the blocks of the kinds that share its colours (§3,
   Palette line 2: the idol's other pedestal); for spawned ones their objects' blocks. The centre, map x 8 × (first +
   last block column), is what a 4:3 camera of 8 × (first + last) − 176 centres: the idol 2000 (the middle of 1821-2178),
@@ -383,6 +388,17 @@ the idol on the far pedestal cut at the right edge; in Jafar's hall at the left 
   from its first frame; before, it faded in 4:3 with the game's own camera and jumped by the slide on the first frame
   of play (QA F2). Whether a frame is drawn wide is decided at its start and holds for the whole frame (the slide
   itself follows the scroll per line); `FrameInfo::gameplay` reports it as drawn.
+* Also wide: a level's fade-out. Play is left at `$1A8E5C` (level over), `$1A8F82` (death; every Rug Ride crash is
+  one) and `$1A902E` (fell off the map) with the level still on screen; each then fades it to black with `$1B2784`
+  (16 frames, CRAM a step darker each; at a level's end the score tally `$1B0078` before it takes no frame). The leave
+  hooks mark the fade-out (`module_state[2]` = bit 31 | the frame, only when the frame was shown as play) and the
+  fade's `rts` (`$1B2800`) ends it, with the screen black; a fallback ends it after 40 frames. Before, the app's masks
+  closed on the first frame of the fade and the picture dropped to the game's own 4:3 framing while still bright: a
+  slid view jumped sideways (the Rug Ride's by E, the idol's arena by its framing), the HUD went inward and the ride's
+  wave vanished (QA round 2 F2). The fade is now drawn as the level was played: slid, the arena framed, the ride's
+  view behind the carpet. Checked at 21:9 (a ride crash, a death at the Market's slid start, Jafar's Palace's end, a
+  death in the idol's arena; the QA's `r2_death` / `r2_pit` / `r2_level_end`): frames shown 4:3 with the level visible
+  0 (before: 5-6 per fade), the slide constant over the fade (-128 / 112 / 112 / 128), the first 4:3 frame black.
 * 4:3: logos, title, OPTIONS, the debug screen, story cut-scenes and title cards, the instructions, "Level
   Complete", the Genie's wheel, the death screen, continue / game over, the ending and credits; Abu's bonus rounds
   (a 336-px room: 8 px a side more). The Rug Ride is wide, its own way (§7).
@@ -397,6 +413,19 @@ the idol on the far pedestal cut at the right edge; in Jafar's hall at the left 
   title's fade. The cheats (Developer Cheat Mode's `$7E20` included) apply in a game only. `md_attract.py`: 40,000
   frames from power-on (the five entries of the demo table) at every width, with and without all cheats, 68000 and Z80
   RAM identical to widescreen off on every frame.
+* **Save states on another ROM.** The session loads a state as: configure for the width it was saved at, the core's
+  state, then the module's part (`load_ext`). The first configure chooses the ROM (`rom_for`) from the machine as it
+  is before the load: on the title or in the attract mode the original ROM, in the Rug Ride the 4:3 game's. A
+  widescreen state saved with the 68000 in the caves or in patched code (a return address `$1AE44E`, `$1AE474`,
+  `$1ADEB6` ... on the stack) then ran on the original's `$FF` fill: `$FFFF` is the line-F trap, whose vector
+  `$1B24F8` is the game's crash loop (the backdrop cycling through colours), and `pre_frame` never found it safe to
+  switch (QA round 2 F1: 27 of 140 states at 21:9 hung when loaded on the title, 6 of 60 at 16:9, 11 of 40 at square
+  21:9, 2 of 47 Escape states loaded in the Rug Ride). Now `load_ext` configures again for the machine the state holds,
+  so a state always runs on the ROM it was saved with (`rom_for` tells it from RAM: any version's state). The QA's
+  `r2_load_title` (21:9 / 16:9 / square 21:9) and `r2_load_ride`: 0 of 140 / 60 / 40 and 0 of 47 differ from the same
+  load in a level; states saved in the ride (with ghosts), on the title and in a demo loaded in a level, in the ride or
+  on the title: RAM and picture identical to the load where they were saved for 300-900 frames (RAM also without the
+  module's part, as an older state).
 * Width changes mid-level: the patches change at a frame where no changed word is at the PC or on the stack
   (`patches_safe`); the extension is drawn from the map at once. Objects in the newly shown columns appear when the
   view next streams their column or row.
@@ -451,6 +480,15 @@ look-ahead would mean running the game ahead (the player decides the crashes) or
   lies right of the view (x ≥ 392): the wave shows once. Everything else in both planes is a seamless loop (curtain
   and lava at camX / 2 and camX, the roof, the lava bands at 3/4 and 2 camX), which the VDP's wrap shows right in a
   576-px view.
+* **The flames' colours.** The wave's flames flicker in line 0's colours 4 and 6, written by the ride's palette cycle
+  from about the tenth frame of play on; until then they hold the stored palette's `$03B` / `$1E3` (green, blue in
+  the core's BGR order) - during the fade-in and the first frames of play, at the ride's start and after each crash.
+  The 4:3 game shows no pixel in those colours then, but the crest's back and the drawn-on body behind the carpet
+  did: bright green and blue spikes for about 14 frames (QA round 2 F4). Left of the 4:3 area, plane B's pixels in
+  colour 4 / 6 of line 0 are drawn in colour 5 / 14 (`$006` / `$004`, the steady ones of the cycle's pairs) while
+  the CRAM colour is still the stored one or a fade step toward it (no component above line 0's source,
+  `$FF7262`) (`ride_flames`). Start and two crashes at 16:9 and 21:9: 0 frames with blue or green behind the carpet;
+  the 4:3 area identical to the 4:3 game on every frame (HUD unanchored).
 * **HUD and signs.** Anchored, the HUD goes to the view's edges as in every level; unanchored, it stays on the 4:3 area
   (the 4:3 screen is the view's right part). The Genie's warning signs (screen-fixed objects; the 4:3 ROM doesn't mark
   them, so `sprite_xoff` moves them with the view) stay where the 4:3 game has them, on the 4:3 area. Sprite X is read

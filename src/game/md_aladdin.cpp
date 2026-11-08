@@ -60,8 +60,9 @@ constexpr uint32_t PC_FRAME_WAIT = 0x1B249E;  // the frame wait (VBlank), the ga
 // bit 1 map view), to clear them when they are switched off, and in bits 2-23 the boss framing (boss_frame: bit 2 a
 // fight framed, 3-13 its arena's block column sum, 14-23 the easing remainder, signed; 0 in older states: none), bit 24
 // the Cave's carpet due, its idol just beaten (CARPET_DUE, carpet_due);
-// [2] a level's fade-in is running (shown as play: the picture is already the level's, so it starts wide and slid
-// instead of jumping when play begins); [3..6] boss tunes held back (boss_tune_held); [7] palette line 2 loads held
+// [2] a level's fade-in is running (1; shown as play: the picture is already the level's, so it starts wide and slid
+// instead of jumping when play begins), or its fade-out after play was left (FADE_OUT | the frame (+1) it was left in:
+// in_gameplay); [3..6] boss tunes held back (boss_tune_held); [7] palette line 2 loads held
 // back (line2_held)
 enum { MS_PLAY = 0, MS_DEV = 1, MS_FADE = 2, MS_BOSS = 3, MS_BOSS_N = 4, MS_PAL2 = 7 };
 constexpr uint32_t PLAY_BUSY = 0x80000000u, PLAY_FRAME = 0x7FFFFFFFu;
@@ -393,8 +394,22 @@ bool in_play(const MegaDrive& md) {
     return age <= PLAY_RECENT || ((ms & PLAY_BUSY) && age <= PLAY_BUSY_MAX);
 }
 
-// A level on screen in a game: in play, or fading in (its first frames, before the gameplay loop runs).
-bool in_gameplay(const MegaDrive& md) { return (md.module_state[MS_FADE] != 0 && !attract(md)) || in_play(md); }
+// A level on screen in a game: in play, fading in (its first frames, before the gameplay loop runs) or fading out. Play
+// is left at a level's end, a death and a fall off the map (PC_LEVEL_END, PC_DEATH, PC_PIT; every Rug Ride crash is a
+// death) with the level still on screen: the game then fades it to black ($1B2784: 16 frames, CRAM a step darker on
+// each; at a level's end the score tally before it takes no frame). The fade is shown as the level was played - wide,
+// slid, a boss arena framed, the Rug Ride's view behind the carpet - up to the fade's end ($1B2800), when the screen is
+// black: before, the picture dropped to the game's own 4:3 framing on the first frame of the fade (pillarboxed, a slid
+// view jumping sideways). (Up to FADE_OUT_MAX frames, should the game ever go elsewhere first.)
+constexpr uint32_t FADE_OUT = 0x80000000u, FADE_OUT_MAX = 40;
+constexpr uint32_t PC_FADE_OUT_END = 0x1B2800;   // the rts of the fade to black ($1B2784)
+bool in_gameplay(const MegaDrive& md) {
+    const uint32_t f = md.module_state[MS_FADE];
+    if (f & FADE_OUT) {
+        return !attract(md) && (((uint32_t)md.frame_count + 1 - f) & PLAY_FRAME) <= FADE_OUT_MAX;
+    }
+    return (f != 0 && !attract(md)) || in_play(md);
+}
 
 // Gameplay shown wide: all but Abu's bonus rounds (a 336-px room), which stay 4:3.
 bool wide_view(const MegaDrive& md) {
@@ -695,6 +710,7 @@ constexpr uint32_t MUSIC_ON = 0xFFF57F;
 constexpr uint32_t PC_STREAMED = 0x1A8CE8;   // the gameplay loop, right after its column / row streaming ($1AAA2A)
 constexpr uint8_t BOSS_TUNE = 50;
 bool boss_type(uint8_t t) { return t == 0x18 || t == 0x28 || t == 0x4D || t == 0xF5; }
+constexpr uint32_t IDOL_BEATEN = 0xFFF112;   // $FF once the Cave of Wonders' golden idol is beaten ($1AEB36)
 
 // The GEMS command FIFO in Z80 RAM ($1B40, 64 bytes, write index at $0036): $FF, command, arguments ($1E57F4).
 void gems_command(MegaDrive& md, std::initializer_list<uint8_t> bytes) {
@@ -958,6 +974,8 @@ Boss boss_arena(const MegaDrive& md, int& sum) {
         const uint8_t type = md.ram8(o + 0x34);
         int col, row;
         if (!md.ram8(o) || !boss_type(type) || boss_held(md, i) || !object_block(md, o, col, row)) continue;
+        // (the idol's pedestal lives on after its tenth hit: the fight is over then, and the view follows the carpet)
+        if (type == 0xF5 && md.ram8(IDOL_BEATEN)) continue;
         int lo = col, hi = col, top = row, bottom = row;
         auto add = [&](int c, int r) { lo = std::min(lo, c), hi = std::max(hi, c), top = std::min(top, r), bottom = std::max(bottom, r); };
         const uint32_t pal = line2_pal(type);
@@ -1158,7 +1176,6 @@ void line2_filled(MegaDrive& md) {
 // always (a later streaming of its column spawns nothing), and the spawner's hook skips a block whose object is alive.
 // At 4:3 nothing changes: the original's own way.
 constexpr uint32_t PC_IDOL_BEATEN = 0x1AEB36;   // st.b $FFF112: the idol's tenth hit
-constexpr uint32_t IDOL_BEATEN = 0xFFF112;
 constexpr uint32_t CARPET_DUE = 1u << 24;
 constexpr uint8_t CARPET = 0xF9;
 
@@ -1657,10 +1674,34 @@ void ride_wave(const MegaDrive& md, int line, uint8_t* lb) {
     }
 }
 
+// The wave's flames flicker in line 0's colours 4 and 6, which the ride's palette cycle writes from its play's tenth
+// frame or so on: until then they hold the stored palette's $03B / $1E3 (green, blue), for some 14 frames at the ride's
+// start and after each crash (the fade-in, then the first frames of play). The 4:3 game never shows those pixels then -
+// the crest's back and the body drawn on are left of its screen - so behind the carpet they are drawn in colours 5 /
+// 14, the steady ones of the cycle's pair ($006 / $004), while the colour is still the stored one or a fade step toward it.
+void ride_flames(const MegaDrive& md, uint8_t* lb, int n) {
+    const uint32_t src = md.ram32(0xFF7262) & 0xFFFFFF;   // line 0's source (the fades' target)
+    if (src + 16 > md.rom.size()) return;
+    auto stored = [&](int k) {   // every component of CRAM colour k at most the source's
+        const uint16_t c = md.vdp.cram[k] & 0x1FF, s = md.rom16(src + 2 * k);
+        const int sr = (s >> 1) & 7, sg = (s >> 5) & 7, sb = (s >> 9) & 7;
+        return (c & 7) <= sr && ((c >> 3) & 7) <= sg && ((c >> 6) & 7) <= sb;
+    };
+    const bool c4 = stored(4), c6 = stored(6);
+    if (!c4 && !c6) return;
+    for (int i = 0; i < n; i++) {
+        uint8_t& p = lb[i];
+        if (p & 0x30) continue;   // (line 0 only)
+        if ((p & 15) == 4 && c4) p = (uint8_t)((p & 0xF0) | 5);
+        else if ((p & 15) == 6 && c6) p = (uint8_t)((p & 0xF0) | 14);
+    }
+}
+
 // A line of the ride: the wave's back on plane B, the ghosts behind the game's sprites, left of the 4:3 area.
 void ride_line(Wide& w, int line, uint8_t* plane_b, uint8_t* sprites) {
     const MegaDrive& md = *w.md;
     ride_wave(md, line, plane_b);
+    ride_flames(md, plane_b, std::clamp(md.vdp.ext - md.vdp.view_shift, 0, 320 + 2 * md.vdp.ext));   // (left of screen x 0)
     if (!w.ride) return;
     const RideView& r = *w.ride;
     const int TW = std::min(320 + 2 * md.vdp.ext, md.vdp.ext - md.vdp.view_shift), at = md.vdp.ext - md.vdp.view_shift;   // (at: screen x 0)
@@ -1815,11 +1856,19 @@ public:
     bool can_configure(const MegaDrive& md, const GameConfig& cfg) const override { return patches_safe(md, rom_for(md, cfg)); }
 
     void configure(MegaDrive& md, const GameConfig& cfg) override {
+        cfg_ = cfg;
+        md_ = &md;
         apply_patches(md, rom_for(md, cfg));
         rom_ = rom_kind(md);
         md.clear_pc_hooks();
         auto play = [](MegaDrive& m) { m.module_state[MS_PLAY] = ((uint32_t)m.frame_count + 1) & PLAY_FRAME; m.module_state[MS_FADE] = 0; };
-        auto leave = [](MegaDrive& m) { m.module_state[MS_PLAY] = 0; m.module_state[MS_FADE] = 0; };
+        // (leaving play: the level fades out as it was shown, in_gameplay)
+        auto leave = [](MegaDrive& m) {
+            const bool shown = in_gameplay(m);
+            m.module_state[MS_PLAY] = 0;
+            m.module_state[MS_FADE] = shown ? FADE_OUT | (((uint32_t)m.frame_count + 1) & PLAY_FRAME) : 0;
+        };
+        md.add_pc_hook(PC_FADE_OUT_END, [](MegaDrive& m) { if (m.module_state[MS_FADE] & FADE_OUT) m.module_state[MS_FADE] = 0; });
         // (an iteration of the gameplay loop is under way until its frame wait: in_play)
         md.add_pc_hook(PC_MAIN_LOOP, [play](MegaDrive& m) { play(m); m.module_state[MS_PLAY] |= PLAY_BUSY; });
         md.add_pc_hook(PC_FRAME_WAIT, [](MegaDrive& m) { m.module_state[MS_PLAY] &= ~PLAY_BUSY; });
@@ -1935,16 +1984,22 @@ public:
         return d;
     }
 
+    // The session loads a state as: configure for the width it was saved at, the core's state, then this. configure
+    // chose the ROM from the machine as it was before the load (on the title or in the attract mode the original ROM, in
+    // the Rug Ride the 4:3 game's), and a widescreen state saved with the 68000 in the caves or the patched code ran on
+    // the original's $FF fill and code (the line-F trap: the game's crash loop). So it is configured again here, for the
+    // machine the state holds: it runs on the ROM it was saved with (rom_for tells it from RAM, for any version's state).
     void load_ext(const uint8_t* d, size_t n) override {
         ride_->ghosts.clear();
-        if (n < 2 || d[0] != EXT_VERSION || d[1] > GHOSTS_MAX || n != 2 + (size_t)d[1] * (4 + OBJ_SIZE)) return;
-        for (int k = 0; k < d[1]; k++) {
-            const uint8_t* e = d + 2 + k * (4 + OBJ_SIZE);
-            RideView::Ghost g;
-            g.addr = (uint32_t)e[0] << 24 | e[1] << 16 | e[2] << 8 | e[3];
-            std::memcpy(g.obj, e + 4, OBJ_SIZE);
-            ride_->ghosts.push_back(g);
-        }
+        if (n >= 2 && d[0] == EXT_VERSION && d[1] <= GHOSTS_MAX && n == 2 + (size_t)d[1] * (4 + OBJ_SIZE))
+            for (int k = 0; k < d[1]; k++) {
+                const uint8_t* e = d + 2 + k * (4 + OBJ_SIZE);
+                RideView::Ghost g;
+                g.addr = (uint32_t)e[0] << 24 | e[1] << 16 | e[2] << 8 | e[3];
+                std::memcpy(g.obj, e + 4, OBJ_SIZE);
+                ride_->ghosts.push_back(g);
+            }
+        if (md_) configure(*md_, cfg_);
     }
 
     std::vector<AchievementDef> achievements() const override {
@@ -2141,6 +2196,8 @@ private:
     std::unique_ptr<Wide> wide_{new Wide};
     std::unique_ptr<RideView> ride_{new RideView};
     Rom rom_ = Rom::Wide;   // the ROM the game runs on now (rom_for)
+    MegaDrive* md_ = nullptr;   // the machine and configuration of the last configure (load_ext configures again)
+    GameConfig cfg_;
 
 };
 
