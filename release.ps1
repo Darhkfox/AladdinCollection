@@ -1,5 +1,6 @@
 # Makes the release zip, dist\Aladdin-Collection-v<version>-win64.zip, holding only what is needed to play:
-# the executable and the player's readme. No ROMs, settings, saves, screenshots or shortcuts.
+# the executable, the player's readme and the licence (MIT: its notice goes with every copy). No ROMs, settings,
+# saves, screenshots or shortcuts.
 # Build first with build.bat.   Usage:  powershell -ExecutionPolicy Bypass -File release.ps1
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
@@ -12,7 +13,8 @@ $zipPath = Join-Path $root "dist\Aladdin-Collection-v$version-win64.zip"
 Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
 $files = @(
   @($exe, "AladdinCollection.exe"),
-  @((Join-Path $root "readme.txt"), "readme.txt")
+  @((Join-Path $root "readme.txt"), "readme.txt"),
+  @((Join-Path $root "LICENSE"), "LICENSE")
 )
 $stream = [System.IO.File]::Open($zipPath, [System.IO.FileMode]::Create)
 $zip = New-Object System.IO.Compression.ZipArchive($stream, [System.IO.Compression.ZipArchiveMode]::Create)

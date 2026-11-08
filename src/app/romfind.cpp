@@ -214,6 +214,7 @@ struct Scan {
                     out[g].data = std::move(r);
                     out[g].other_file.clear();
                     out[g].other_desc.clear();
+                    out[g].other_zip = false;
                     return;
                 }
         }
@@ -224,6 +225,27 @@ struct Scan {
                     out[g].other_desc = describe_dump(r, specs[g].system);
                     return;
                 }
+    }
+    // A zip that holds the ROM a game needs, which can't be unpacked: the card says so (if nothing better is found).
+    void unreadable(size_t g, const std::wstring& path, const ZipEntry& e) {
+        if (!missing(g) || !out[g].other_file.empty()) return;
+        std::string why;
+        if (e.flags & 1) why = "a password";
+        else if (zip_supported(e)) why = "damaged";
+        else {
+            switch (e.method) {
+            case 9: why = "Deflate64"; break;
+            case 12: why = "BZip2"; break;
+            case 93: why = "Zstandard"; break;
+            case 95: why = "XZ"; break;
+            case 98: why = "PPMd"; break;
+            default: why = "method " + std::to_string(e.method); break;
+            }
+            why += " compression";
+        }
+        out[g].other_file = path;
+        out[g].other_desc = why;
+        out[g].other_zip = true;
     }
     void zip(const std::wstring& path) {
         std::vector<ZipEntry> entries;
@@ -237,6 +259,7 @@ struct Scan {
                     ((entries[i].size == specs[g].size && entries[i].crc == specs[g].crc) || entries[i].size == specs[g].size + 512)) {
                     read[i] = true;
                     if (zip_read(path, entries[i], data)) consider(std::move(data), path);
+                    else if (entries[i].size == specs[g].size && entries[i].crc == specs[g].crc) unreadable(g, path, entries[i]);
                 }
         // The rest, for other versions of a game that is still missing (a bounded amount of unpacking).
         uint64_t budget = 48u << 20;
@@ -253,7 +276,7 @@ struct Scan {
 void find_roms(const std::vector<RomSpec>& specs, std::vector<RomMatch>& out) {
     out.resize(specs.size());
     for (auto& m : out)
-        if (!m.found) { m.other_file.clear(); m.other_desc.clear(); }
+        if (!m.found) { m.other_file.clear(); m.other_desc.clear(); m.other_zip = false; }
     Scan scan{specs, out};
     std::vector<DirEntry> entries;
     for (const auto& dir : rom_dirs()) {
