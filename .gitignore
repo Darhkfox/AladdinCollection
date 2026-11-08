@@ -51,6 +51,7 @@ trailer_work/
 # QA working notes (the round-by-round test reports)
 docs/QA_*.md
 docs/qa_*.md
+docs/qa_round*/
 
 # local working files
 .claude/
