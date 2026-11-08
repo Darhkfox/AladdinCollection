@@ -206,7 +206,7 @@ cleared.
 
 | cheat | patch |
 |---|---|
-| Invincibility | the three `$C467` tests read `$FF`: `$3F5F` (hits; `$3F5D`: also the type 5 ones that skip it), `$38A9` (carpet crashes), `$4B64C` (the boss); and the Sultan's palace guards' grab (stage 6's second figure, bank `$0C`: `call c,$B90F` after the touch test `$B8B3` at ROM `$32C76` and `$329DA` → `nop`s; `$B90F` takes Aladdin straight to his death, past the `$C467` tests - the developers' AIQY doesn't cover it either) |
+| Invincibility | the three `$C467` tests read `$FF`: `$3F5F` (hits; `$3F5D`: also the type 5 ones that skip it), `$38A9` (carpet crashes), `$4B64C` (the boss); and the Sultan's palace guards' grab (stage 6's second figure, bank `$0C`: `call c,$B90F` after the touch test `$B8B3` at ROM `$32C76` and `$329DA` → `nop`s; `$B90F` takes Aladdin straight to his death, past the `$C467` tests - the developers' AIQY doesn't cover it either); and the Market's pursuer (stage 0's second figure: its handler ends in `jp $B6D0` at ROM `$32984`, the catch test, which writes `$C438` = `$FF` at `$B74E` without a look at `$C467` → `ret`) |
 | (Infinite health) | grabs (stage 0's guards, `$37A2` after `$3F7E` → `$4015`; stage 6's) and the carpet's crashes into walls (`$3ABF`: health 0 and the pit flag) still end a life |
 | Infinite health | no decrement: `$3F88`, `$3F76` (`dec a` → `or a`: the zero test after it must see the health), `$4A6F4` (`sub 2` → `sub 0`) |
 | Infinite stones | `$2156` `dec (hl)` → `nop` |

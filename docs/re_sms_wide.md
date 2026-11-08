@@ -29,6 +29,10 @@ sms_end` for states near the auto-run stages' ends). Widths: 6/22/40/74 (CRT pix
    hardware does. In the stages, lines 176-191 (blank border / a story moment's text box) get colour 0 at the sides.
 6. Save states and rewind carry what the hooks keep from one frame to the next (`save_ext`, section 6).
 7. The attract demos run on the original ROM and are shown at 4:3: they play exactly as at 4:3 (section 3).
+8. The objects' extra work in a wide view takes no CPU time (the clock stops for it): no slowdown the original
+   doesn't have (section 3, "CPU time").
+9. Left behind by the scroll, Aladdin is lost at the view's left edge, not the 4:3 screen's (section 2); a stage's
+   fade-out after its end or before TRY AGAIN stays wide (section 5).
 
 ---------------------------------------------------------------------------------------------------
 
@@ -60,6 +64,10 @@ sms_end` for states near the auto-run stages' ends). Widths: 6/22/40/74 (CRT pix
   few pixels at the screen's edge; in a wide picture a stale sliver in the middle: a cut tree crown in A Whole New
   World, a gold stripe in the Treasure Room). It comes from the map too (`SmsVdp::hw_right_partial_out`).
 * Rows 0-1 (status bar, reg 0 bit 6): blank beyond the 256 px (`name_entry(0, row)`); rows 22+ colour 0 (section 5).
+* The vertical scroll: only Jafar's turn into the snake uses it, shaking the screen (reg 9 = 222 / 224 for about 8
+  s). The VDP gives `bg_entry` the unwrapped row (`(line + vscroll) / 8`, 28+ past the table's end); it takes it
+  modulo 28 as the hardware does. Before, every row arrived as 28+ and fell back to the hardware table, which
+  repeats every 256 px: a second hourglass, then a second snake, steps and bits of the status bar at the sides.
 * Check (`sms_wide_check.py 74` / `102`, whole stages played through, background only, every third frame: each
   extension pixel against the colours the hardware region showed at that world position with the same palette):
   see section 7. What differs is animated tiles whose patterns follow the camera (stage 0's far building and brick
@@ -89,6 +97,21 @@ interrupt a few lines late (its logic holding interrupts off), and the lines bet
 logic's lead is taken out without a slide too: otherwise the bands would jump by it where a hold ends (and they
 keep step with the camera's band and the sprites, which the original's floor and rooftops do not quite).
 
+Left behind (stages 1 and 8, widescreen only, a deliberate change of the game's rules): while the scroll pushes
+Aladdin (`$C41C`: standing still against it, or held by a wall) `$34A5` moves his X 2 px a frame left and, once it
+would go below 0, counts him lost (`$34BC`: pit flag `$C461`, health 0), then carries him to x -32 (`$34C7`) where
+he waits about 220 frames until TRY AGAIN - under the original's blanked column, but 70 px inside the picture at
+21:9. His X stays an 8-bit screen position for the game (its tests compare low bytes), so in a wide view it is held
+at 0 while the module counts how much further the scroll takes him (`behind`, module_state[6] bits 16-23; the
+`$23C2` hook draws him that much further left). He is lost once 8 px past the view's left edge (the picture's edge
+for the logic's camera and slide), as the original loses him 8 px past its blanked column's edge: at that moment he
+is as far out of the picture at every width as he is out of the 4:3 one, and the carry to -32 and the wait happen
+out of sight. Walking right takes the distance back first (`$34A5`'s entry). When nothing pushes him any more the
+game puts a player below x 24 at 24 (`$36B8`), a rescue that never reaches past the blanked column: one left behind
+further catches up 4 px a frame instead, unless he walks. A stage start or TRY AGAIN clears it. (`behind.py`-style
+check: stage 1 standing still at 21:9 CRT, lost at x -86 = the picture's edge - 12, as the original at -4 = its
+blanked column's edge - 12; TRY AGAIN restarts with nothing left over; walking right from 32 px behind comes back.)
+
 Boss arena — Jafar (stage 9): the original camera moves 0..136 over a 384-px room, all of it within Aladdin's
 reach; past the room's ends there is no level. There the extension carries the room's pillars on (its middle part,
 x 128..255, repeats every 128 px: pillars at 148, 276, …; the hourglass at the right end is not repeated) and
@@ -113,7 +136,9 @@ ROM patches (`wide_patches(E)`, code caves in bank 1's unused zero fill, `$7A00`
 | `$3E25` / `$3E29` | `ld de,$0040` / `$0170` | `call $7B10` / `$7B30` | stages 2 3 4 6 9: awake while x in [-64 - E + s, 304 + E + s) (hook at `$7B23`) |
 | `$3D86` / `$3D6B` | `ld (ix+$1D),0; ret` | `jp $7AD0` / `$7AF0` | sprite table full: skip the draw (see below) |
 | bank `$12` `$AAEB` | `ld a,h; or a; ret z` | `call $7B50` | rolling boulders come home off the view and the keep window (hook at `$7B54`) |
+| bank `$12` `$AC23` | `ld a,h; or a; ret z` | `call $7B50` | the Treasure Room's bats come home the same way |
 | `$3D13`, `$425B`, bank `$12` `$B25A` | `ld b,$07` | `ld b,$0C` | the queue stages keep 12 objects (below) |
+| bank `$0C` `$AE9A`, `$B5C4` | `ld b,$07` | `ld b,$0C` | the other loops over them: stage 8's flying figure drops what waits for it; the Market's pursuer runs into what is on the screen |
 
 The caves first test `$C104` (a demo playing: the original's behaviour), a second line of defence: while a demo
 plays the ROM holds none of these patches (below).
@@ -129,20 +154,47 @@ plays the ROM holds none of these patches (below).
   4 frames; type `$3B` at -32, 1 px a frame) start as far beyond the view's left edge as the original's beyond its
   own: E - s further out, and as much earlier as they take to fly that far (the carpet's camera moves 2 px a frame:
   8 or 2 camera px per px). From then on they are where the original has them. One that the list loads too late
-  for that starts at the view's edge all the same and flies 3 px a frame more (PC hooks on their handlers, bank
-  `$12` `$B1FC` / `$B374`) until it is where the original starts it. The `$3B` leaves by itself once 32 px past the
+  for that starts at the view's edge all the same and flies 1 px a frame more (PC hooks on their handlers, bank
+  `$12` `$B1FC` / `$B374`) until it is where the original's is by then (started at -16 / -32 when the camera reached
+  its X, flying 1 px every 4 frames / every frame), on its path from then on. (Before: 3 px a frame more, towards
+  the original's start: it dashed across the side and stayed a few px behind.) The `$3B` leaves by itself once 32 px past the
   screen's left edge (it drops off the bottom): past the view's, as everything else.
+* The Treasure Room's bats (type `$0D`, bank `$12` `$AC16`) come home (x -2, y 0: the original screen's top left
+  corner) by the boulders' test, and so through the same cave: off the view and past the keep window's left edge.
+  Before, one that had flown off swooped out of the wide view's left side, 66 px inside it at 21:9.
 * Leaving: 32 px past the view's left edge (de = 32 + E - s) - or, for an object that shows nowhere (all its
   pieces above or below the screen: flown off the top, fallen off the bottom), where the original lets it go (de =
   32), so its slot frees as in the original.
 * The queue's slots: the original keeps 7 objects of the list, loading the next record into the slot of one that
   leaves. A wide view shows more at once, and with 7 the list could not keep up: at 21:9 in A Whole New World
   objects woke late, up to 100 px inside the view. With 12 (`$CA00`-`$CCFF`, the free-scrolling stages' object RAM,
-  unused in these stages) it keeps up. A width change in the middle of a stage to or from 4:3 moves the objects
+  unused in these stages) it keeps up. Two more loops of the game go over these objects with `ld b,7` (bank `$0C`): stage 8's flying figure
+  drops the pots that wait for it (type `$51`, `$AE96`: `+$30`, placed under it at x 192), and the Market's pursuer
+  runs into what is on the screen (`$B5C0`). They take 12 too: past the seventh slot a pot was never dropped and
+  waited at x 256, awake, for good (in the right side, holding a slot: stage 8 lost 5 of its 57 records). A width
+  change in the middle of a stage to or from 4:3 moves the objects
   between 12 and 7 slots (`resize_queue`): more slots take the next records at once; fewer keep those awake, then
   those waiting by their X, and send the rest back to the list (the record index `$C680` steps back: the lists are
   in order of X, near enough). States of an earlier version (module_state[7] a width: their waiting objects were
   placed when loaded) are converted on load (`unshift_old_state`).
+* CPU time: a wide view keeps more objects awake, and the queue stages run 12 slots; the objects' loop no longer
+  fit the frame and the auto-scrolling stages lagged (the logic missed frames and the scroll stalled every 4-9
+  frames: the Rooftops took 18 % longer at 21:9). A pass of the loop (a slot: queue stages `$3D15`..`$3D39`, the
+  others `$3CBC`..`$3CE4`) that the original would not have made takes no time: an awake object outside the
+  original's window (queue stages: x beyond 256, where it would still wait, or before -32, where it would have left;
+  the others outside [-64, 304), `$3E1F`) and, in the queue stages, a waiting or empty slot past the seventh. The
+  pass runs with the clock stopped: at `$3D15` / `$3CBC` the module gives the Z80 a credit of 32768 cycles
+  (`wait_cycles` negative: the core's `run` goes on without returning, so no line is drawn and no interrupt comes),
+  and at `$3D39` / `$3CE4` takes back what the pass left of it. (Giving the time back after the pass instead left
+  the lines drawn meanwhile behind: the logic still met the VBlank in the middle of a pass.) The caves' extra
+  instructions are taken off too (the wake test's 59 cycles, the leave and keep tests' 87). What the original does
+  keeps its cost, and its own slowdowns. The slot being timed is in module_state[7] (bits 0-22, beside the
+  placement flag). Measured (`r2_lag.py`, Player bot, 3000 frames, frames without a logic step at 4:3 / 22 / 74 /
+  102): Market 13 / 14 / 10 / 18 (before 175 / 246 / 279 at 22 / 74 / 102), Rooftops 57 / 84 / 84 / 69 (before 337
+  / 433 / 445; the stage takes 2146 frames at 21:9 against 2119, before 2495), Escape 7 / 11 / 5 / 3 (before 26 /
+  36 / 38), A Whole New World 5 / 27 / 15 / 19 (before 250 / 375 / 445), Jafar's Palace 3 / 10 / 7 / 6 (before 193
+  / 217 / 229), the Sultan's Palace 48 / 40 / 38 / 40 (before 81 / 108 / 108). What lags more than at 4:3 is the
+  objects inside the original's window that the original had not loaded yet (its seven slots full).
 * The original's allocators (`$3D74`, `$3D5E`) put an object that does not fit in the 64 entries to sleep, but the
   draw call after them still writes its pieces beyond `$C3BF` — over the palette buffer `$C3C0` (seen as a magenta
   palette in stage 8) — and a sleeping object of the queue stages stops following the camera that frame. With more
@@ -153,8 +205,9 @@ plays the ROM holds none of these patches (below).
   (hl = the piece's 16-bit X, de = its table byte), objects `$0C99` (the table pointer on the stack) — record the
   piece's 256-px page (2 bits per entry) and, inside (-8 - 2E, 256 + 2E) (as far as the sliding view reaches),
   clear H so the game stores the low byte. Pieces the original parks at X = 0 under the blanked column are marked
-  hidden, and so are the pieces of an object parked at x = -64 (the keep window's left end) that does not move with
-  the camera: Jafar's room keeps two there (types $0B, $44), never seen in the original. The VBlank upload hook
+  hidden, and so are, in Jafar's room, the pieces of an object parked at x = -64 (the keep window's left end) that
+  does not move with the camera: it keeps two there (types $0B, $44), never seen in the original. (Elsewhere an
+  object at -64 is one passing by: hidden for that frame, it blinked.) The VBlank upload hook
   `$02D9` turns the pages into the displayed order (reversed on odd frames: `$C20E` bit 0) in module_state[0..3];
   `sprite_x` adds ±256 or hides; the VDP moves every sprite by the slide. Off the stages the hooks change nothing.
 * The Caverns' and the Treasure Room's rolling boulders (type `$0A`, bank `$12` `$AADE`) roll left from their home,
@@ -203,9 +256,18 @@ as it is).
 * Rows 0-1, fixed (reg 0 bit 6): gems at columns 15-17, the stone counter (stages 2 3 4 6) at 26-29, PAUSE in row
   0. With `hud_anchor` the line hook moves x 192..255 of lines 0-15 to the right edge; the gems and PAUSE stay in
   the middle. There are no status sprites. The slide leaves lines 0-15 alone.
-* `FrameInfo.gameplay` = modes 2..$B but the attract demos (shown at 4:3); title, password, game over, the story
+* `FrameInfo.gameplay` = modes 2..$B but the attract demos (shown at 4:3), and a stage fading out; title, password, game over, the story
   scenes (mode $13), the menus and the ending are pillarboxed. With the core ignoring reg 0 bit 5 in widescreen,
   the line hook draws the blanked column (backdrop colour, no sprites) on those screens.
+* A stage's fade-out: the game sets the next mode (and at an exit the next stage number, `$35B8`, `$1504`) before
+  it fades the stage out (`ld ($C200),a; call $0913`), so the picture dropped to 4:3 bars for about 0.8 s at full
+  brightness and then faded. A hook at `$0913` tells the caller by its return address (the exits `$1523`, `$167B`,
+  `$35D7`; TRY AGAIN `$1503`, `$1652`, `$1C44`, `$20DC`, `$34F7`, `$36A9`, `$37BF`, `$394B`; Jafar's end `$2794`)
+  and marks the stage as still shown (module_state[6] bit 28, the stage shown in bits 24-27: at an exit the number
+  less one) until `$0913` returns, with the screen black. Meanwhile the module draws that stage (map, slide, bands,
+  masks) and reports gameplay. Measured (Player bot, every auto-scrolling stage, the Treasure Room into the Lamp, a
+  death before TRY AGAIN, at 21:9 CRT): no frame after a stage's end shows its picture without being reported
+  gameplay; black 46 frames after the exit.
 * In the stages lines 176-191 are blank rows in colour 0 (black; red in Jafar's room), where the lamp's chamber and
   other story moments put a text box: the line hook gives the sides colour 0, so the box stays 256 px wide in the
   middle and the border runs the whole width (sprites crossing it are kept).
@@ -213,7 +275,8 @@ as it is).
 ## 6. Save states and rewind
 
 module_state (in the core's state) holds the displayed sprite pages, the cameras (with the frame counter), the
-undrawn objects and the width the waiting objects were placed for. The rest the hooks keep between frames is in
+undrawn objects ([6] bits 0-15) with how far Aladdin is left behind (bits 16-23) and the stage fading out (bits
+24-28), and the placement flag ([7] bit 30) with the queue loop's slot being timed (bits 0-22). The rest the hooks keep between frames is in
 `save_ext` (version 1): the pages the writers left for the next table upload (the game's logic runs across the
 frame's end, so a state taken there has part of the next table written), the extra sprites made at the last VBlank
 for the frame being drawn, and the frame counter at stage 1's last camera move. The camera of the frame before
@@ -237,6 +300,8 @@ alone (`--no-ext`) gives wrong extra sprites for a frame (stage 5 at 102: 17 of 
 | widescreen off | the module at E = 0 against the plain core: attract 20,000 frames, every stage 3,000 | RAM and picture identical |
 | object wakes / pop-in | `sms_wakes.py 74 102`, every stage 4200 frames; `sms_popin.py` | section 3: none inside the view but the original's own |
 | width changes | E 0 → 102 → 40 in stage 5 | waiting objects wake for the current E |
+| slowdown | `r2_lag.py` (QA, round 2), every stage at 0 / 22 / 74 / 102, 3000 frames | section 3, "CPU time": near 4:3 everywhere |
+| left behind, fade-outs | stage 1 standing still and walking back, stage 8's wall; every auto-scrolling stage's exit, a death to TRY AGAIN | sections 2 and 5 |
 | screens | `sms_wide_shots.py`, `sms_run_sheet.py` (whole stages 0 1 5 7 at 74 / 102), `sms_app_test.py` (16:9 and 21:9 CRT, 21:9 square) | reviewed: stages, ends, HUD, scenes |
 
 ## 8. Known limitations
@@ -247,4 +312,12 @@ alone (`--no-ext`) gives wrong extra sprites for a frame (stage 5 at 102: 17 of 
   original ROM.)
 * Tiles the game animates with the camera (stage 0's far building and brick wall, stage 1's railings) show at the
   sides as they are now; at the start / end holds stage 0's far building keeps changing while the view holds still.
+  The Market's pillars (between the brick wall and the market's wall) are worst: `$30F6` uploads their tiles for
+  the camera's phase (camera - 40, in 4-px steps over 512 px: bank `$0A` `$8000` and bank 2 `$A324`, source, VRAM
+  address and count, into tiles that other phases reuse), drawn for the one place on the screen the original shows
+  them; in the left side the cells show another phase's data, a strip of scrambled tiles for about 95 frames as
+  each pillar passes (13 % of the stage at 21:9). Drawing them right would need each pillar's tiles for positions
+  off the original screen, which the tables don't hold.
+* Left behind by the scroll Aladdin is lost at the view's edge (section 2), and can walk back in until then: a
+  wider view gives him more time than the original.
 * With the sprite limit on ("Remove Sprite Flicker" off), sprites in the sides count towards the 8 per line.
