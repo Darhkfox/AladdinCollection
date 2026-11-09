@@ -105,6 +105,10 @@ constexpr int kLavaLevel = 0x06;
 // the same tests, 32 px into the left margin (tools/qa round 2, N5); there too the objects' lifetime follows the
 // picture's edges.
 constexpr int kRideLevel = 0x12;
+// The Lava Cavern's lava pillar ($83:DF14): spawned hidden in the lava, it waits a time from its list entry ($D3F8 +
+// parameter frames; with the parameter's bit 7 none), bubbles for 32 frames, rises, holds and sinks, and deletes
+// itself.
+constexpr int kPillarType = 0x5B;
 // The lamp's beam at the Underground River's end (level $05; a screen task, $82:84CB, a frame at a time from $82:8514):
 // a column of light 17 px wide from world x $0E78, colour math (add, fixed colour) inside window 2 on the lines of an
 // HDMA table on WH2 / WH3 (channel 7, indirect: $7E:F532 / $F533 the beam's edges). Its left edge on the screen is
@@ -215,10 +219,24 @@ public:
             // crosses the object's column again. Unless it deleted itself past the 4:3 screen's edge, or the sweep
             // took it beyond the original's spawn edges (pending_again_): the original would only have it later,
             // and it gets that chance (the edge-column retry).
+            // Also any delete beyond the original's spawn edges (x >= camera + $120 or < camera - $40), where the 4:3
+            // game has no object yet or any more: some types delete themselves by a range of their own from the
+            // camera's centre ($1A44: Inside the Lamp 2's $79 at +-$D0, $83:F639; Sultan's Dungeon 3's $7D at
+            // +-$E0, $84:9103), so the margin's spawn deleted them at once, and as "gone" the edge-column retry
+            // never brought them at the original's moment: none of them appeared at 106 or 140. One whose list column
+            // is still beyond those edges is also tried in the frame they reach it (refused_pending): the edge-column
+            // retry runs at the spawner's 32-px steps, which don't come while the view is stopped at a level's start.
             const uint8_t idx = rd8(s, r.dp + 0x34);
             if (idx != 0) {
+                const int x = (int16_t)rd16(s, r.dp + 0x0C), cam = (int16_t)rd16(s, kCamX);
+                const bool right = x >= cam + 0x120, left = x < cam - 0x40;
                 set_bit(gone_, idx, true);
-                set_bit(again_, idx, r.dp == pending_again_);
+                set_bit(again_, idx, r.dp == pending_again_ || right || left);
+                if (ext_ > 0 && (right || left) && !(rd8(s, kSpawnedBits + idx) & 0x80)) {
+                    const int c = (rom16(s, list_entry(s, idx) + 2) & 0x3FFF) >> 5;
+                    if (right ? c > floor_shr(cam + 0x120, 5) : c < floor_shr(cam - 0x40, 5))
+                        set_bit(refused_, idx, true);
+                }
             }
             pending_again_ = 0;
             return false;
@@ -285,7 +303,8 @@ public:
         case kSpawnFrameCam: {
             // A once-only object (a boss, Jasmine, an item) the allocator refused is otherwise never tried again
             // while the camera stays (an arena): once a frame, while its column is within the original's spawn
-            // edges, its column is run again for it alone (the stub comes back to the frame spawner's start).
+            // edges, its column is run again for it alone (the stub comes back to the frame spawner's start). The
+            // same takes a timed object held back from the margins (held) as its column reaches those edges.
             spawn_mode_ = kSpawnGame;
             if (retry_frame_ != s.frameCount()) {
                 retry_frame_ = s.frameCount();
@@ -309,10 +328,20 @@ public:
             r.a = (uint16_t)(rd16(s, kCamX) - el + ext_);
             r.pc = (uint16_t)(pc + 3);
             return true;
-        case kSpawnTest:        // one list object (X): skipped by the module's own spawns as they require (skip)
-            if (spawn_mode_ == kSpawnGame || !skip(r.x & 0xFF)) return false;
+        case kSpawnTest: {      // one list object (X): skipped by the module's own spawns as they require (skip)
+            const int idx = r.x & 0xFF;
+            // An object whose script runs on a timer from its spawn (the Lava Cavern's pillar) is left for the
+            // original's moment, when its column reaches the original's spawn edges (the retry of refused_pending):
+            // spawned early by the margin it rose and sank before Aladdin got there.
+            if ((spawn_mode_ == kSpawnGame || spawn_mode_ == kSpawnWidth) && held(s, idx)) {
+                set_bit(refused_, idx, true);
+                r.pc = (uint16_t)kSpawnNext;
+                return true;
+            }
+            if (spawn_mode_ == kSpawnGame || !skip(idx)) return false;
             r.pc = (uint16_t)kSpawnNext;
             return true;
+        }
         case kSpawnAllocated: { // the allocator's answer (carry set: refused): a once-only object to try again
             const uint8_t idx = rd8(s, 0x0012);
             if (r.c && idx != 0 && (rom16(s, list_entry(s, idx)) & 0x8000)) set_bit(refused_, idx, true);
@@ -873,8 +902,9 @@ private:
 
     const Snes* snes_ = nullptr;
     // The level objects (by list index) deleted since the level's start (gone_), of them the ones whose last delete was
-    // past the 4:3 screen's edge or the sweep's beyond the original's edges (again_), and once-only objects the
-    // allocator refused (refused_). Bits by index.
+    // past the 4:3 screen's edge or the sweep's beyond the original's edges (again_), and the ones waiting for the
+    // original's moment (refused_: once-only objects the allocator refused, timed ones held back from the margins).
+    // Bits by index.
     uint8_t gone_[32] = {}, again_[32] = {}, refused_[32] = {};
     int spawn_mode_ = kSpawnGame, retry_idx_ = 0;
     uint32_t retry_frame_ = 0xFFFFFFFFu;
@@ -991,8 +1021,22 @@ private:
         default: return false;
         }
     }
-    // A once-only object the allocator refused, not out yet (spawned bits & $81 clear), its column within the
+    // A level object to hold back from the margins until the original's spawn edges reach its column: a type whose
+    // script runs on a timer from its spawn (the Lava Cavern's lava pillar, $5B: hidden in the lava, it waits $D3F8 +
+    // list parameter frames, bubbles, rises, holds and sinks, and deletes itself - once, as the camera never comes
+    // back), not out yet, never deleted in this level, its column beyond the original's edges.
+    bool held(const Snes& s, int idx) const {
+        if (idx == 0 || bit(gone_, idx) || (rd8(s, kSpawnedBits + idx) & 0x81)) return false;
+        const uint32_t e = list_entry(s, idx);
+        if ((rom16(s, e) & 0xFF) != kPillarType) return false;
+        const int cam = (int16_t)rd16(s, kCamX), c = (rom16(s, e + 2) & 0x3FFF) >> 5;
+        return c > floor_shr(cam + 0x120, 5) || c < floor_shr(cam - 0x40, 5);
+    }
+    // A level object to spawn at the original's moment, not out yet (spawned bits & $81 clear), its column within the
     // original's spawn edges (camera - $40 .. camera + $120) and its row within the spawner's: its index and column.
+    // (A once-only object the allocator refused: tried once a frame until it is out. One held back from the margins,
+    // or one deleted beyond the original's spawn edges with its column beyond them: tried once, as the original's
+    // spawner tries it once when its edge reaches the column.)
     int refused_pending(Snes& s, int& col) {
         const int cam = (int16_t)rd16(s, kCamX);
         const int lo = floor_shr(cam - 0x40, 5), hi = floor_shr(cam + 0x120, 5);
@@ -1006,6 +1050,7 @@ private:
             const int c = (rom16(s, e + 2) & 0x3FFF) >> 5;
             const uint16_t dy = (uint16_t)(rom16(s, e + 4) + 0x40 - rd16(s, kSpawnCamY));
             if (c >= lo && c <= hi && dy < 0x180) {
+                if (!(rom16(s, e) & 0x8000)) set_bit(refused_, idx, false);
                 col = c;
                 return idx;
             }

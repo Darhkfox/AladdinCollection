@@ -293,15 +293,46 @@ identical (also from near a level's end: its `state` argument).
   These original's columns leave out what the game deleted for good (killed, collected, swept in view): an enemy
   defeated just inside the screen's edge sat in the column before the original's edge and came back. They still
   take one that deleted itself past the 4:3 screen's edge or that the sweep took beyond the original's edges (the
-  margins had it early: the exec hooks at `$83:973D` / `$83:974E` and `$81:9D8E` mark its delete).
+  margins had it early: the exec hooks at `$83:973D` / `$83:974E` and `$81:9D8E` mark its delete), and any object
+  deleted while beyond the original's spawn edges (x >= camera + `$120` or < camera - `$40`, read at the delete).
+  Some types delete themselves by a range of their own from the camera's centre (`$1A44`): Inside the Lamp 2's `$79`
+  (+-`$D0`, `$83:F639`) and Sultan's Dungeon 3's `$7D` (+-`$E0`, `$84:9103`). The margin's spawn deleted them in
+  the next frame, and the first version of the "gone" rule counted that as for good: at 106 and 140 none of them
+  came where the 4:3 game has them, only a frame or two at the margin's edge (Sultan's Dungeon 3: 38 `$7D`s on a
+  carry route over 2,400 frames, Inside the Lamp 2: 9 `$79`s). They
+  now come at the original's moment, as before that rule. One whose list column is still beyond those edges at its
+  delete is also marked for the retry below (`refused_pending`), so it is tried in the very frame the original's
+  edge reaches its column: the edge-column retry runs only at the spawner's 32-px steps, and while the view is
+  stopped at a level's start (the spawner's camera is the picture's middle, which doesn't move) there are none -
+  Sultan's Dungeon 3's first two `$7D`s at 140 were lost that way.
   A once-only object (a boss, Jasmine, an item; list flags bit 7) refused by the allocator (`$82:A8E8`, carry set)
   is also tried again once a frame while its column is within the original's spawn edges (camera - `$40` ..
   camera + `$120`) and its row within the spawner's, its column run for it alone (a stub at `$60:8040` from the
   frame spawner's camera, `$82:A7AA`, back to its start `$82:A7A3`): whatever held the banks, he comes once they
   free (a 4:3 state of the arena loaded at 106 with the deletes unknown: the guards come back, leave the keep range,
-  and the boss comes 90 frames in).
+  and the boss comes 90 frames in). The same retry takes an object held back from the margins (the pillars, below)
+  or deleted beyond the original's edges with its column beyond them (above), but only once, in the frame its column
+  reaches the original's edge, as the original's spawner tries it once there.
   (Stubs at `$60:8020` / `$60:8028`; `$82:A780` with Y = 1 runs one column; an exec hook after it takes the next from
   X, so a state saved mid-way needs nothing of the module's.)
+- **Timed objects: the Lava Cavern's pillars** (type `$5B`, `$83:DF14`; seven in the level, list x 472, 3424, 3616,
+  3760, 4112, 4264, 4411). A pillar is spawned hidden in the lava and runs on a timer from its spawn: it waits `$D3F8`
+  + its list parameter frames (none with the parameter's bit 7), bubbles for 32 frames, rises (a second object, its
+  top), holds for 128 frames, sinks and deletes itself (`JML $83:96CA`). At 4:3 it does this once: its column is
+  spawned 32 px past the screen's right edge, so it rises as Aladdin gets there (the first at camera 280, x - camera
+  192), and the camera, which only scrolls right, never brings its column back to the spawner's edge. The margin
+  spawned it ext px (0.625 px a frame: ~170 frames at 106) earlier - the first one already at the level's start - so
+  every pillar rose and sank in the right margin, ahead of the original by camera 85-160 px, and was gone when
+  Aladdin reached it (the user's report at 21:9: "the pillar that comes out the lava doesn't return after it's
+  appeared once"; it doesn't at 4:3 either, but there it rises in front of him). The margins' spawns (the game's
+  own columns, the level start's, a width change's) now leave a `$5B` beyond the original's spawn edges unspawned
+  and mark it for the retry above (the refused once-only objects' bits, kept in states): it is spawned in the frame
+  its column reaches the original's edge (camera + `$120`), so it rises at the original's camera x. At 106 and 140,
+  with Remove Slowdown off and on, all seven spawn and rise at the 4:3 run's camera x to the pixel (only the last
+  ones' deletes come later, by the wide lifetime rule: they sink fully in the left margin). A pillar never spawned
+  sits invisible in the lava, so nothing pops in the margin. At 4:3 nothing is hooked.
+  The deleted-objects record wasn't involved: it only limits the module's own spawns (a width change's, the
+  retries), never the game's spawner, and the original never spawns a pillar twice.
 - **The sweep.** An event can delete every object (`$81:9D82`: the Market at Dusk's arena at camera `$400`, `$80:A176`;
   other levels' events). The delete (`$83:96E2`) clears an object's spawned bits unless it is once only (bit 7, from
   its list entry: kept at `$81`). Objects out in the margin ahead of the original went too, and a once-only one never
@@ -419,6 +450,18 @@ margins and, where the view is split, moved to the picture's middle (`(extR - ex
   Agrabah Market and the Desert Ruins (a `$20` refused at the margin's edge), the Market at Dusk (Jasmine), Inside the
   Lamp 2 (a `$79`) and Sultan's Dungeon 3 (its `$7D`s, which deleted themselves past camera + `$120` when the margin
   spawned them) the first difference is an object the 4:3 game has there, now out.
+- Timed objects and the "gone" rule (section 4): every level object's lives (spawn and end camera x) at 4:3 and at
+  106 / 140 with the same input (all 19 levels, 2,400 frames, Aladdin carried right; the auto-scrollers to their
+  end). The Lava Cavern's seven pillars spawn and rise at the 4:3 camera x at 46, 106 and 140 (Remove Slowdown off
+  and on); before, all seven rose 85-160 px of camera early. Inside the Lamp 2's `$79`s and Sultan's Dungeon 3's
+  `$7D`s now live where the 4:3 game has them (spawned within 9 px of camera of its spawn there, the same end), at
+  140 the Dungeon's first two too; before, none did. The rest of the list's differences are the carry route's (Aladdin
+  stopped by a wall the wide run meets at another camera y, an idle `$2F` woken at the level's start). A width
+  switch (46->140, 0->106, 106->140 after 900 and 1,800 frames of the play bot, all 19 levels) brings back no
+  object deleted since the level's start. `r2_parity.py` (19 levels and the attract loop: 0 frames differing),
+  `snes_attract.py 0 106 140t4` (0 RAM differences), `snes_dusk_end.py 0,106` (12 / 12 ended),
+  `r2_dusk_window.py` (all ok), `snes_lava.py` (all ok), `snes_bands.py 106` (0 bad), `snes_rewind.py 140 all` and
+  106 in levels 6 and 13 (0 differing): as before.
 
 ## Known limitations
 
