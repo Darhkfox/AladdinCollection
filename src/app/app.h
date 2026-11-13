@@ -22,6 +22,7 @@
 #endif
 #include "rewind.h"
 #include "achievements.h"
+#include "updatecheck.h"
 #ifdef __ANDROID__
 #include "touch.h"
 #endif
@@ -204,6 +205,21 @@ private:
     void set_achievements(bool on);
     MenuPage achievements_page(int game);   // a game's list (index into games_) and the collection's; -1 = all
     MenuItem achievements_switch();      // the on / off switch (Options, and the top of the Achievements page)
+    void export_achievement_list();      // Export to CSV: achievements.csv and the badges (achexport.h)
+
+    // updates (app_updates.cpp): once a day the latest release's version on GitHub; a newer one gets a launcher badge
+    UpdateCheck updater_;
+    std::string update_tag_;             // the newer release's tag ("v1.1"), or empty
+    bool update_manual_ = false, update_started_ = false, update_told_ = false;
+    Rect launcher_update_ = {};          // the badge, where the last draw put it (taps, clicks)
+    void update_tick();                  // each frame: starts the day's check, takes a finished one's result
+    void check_for_update(bool manual);  // manual: Options > Updates > Latest Version (Check Now)
+    void apply_update_tag(const std::string& tag);
+    std::string update_version() const;  // "1.1" (the tag without its "v")
+    bool over_update_badge(float x, float y) const;
+    void open_update_page();             // the release's page in the browser (never in --autotest runs)
+    void draw_update_badge(float title_right);   // launcher: top right beside the title (title_right: its right edge)
+    void add_update_items(MenuPage& p);  // Options: the Updates section
 
     // timing
     double time_ = 0;

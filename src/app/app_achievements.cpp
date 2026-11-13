@@ -1,6 +1,7 @@
 // Achievements in the app: the run being played, unlocks and their pop-up, the Achievements pages, the setting.
 // What each achievement means is the game module's (GameModule::achievements / achievement_frame).
 #include "app.h"
+#include "achexport.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -181,6 +182,9 @@ MenuPage App::achievements_page(int game) {
     p.title = "Achievements";
     p.wide = true;
     p.items.push_back(achievements_switch());
+    p.items.push_back(MenuItem::action("Export to CSV", [this]() { export_achievement_list(); },
+                                       "Writes achievements.csv and a badge picture for each achievement (earned and locked) "
+                                       "to an \"achievements export\" folder: ready for Playnite's achievements import."));
     int total = 0, got = 0;
     auto add = [&](const std::string& group, const std::vector<AchievementDef>& defs) {
         p.items.push_back(MenuItem::header(group));
@@ -216,6 +220,22 @@ MenuPage App::achievements_page(int game) {
     snprintf(buf, sizeof(buf), "%d of %d unlocked", got, total);
     p.subtitle = buf;
     return p;
+}
+
+// achievements.csv and the badges (achexport.h), in "achievements export" in the export folder (next to the exe, or
+// %LOCALAPPDATA%\Aladdin Collection; on Android the app's folder on the shared storage).
+void App::export_achievement_list() {
+    std::vector<AchievementGroup> groups;
+    for (int g = 0; g < kGameCount; g++) groups.push_back({game_label(games_[g].module.get()), games_[g].module->achievements()});
+    groups.push_back({"Aladdin Collection", collection_achievements()});
+    const std::wstring dir = path_join(export_dir(), L"achievements export");
+    std::string err;
+    if (!export_achievements(dir, groups, ach_, &err)) { menu_.toast("Export failed: " + err, 5.0f); return; }
+#ifdef __ANDROID__
+    menu_.toast("Exported to Android/data/com.darhkfox.aladdincollection/files/achievements export", 6.0f);
+#else
+    menu_.toast("Exported: achievements.csv and badges in \"achievements export\"", 4.0f);
+#endif
 }
 
 // The Achievements on / off switch (Options, and the top of the Achievements page). Switching off during a game that

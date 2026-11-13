@@ -155,7 +155,8 @@
                       earned. See ACHIEVEMENTS below.
      Music Player ... The soundtracks of all three games (Left / Right
                       switches game).
-     Credits ........ Where to find me: YouTube, Reddit and GitHub.
+     Credits ........ Where to find me (YouTube, Reddit, GitHub, X,
+                      Patreon) and what the collection is made with.
      Quit ........... Exit to the desktop.
 
   To start a game straight from a shortcut, make a shortcut to
@@ -233,7 +234,8 @@
   ACHIEVEMENTS
      The achievements of the game you're playing: what you've earned (and
      when), and progress towards the ones that count something. The switch
-     at the top turns achievements on or off.
+     at the top turns achievements on or off; Export to CSV writes the list
+     and badge pictures (see ACHIEVEMENTS below).
 
   SOUND TEST / MUSIC PLAYER
      Every music track and sound effect of the game, played by the game's
@@ -355,6 +357,20 @@
                          stay at 60 frames a second. Off: the original's
                          speed, slowdown included.       (default: ON)
 
+  UPDATES
+     Check for Updates . Once a day the launcher looks up the version
+                         number of the latest release on GitHub (only
+                         that: nothing about you or your games is sent).
+                         When there's a newer version, a badge at the
+                         top right of the launcher says so. Nothing is
+                         downloaded or installed, and if you're offline
+                         it simply says nothing.         (default: ON)
+     Latest Version .... Opens the new version's page in your browser
+                         (download it yourself: saves and settings carry
+                         over). With no newer version known: Check Now.
+                         Clicking the launcher's badge (or tapping it on
+                         Android) opens the page too.
+
 
 --------------------------------------------------------------------------------
   ACHIEVEMENTS
@@ -372,6 +388,18 @@
   you've already earned stays earned. Achievements count in a game that
   was started with them on (from the launcher, or with Reset Game); the
   "finish the game" ones need the whole playthrough from a new game.
+
+  EXPORT TO CSV (on the Achievements page) writes an "achievements export"
+  folder next to the program: achievements.csv -- each achievement with
+  its points, bronze / silver / gold / platinum tier, game, progress and
+  when you earned it (date and time), in the columns Playnite's
+  achievements spreadsheet import reads -- and an "icons" folder with a
+  badge picture for each one, earned and locked (blue for the Mega Drive,
+  purple for the SNES, red for the Master System, gold for the
+  collection's own). Achievements earned with an older version kept only
+  the day, so they show at midnight. On Android the folder is in
+  Android/data/com.darhkfox.aladdincollection/files, which a file manager
+  or a PC over USB can open.
 
   MEGA DRIVE  (18)
      One Jump Ahead ........ Escape the guards of Agrabah Market.
@@ -485,7 +513,8 @@
 --------------------------------------------------------------------------------
 
   settings.ini ....... Your settings (delete it to restore the defaults).
-  achievements.ini ... The achievements you've earned.
+  achievements.ini ... The achievements you've earned (and when).
+  achievements export\  What Export to CSV writes (see ACHIEVEMENTS).
   saves\ ............. Save states.
   screenshots\ ....... F12 screenshots.
   soundtracks\ ....... MD+ soundtrack packs (Mega Drive), if you have any.
@@ -505,6 +534,8 @@
      YouTube: https://www.youtube.com/adhgaming
      Reddit:  u/Darhkwing
      GitHub:  https://github.com/Darhkfox
+     X:       https://x.com/ADH_Gaming
+     Patreon: https://www.patreon.com/c/TeamRedTail
 
   The port's own code is released under the MIT licence: see LICENSE.
 

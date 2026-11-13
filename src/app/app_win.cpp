@@ -322,6 +322,23 @@ LRESULT App::wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_EXITSIZEMOVE:
         remember_monitor();   // dragging the window to another display selects that display
         return 0;
+    // The launcher's update badge is a link: a hand over it, and a click opens the release's page.
+    case WM_SETCURSOR:
+        if (LOWORD(lp) == HTCLIENT && mode_ == Mode::Launcher && !menu_.active() && !jukebox_.active()) {
+            POINT pt;
+            GetCursorPos(&pt);
+            ScreenToClient(h, &pt);
+            if (over_update_badge((float)pt.x, (float)pt.y)) {
+                SetCursor(LoadCursor(nullptr, IDC_HAND));
+                return TRUE;
+            }
+        }
+        break;
+    case WM_LBUTTONUP:
+        if (mode_ == Mode::Launcher && !menu_.active() && !jukebox_.active() &&
+            over_update_badge((float)(short)LOWORD(lp), (float)(short)HIWORD(lp)))
+            open_update_page();
+        return 0;
     case WM_GETMINMAXINFO: {
         MINMAXINFO* mm = (MINMAXINFO*)lp;
         mm->ptMinTrackSize.x = 480;

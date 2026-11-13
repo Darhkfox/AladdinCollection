@@ -95,6 +95,23 @@ Bluetooth / USB controller.
 the level select, fast forward and rewind are switched off; save states still work. The collection adds two
 achievements of its own: *A Whole New World* (defeat Jafar in all three versions) and *Completionist* — 54 in all.
 
+**Achievements export**
+- *Export to CSV* on the Achievements page writes an `achievements export` folder: `achievements.csv` in the
+  columns of Playnite's achievements spreadsheet import (ID, title, description, points, bronze / silver / gold /
+  platinum tier, hidden, game, progress and its total, unlocked, and when — date and time) and an `icons` folder
+  with a 128×128 PNG badge for each achievement, earned and locked. The badges are drawn by the port: Mega Drive
+  blue, SNES purple, Master System red and gold for the collection's own, each with a symbol of its own (the lamp,
+  the carpet, Abu, Jafar's cobra...) and the tier's rim. Achievements earned with an older version kept only the
+  day: they export at 00:00:00 of it. On Windows the folder goes next to the exe (or in `%LOCALAPPDATA%\Aladdin Collection`);
+  on Android to `Android/data/com.darhkfox.aladdincollection/files`, which a file manager or a PC over USB can open.
+
+**Update notifications**
+- Once a day the launcher reads the version number of the latest release on GitHub (the public release page of
+  `Darhkfox/AladdinCollection`; nothing about the player or their games is sent). When it's newer than this
+  version, a badge on the launcher says so; the badge (clicked or tapped) or *Options → Updates → Latest Version*
+  opens the release's page. Nothing is downloaded or installed. An offline or failed check stays silent (only
+  *Check Now* says it couldn't reach GitHub). *Options → Updates → Check for Updates* switches it off.
+
 **Other**
 - Keyboard and gamepads: Xbox-compatible pads (XInput) and other USB pads (DirectInput), fully rebindable per
   console, hot-plugging.
@@ -231,8 +248,9 @@ that is already in use swaps the two.
 
 ## Files
 
-Settings are stored in `settings.ini`, earned achievements in `achievements.ini`, save states in `saves\`,
-screenshots in `screenshots\`; soundtrack packs go in `soundtracks\`. These live next to the exe (the folder is
+Settings are stored in `settings.ini`, earned achievements in `achievements.ini` (each with the date and time it
+was earned; older files, with the date only, still load), save states in `saves\`, screenshots in
+`screenshots\`, the achievements export in `achievements export\`; soundtrack packs go in `soundtracks\`. These live next to the exe (the folder is
 portable), or in `%LOCALAPPDATA%\Aladdin Collection` if that folder isn't writable. Delete `settings.ini` to
 restore the defaults.
 
@@ -252,6 +270,10 @@ powershell -ExecutionPolicy Bypass -File release.ps1
                                                   :: dist\Aladdin-Collection-v<version>-win64.zip:
                                                   ::   the exe, readme.txt, LICENSE, librashader.dll and the
                                                   ::   bundled shader presets (no ROMs)
+build\tests\app_tests.exe                         :: (built with the exe) tests of the update check's version
+                                                  ::   comparison and the achievements export, offline; add
+                                                  ::   --fetch <url> for one live GET of a "latest release" page,
+                                                  ::   --export <dir> [achievements.ini] or --sheet <file.png>
 ```
 
 ### Android
@@ -271,7 +293,7 @@ gradlew assembleDebug
 |---|---|
 | `src/core/` | Mega Drive (`m68k`, `vdp`, `ym2612`, `md`), SNES (`cpu65816`, `apu`, `dsp`, `ppu`, `snes`) and Master System (`sms`, `sms_vdp`) hardware; the Z80 and SN76489 (`z80`, `psg`) serve both Sega consoles. Each video chip renders a widened picture with hooks for the game modules |
 | `src/game/` | `game.h` (the module interface, typed per console), the three modules `md_aladdin.cpp`, `snes_aladdin.cpp`, `sms_aladdin.cpp` and each console's helpers (`*_common.cpp`: verified ROM patching, scripted input) |
-| `src/app/` | Launcher, sessions (`session.cpp` and one per console: `session_md/snes/sms.cpp`), menus, music player / sound test, rewind, achievements, settings, ROM finder, PNG writer, touch controls; per platform `app_win.cpp` / `app_android.cpp` and `sys_win.cpp` / `sys_android.cpp` |
+| `src/app/` | Launcher, sessions (`session.cpp` and one per console: `session_md/snes/sms.cpp`), menus, music player / sound test, rewind, achievements and their export (`achexport.cpp`), the update check (`updatecheck.cpp`, `app_updates.cpp`; the repository is `kUpdateRepo`), settings, ROM finder, PNG writer, touch controls; per platform `app_win.cpp` / `app_android.cpp` and `sys_win.cpp` / `sys_android.cpp` |
 | `src/platform/` | Windows: Direct3D 11 video and DirectWrite UI text, slang shader presets through librashader (`slang.cpp`), XAudio2 audio, keyboard / XInput / DirectInput input. `android/`: OpenGL ES 3.0 video, SDL audio and controllers |
 | `third_party/` | `librashader` (the DLL, its C headers and licence) and `slang-shaders` (the bundled presets, with their licences) |
 | `src/tools/` + `tools/` | Headless cores as DLLs with Python wrappers (`mdt.py`, `snt.py`, `smst.py`) used for the reverse engineering and testing; `tools/re/` the scripts behind the notes in `docs/` |
@@ -324,7 +346,8 @@ gradlew assembleDebug
 ## Credits and licences
 
 - PC port by Darhkfox — [YouTube](https://www.youtube.com/adhgaming) ·
-  [Reddit u/Darhkwing](https://www.reddit.com/user/Darhkwing) · [GitHub](https://github.com/Darhkfox).
+  [Reddit u/Darhkwing](https://www.reddit.com/user/Darhkwing) · [GitHub](https://github.com/Darhkfox) ·
+  [X](https://x.com/ADH_Gaming) · [Patreon](https://www.patreon.com/c/TeamRedTail).
 - The port's own code is released under the MIT licence (`LICENSE`). The emulation cores are written from
   scratch. UI text uses the system font (Segoe UI through DirectWrite on Windows, Android's own font on Android).
 - The Android build uses SDL2 by Sam Lantinga and contributors, zlib licence (fetched by

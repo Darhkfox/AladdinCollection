@@ -50,6 +50,9 @@ add_executable(AladdinCollection WIN32
     src/app/app_win.cpp
     src/app/app_achievements.cpp
     src/app/achievements.cpp
+    src/app/achexport.cpp
+    src/app/updatecheck.cpp
+    src/app/app_updates.cpp
     src/app/app_menus.cpp
     src/app/launcher.cpp
     src/app/jukebox.cpp
@@ -77,7 +80,7 @@ add_executable(AladdinCollection WIN32
     res/app.rc
 )
 target_link_libraries(AladdinCollection PRIVATE emucore
-    user32 gdi32 ole32 d3d11 dxgi d3dcompiler xaudio2 xinput dinput8 dxguid dwrite winmm dwmapi shell32)
+    user32 gdi32 ole32 d3d11 dxgi d3dcompiler xaudio2 xinput dinput8 dxguid dwrite winmm dwmapi shell32 winhttp)
 target_include_directories(AladdinCollection PRIVATE third_party/stb)   # (stb_image: the player's cover pictures)
 set_target_properties(AladdinCollection PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_BINARY_DIR}/bin
@@ -102,3 +105,17 @@ foreach(tool mdtool snestool smstool)
         RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_BINARY_DIR}/tools
         RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/tools)
 endforeach()
+
+# ---- tests of the update check and the achievements export (tests/app_test.cpp) ----
+add_executable(app_tests
+    tests/app_test.cpp
+    src/app/updatecheck.cpp
+    src/app/achexport.cpp
+    src/app/achievements.cpp
+    src/app/png.cpp
+    src/app/sys_win.cpp
+)
+target_link_libraries(app_tests PRIVATE emucore shell32 winhttp)
+set_target_properties(app_tests PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_BINARY_DIR}/tests
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/tests)
