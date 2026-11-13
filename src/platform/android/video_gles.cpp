@@ -31,6 +31,7 @@ uniform sampler2D u_tex;
 uniform vec2 u_src;      // source size in texels
 uniform vec2 u_scale;    // output pixels per source texel
 uniform vec2 u_origin;   // destination top-left in pixels
+uniform vec2 u_off;     // pictures: the source rectangle's top-left in texels
 uniform float u_alpha;
 uniform float u_dim;
 uniform float u_h;       // backbuffer height (GL's window y runs up)
@@ -87,6 +88,10 @@ const char* kGamePS[(int)ScaleFilter::Count] = {
 }
 )",
 };
+
+// Pictures (Video::create_image): premultiplied alpha, mipmapped.
+const char* kPicturePS = R"(void main() { o_col = texture(u_tex, (u_off + src_pos()) / u_src).bgra * u_alpha; }
+)";
 
 const char* kOverlayVS = R"(#version 300 es
 layout(location = 0) in vec2 a_pos;
@@ -223,12 +228,15 @@ struct Video::Impl {
     int w = 0, h = 0;
     bool vsync = true, in_frame = false, fonts_dirty = true;
 
-    GLuint prog_game[(int)ScaleFilter::Count] = {}, prog_ov = 0;
-    struct GameLoc { GLint dst, src, scale, origin, alpha, dim, h, tex; } gl_game[(int)ScaleFilter::Count] = {};
+    // (one more than the filters: the last is the pictures')
+    GLuint prog_game[(int)ScaleFilter::Count + 1] = {}, prog_ov = 0;
+    struct GameLoc { GLint dst, src, scale, origin, alpha, dim, h, tex, off; } gl_game[(int)ScaleFilter::Count + 1] = {};
     GLint ov_screen = -1, ov_atlas = -1;
     GLuint vao_game = 0, vao_ov = 0, vb = 0, ib = 0;
 
     struct Slot { GLuint tex = 0; int w = 0, h = 0, tw = 0, th = 0; } slots[4];
+    struct Pic { GLuint tex = 0; int w = 0, h = 0; };
+    std::vector<Pic> pics;   // Video::create_image: id = index + 1 (tex 0: free)
 
     GLuint atlas = 0;
     std::vector<uint8_t> atlas_cpu;
@@ -238,8 +246,8 @@ struct Video::Impl {
     std::vector<OVert> verts;
 
     bool create_pipeline() {
-        for (int i = 0; i < (int)ScaleFilter::Count; i++) {
-            prog_game[i] = link(kGameVS, std::string(kGameCommon) + kGamePS[i]);
+        for (int i = 0; i <= (int)ScaleFilter::Count; i++) {
+            prog_game[i] = link(kGameVS, std::string(kGameCommon) + (i < (int)ScaleFilter::Count ? kGamePS[i] : kPicturePS));
             if (!prog_game[i]) return false;
             GameLoc& L = gl_game[i];
             GLuint p = prog_game[i];
@@ -247,6 +255,7 @@ struct Video::Impl {
             L.scale = glGetUniformLocation(p, "u_scale"); L.origin = glGetUniformLocation(p, "u_origin");
             L.alpha = glGetUniformLocation(p, "u_alpha"); L.dim = glGetUniformLocation(p, "u_dim");
             L.h = glGetUniformLocation(p, "u_h"); L.tex = glGetUniformLocation(p, "u_tex");
+            L.off = glGetUniformLocation(p, "u_off");
         }
         prog_ov = link(kOverlayVS, kOverlayPS);
         if (!prog_ov) return false;
@@ -292,6 +301,28 @@ struct Video::Impl {
         if (ib) { glDeleteBuffers(1, &ib); ib = 0; }
         if (vao_game) { glDeleteVertexArrays(1, &vao_game); vao_game = 0; }
         if (vao_ov) { glDeleteVertexArrays(1, &vao_ov); vao_ov = 0; }
+        for (auto& pc : pics) if (pc.tex) glDeleteTextures(1, &pc.tex);
+        pics.clear();
+    }
+
+    // A texture's `src` rectangle in `dst`, through program `f` (a filter, or Count: the pictures').
+    void draw_quad(GLuint tex, int tw, int th, Rect dst, Rect src, int f, float alpha, float dim) {
+        const Impl::GameLoc& L = gl_game[f];
+        glUseProgram(prog_game[f]);
+        glUniform4f(L.dst, dst.x / w * 2 - 1, 1 - dst.y / h * 2, (dst.x + dst.w) / w * 2 - 1, 1 - (dst.y + dst.h) / h * 2);
+        glUniform2f(L.src, (float)tw, (float)th);
+        glUniform2f(L.scale, dst.w / src.w, dst.h / src.h);
+        glUniform2f(L.off, src.x, src.y);
+        glUniform2f(L.origin, dst.x, dst.y);
+        glUniform1f(L.alpha, std::min(alpha, 1.0f));
+        glUniform1f(L.dim, std::max(0.0f, std::min(dim, 1.0f)));
+        glUniform1f(L.h, (float)h);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glUniform1i(L.tex, 0);
+        glBindVertexArray(vao_game);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        glBindVertexArray(0);
     }
 
     // ---- game textures ---------------------------------------------------------
@@ -588,21 +619,54 @@ void Video::draw_game(int slot, Rect dst, ScaleFilter filter, float alpha, float
     int f = (int)filter;
     if (!s.tex || f < 0 || f >= (int)ScaleFilter::Count || alpha <= 0 || !I.prog_game[f]) return;
     I.flush();
-    const Impl::GameLoc& L = I.gl_game[f];
-    glUseProgram(I.prog_game[f]);
-    glUniform4f(L.dst, dst.x / I.w * 2 - 1, 1 - dst.y / I.h * 2, (dst.x + dst.w) / I.w * 2 - 1, 1 - (dst.y + dst.h) / I.h * 2);
-    glUniform2f(L.src, (float)s.w, (float)s.h);
-    glUniform2f(L.scale, dst.w / s.w, dst.h / s.h);
-    glUniform2f(L.origin, dst.x, dst.y);
-    glUniform1f(L.alpha, std::min(alpha, 1.0f));
-    glUniform1f(L.dim, std::max(0.0f, std::min(dim, 1.0f)));
-    glUniform1f(L.h, (float)I.h);
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, s.tex);
-    glUniform1i(L.tex, 0);
-    glBindVertexArray(I.vao_game);
-    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-    glBindVertexArray(0);
+    I.draw_quad(s.tex, s.w, s.h, dst, {0, 0, (float)s.w, (float)s.h}, f, alpha, dim);
+}
+
+int Video::create_image(const uint32_t* px, int w, int h) {
+    Impl& I = *impl;
+    if (!px || w <= 0 || h <= 0 || w > 4096 || h > 4096 || !I.gl) return 0;
+    std::vector<uint32_t> pm((size_t)w * h);   // premultiplied (B,G,R,A bytes, swizzled in the shader)
+    for (size_t i = 0; i < pm.size(); i++) {
+        const uint32_t c = px[i], a = c >> 24;
+        auto m = [a](uint32_t v) { return (v * a + 127) / 255; };
+        pm[i] = a << 24 | m((c >> 16) & 255) << 16 | m((c >> 8) & 255) << 8 | m(c & 255);
+    }
+    Impl::Pic pc;
+    pc.w = w; pc.h = h;
+    glGenTextures(1, &pc.tex);
+    glBindTexture(GL_TEXTURE_2D, pc.tex);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pm.data());
+    glGenerateMipmap(GL_TEXTURE_2D);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    for (size_t i = 0; i < I.pics.size(); i++)
+        if (!I.pics[i].tex) { I.pics[i] = pc; return (int)i + 1; }
+    I.pics.push_back(pc);
+    return (int)I.pics.size();
+}
+
+void Video::free_image(int id) {
+    Impl& I = *impl;
+    if (id <= 0 || id > (int)I.pics.size() || !I.pics[id - 1].tex) return;
+    I.flush();
+    glDeleteTextures(1, &I.pics[id - 1].tex);
+    I.pics[id - 1] = Impl::Pic();
+}
+
+void Video::draw_image(int id, Rect dst, Rect src, float alpha) {
+    Impl& I = *impl;
+    const int f = (int)ScaleFilter::Count;
+    if (!I.in_frame || id <= 0 || id > (int)I.pics.size() || dst.w <= 0 || dst.h <= 0 || alpha <= 0 || !I.prog_game[f]) return;
+    const Impl::Pic& pc = I.pics[id - 1];
+    if (!pc.tex) return;
+    if (src.w <= 0 || src.h <= 0) src = {0, 0, (float)pc.w, (float)pc.h};
+    I.flush();
+    glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    I.draw_quad(pc.tex, pc.w, pc.h, dst, src, f, std::min(alpha, 1.0f), 0.0f);
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 }
 
 void Video::fill_rect(Rect r, uint32_t color) { fill_rect_gradient(r, color, color); }

@@ -71,6 +71,8 @@ add_executable(AladdinCollection WIN32
     src/app/png.cpp
     src/app/rewind.cpp
     src/app/ui.cpp
+    src/app/ornaments.cpp
+    src/app/imageload.cpp
     src/platform/video.cpp
     src/platform/slang.cpp
     src/platform/audio.cpp
@@ -79,6 +81,7 @@ add_executable(AladdinCollection WIN32
 )
 target_link_libraries(AladdinCollection PRIVATE emucore
     user32 gdi32 ole32 d3d11 dxgi d3dcompiler xaudio2 xinput dinput8 dxguid dwrite winmm dwmapi shell32 winhttp)
+target_include_directories(AladdinCollection PRIVATE third_party/stb)   # (stb_image: the player's cover pictures)
 set_target_properties(AladdinCollection PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_BINARY_DIR}/bin
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/bin-debug)

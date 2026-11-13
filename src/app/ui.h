@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 #include "../platform/video.h"
+#include "ornaments.h"
 
 struct UiInput {
     bool up = false, down = false, left = false, right = false;   // auto-repeating
@@ -100,7 +101,22 @@ private:
     void move(MenuPage& p, int dir);
 };
 
+// The menus' look (Settings::menu_style), for everything drawn with these helpers: Arabian Nights (deep indigo
+// panels in gold arabesque frames, gold titles) or Classic (the original dark slate panels).
+enum UiStyle : int { kStyleArabian = 0, kStyleClassic = 1 };
+void set_ui_style(int style);
+int ui_style();
+// Arabian Nights' colours
+constexpr uint32_t kGold = 0xFFF2C14E, kGoldDeep = 0xFFB8862A, kCream = 0xFFF7ECD4, kInk = 0xFF140A26;
+constexpr uint32_t kIndigo = 0xF41A0F3C, kIndigoDeep = 0xF4100828;
+
 // Shared drawing helpers
 void draw_panel(Video& v, Rect r, uint32_t accent, float alpha = 1.0f);
+// The Arabian Nights frame alone: a gold line, a fine one inside it, eight-pointed stars at the corners and a
+// diamond on the top edge (`crest`). `bright` 0..1 lights it up (a chosen card).
+void draw_arabesque_frame(Video& v, Rect r, float rad, float alpha = 1.0f, float bright = 1.0f, bool crest = true);
+// Text with a dark outline all round (gold titles; text over the player's background picture).
+void draw_text_outlined(Video& v, FontId font, float x, float y, const std::string& text, uint32_t color, uint32_t outline,
+                        Align align = Align::Left, float scale = 1.0f, float width = 0.0f);
 uint32_t with_alpha(uint32_t c, float a);
 uint32_t lerp_color(uint32_t a, uint32_t b, float t);
