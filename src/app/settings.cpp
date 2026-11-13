@@ -240,6 +240,11 @@ bool Settings::load(const std::wstring& path) {
         } else if (section == "touch") {
             if (k == "mode") touch_mode = clampi(iv, 0, 2);
             else if (k == "opacity") touch_opacity = clampi(iv, 10, 100);
+        } else if (section == "launcher") {
+            if (k == "menu_style") menu_style = clampi(iv, 0, 1);
+            else if (k == "covers") launcher_covers = iv != 0;
+            else if (k == "background") launcher_background = iv != 0;
+            else if (k == "cover_fill") cover_fill = iv != 0;
         } else if (section == "general") {
             if (k == "last_game") last_game = v;
             else if (k == "fast_forward") fast_forward = iv != 0;
@@ -286,6 +291,8 @@ bool Settings::save(const std::wstring& path) const {
     }
     o << "\n[general]\nlast_game=" << last_game << "\nfast_forward=" << fast_forward << "\nrewind=" << rewind
       << "\nachievements=" << achievements << "\nno_slowdown=" << no_slowdown << "\n";
+    o << "\n[launcher]\nmenu_style=" << menu_style << "\ncovers=" << launcher_covers << "\nbackground=" << launcher_background
+      << "\ncover_fill=" << cover_fill << "\n";
 #ifdef __ANDROID__
     o << "\n[touch]\nmode=" << touch_mode << "\nopacity=" << touch_opacity << "\n";
 #endif

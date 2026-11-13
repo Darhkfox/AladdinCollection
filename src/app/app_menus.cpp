@@ -75,6 +75,8 @@ void App::open_options_menu(bool from_launcher) {
     p.items.push_back(MenuItem::action("Video", [this]() { menu_.push(video_page()); }, "Display mode, widescreen, scaling and filters."));
     p.items.push_back(MenuItem::action("Colour", [this]() { menu_.push(color_page()); }, "Colour profiles and picture adjustments."));
     p.items.push_back(MenuItem::action("Audio", [this]() { menu_.push(audio_page()); }, "Volume and sound-chip options."));
+    p.items.push_back(MenuItem::action("Launcher & Menus", [this]() { menu_.push(launcher_page()); },
+                                       "The menus' look, and your own cover pictures and background for the launcher."));
     // Each console has its own buttons: in a game its console's bindings, from the launcher all three.
     if (session_ && !from_launcher) {
         const System sys = session_->system();
@@ -156,6 +158,55 @@ void App::open_credits(bool from_launcher) {
     p.items.push_back(MenuItem::info("Disney's Aladdin \xC2\xA9 Disney. An unofficial fan project; it contains no game data."));
     if (from_launcher) menu_.open(std::move(p));
     else menu_.push(std::move(p));   // from the pause menu: Back returns to it
+}
+
+MenuPage App::launcher_page() {
+    MenuPage p;
+    p.title = "Launcher & Menus";
+    p.wide = true;
+    p.items.push_back(MenuItem::choice("Menu Style", {"Arabian Nights", "Classic"}, [this]() { return settings_.menu_style; },
+                                       [this](int v) { settings_.menu_style = v; apply_ui_style(); },
+                                       "Arabian Nights: deep indigo and gold arabesques under the stars. Classic: the original dark panels."));
+    p.items.push_back(MenuItem::header("Your own pictures (none are included)"));
+    // (beside each switch: how many of its pictures were found)
+    MenuItem covers = MenuItem::toggle("Game Covers", [this]() { return settings_.launcher_covers; },
+                                       [this](bool v) { settings_.launcher_covers = v; load_launcher_art(true); },
+                                       "Your cover pictures on the game cards in place of the live previews.");
+    covers.value_text = [this]() {
+        if (!settings_.launcher_covers) return std::string();
+        int n = 0;
+        for (int g = 0; g < kGameCount; g++) n += has_cover(g) ? 1 : 0;
+        return n ? std::to_string(n) + " of " + std::to_string(kGameCount) + " found" : std::string("none found");
+    };
+    p.items.push_back(covers);
+    MenuItem bg = MenuItem::toggle("Custom Background", [this]() { return settings_.launcher_background; },
+                                   [this](bool v) { settings_.launcher_background = v; load_launcher_art(true); },
+                                   "Your picture behind the launcher (filling the screen; the middle is kept).");
+    bg.value_text = [this]() {
+        return settings_.launcher_background && !bg_art_.w ? std::string("not found") : std::string();
+    };
+    p.items.push_back(bg);
+    p.items.push_back(MenuItem::choice("Cover Shape", {"Whole Cover", "Fill the Frame"}, [this]() { return settings_.cover_fill ? 1 : 0; },
+                                       [this](int v) { settings_.cover_fill = v == 1; },
+                                       "Whole Cover shows all of it (bars beside a tall box); Fill the Frame trims it to fill."));
+#ifdef __ANDROID__
+    for (int g = 0; g < kGameCount; g++) {
+        const std::string id = games_[g].module->id();
+        p.items.push_back(MenuItem::action(std::string("Choose Cover: ") + system_name(games_[g].module->system()),
+                                           [this, id]() { pick_image(id); },
+                                           "Pick a picture (PNG or JPEG) from your device for this game's card."));
+    }
+    p.items.push_back(MenuItem::action("Choose Background", [this]() { pick_image("background"); },
+                                       "Pick a picture (PNG or JPEG) from your device for the launcher's background."));
+#else
+    p.items.push_back(MenuItem::action("Open Covers Folder", [this]() {
+        make_dir(covers_dir());
+        if (!autotest_) open_url(to_utf8(covers_dir()).c_str());
+    }, "Put md, snes, sms (the covers) and background there as .png or .jpg; they're read when you leave this page."));
+    p.items.push_back(MenuItem::info("Covers: md.png, snes.png, sms.png    Background: background.png"));
+#endif
+    p.on_back = [this]() { load_launcher_art(true); save_settings(); };
+    return p;
 }
 
 MenuPage App::video_page() {

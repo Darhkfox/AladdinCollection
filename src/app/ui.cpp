@@ -15,7 +15,51 @@ uint32_t lerp_color(uint32_t a, uint32_t b, float t) {
     return out;
 }
 
+namespace { int g_style = kStyleArabian; }
+void set_ui_style(int style) { g_style = style == kStyleClassic ? kStyleClassic : kStyleArabian; }
+int ui_style() { return g_style; }
+
+void draw_text_outlined(Video& v, FontId font, float x, float y, const std::string& text, uint32_t color, uint32_t outline,
+                        Align align, float scale, float width) {
+    const float o = width > 0 ? width : std::max(1.0f, v.line_height(font, scale) * 0.045f);
+    for (int k = 0; k < 8; k++) {
+        const float a = k * 0.78539816f;
+        v.draw_text(font, x + std::cos(a) * o, y + std::sin(a) * o, text, outline, align, scale);
+    }
+    v.draw_text(font, x, y, text, color, align, scale);
+}
+
+void draw_arabesque_frame(Video& v, Rect r, float rad, float alpha, float bright, bool crest) {
+    const float H = (float)v.height(), line = std::max(1.5f, H / 420.0f);
+    const float a_main = alpha * (0.45f + 0.55f * bright), a_fine = alpha * (0.25f + 0.25f * bright);
+    v.outline_round_rect(r, rad, line * 1.4f, with_alpha(kGold, a_main));
+    const float in = line * 3.6f;
+    v.outline_round_rect({r.x + in, r.y + in, r.w - in * 2, r.h - in * 2}, std::max(1.0f, rad - in * 0.7f), line * 0.7f,
+                         with_alpha(kGold, a_fine));
+    // eight-pointed stars on the corners (where the frame turns), a diamond with two beads on the top edge
+    const float ss = std::clamp(std::min(r.w, r.h) * 0.11f, H * 0.014f, H * 0.032f), m = rad * 0.32f;
+    for (float sx : {r.x + m, r.x + r.w - m})
+        for (float sy : {r.y + m, r.y + r.h - m}) draw_ornament(v, Ornament::Star8, sx, sy, ss, a_main);
+    if (crest && r.w > ss * 6) {
+        const float cx = r.x + r.w * 0.5f, dh = ss * 1.15f, bead = std::max(1.5f, ss * 0.11f);
+        for (float bx : {cx - dh * 0.75f, cx + dh * 0.75f})
+            v.fill_round_rect({bx - bead, r.y - bead, bead * 2, bead * 2}, bead, with_alpha(kGold, a_main));
+        draw_ornament(v, Ornament::Diamond, cx, r.y, dh, a_main);
+    }
+}
+
 void draw_panel(Video& v, Rect r, uint32_t accent, float alpha) {
+    if (g_style == kStyleArabian) {
+        // Deep indigo with a violet sheen at the top, in a gold arabesque frame.
+        (void)accent;
+        const float H = (float)v.height(), rad = H * 0.02f, line = std::max(1.5f, H / 420.0f);
+        v.fill_round_rect({r.x + rad * 0.25f, r.y + rad * 0.45f, r.w, r.h}, rad, with_alpha(0x90000000, alpha));
+        v.fill_round_rect(r, rad, with_alpha(kIndigo, alpha));
+        v.fill_rect_gradient({r.x + rad, r.y + line * 2.0f, r.w - rad * 2, std::min(r.h * 0.3f, H * 0.2f)},
+                             with_alpha(0x306A3CB0, alpha), with_alpha(0x006A3CB0, alpha));
+        draw_arabesque_frame(v, r, rad, alpha);
+        return;
+    }
     float rad = v.height() * 0.018f;
     Rect sh = {r.x + rad * 0.3f, r.y + rad * 0.5f, r.w, r.h};
     v.fill_round_rect(sh, rad, with_alpha(0x80000000, alpha));
@@ -181,7 +225,15 @@ void Menu::draw(Video& v, float time) {
     if (stack_.empty()) return;
     MenuPage& p = stack_.back();
     const float W = (float)v.width(), H = (float)v.height();
-    v.fill_rect({0, 0, W, H}, 0x9A05070C);
+    // Arabian Nights: gold titles, cream text, gold switches; Classic: the slate panel, the running game's colour for
+    // the title and the selection
+    const bool ar = g_style == kStyleArabian;
+    const uint32_t c_title = ar ? kGold : accent, c_head = ar ? kGold : with_alpha(accent, 0.9f);
+    const uint32_t c_crumb = ar ? 0xFFB9A9DC : 0xFF8A93A6, c_sub = ar ? 0xFFD9CDEE : 0xFFB7BFCE;
+    const uint32_t c_text = ar ? 0xFFF3E9D6 : 0xFFD4DAE6, c_value = ar ? 0xFFE9CC8C : 0xFFA9B3C6;
+    const uint32_t c_off = ar ? 0xFF6E6294 : 0xFF5A6070, c_track = ar ? 0xFF3A2A62 : 0xFF3A404E;
+    const uint32_t c_on = ar ? kGold : accent, c_knob = ar ? kCream : 0xFFF4F6FA;
+    v.fill_rect({0, 0, W, H}, ar ? 0xB0090418 : 0x9A05070C);
 
     float pw = std::min(W * (p.wide ? 0.78f : 0.62f), H * (p.wide ? 1.45f : 1.15f));
     float ph = H * 0.84f;
@@ -197,26 +249,40 @@ void Menu::draw(Video& v, float time) {
     if (stack_.size() > 1) {
         std::string crumb;
         for (size_t i = 0; i + 1 < stack_.size(); i++) crumb += stack_[i].title + "  \xC2\xBB  ";
-        v.draw_text(FontId::Small, panel.x + pad, y, crumb, 0xFF8A93A6, Align::Left, fit(FontId::Small, crumb));
+        v.draw_text(FontId::Small, panel.x + pad, y, crumb, c_crumb, Align::Left, fit(FontId::Small, crumb));
         y += v.line_height(FontId::Small);
     }
     if (touch_ui) {
         const char* back = "\xE2\x97\x80  Back";
         float bh = v.line_height(FontId::Body) * 1.3f, bw = v.measure_text(FontId::Body, back) + bh;
         back_btn_ = {panel.x + panel.w - pad * 0.6f - bw, panel.y + pad * 0.5f, bw, bh};
-        v.fill_round_rect(back_btn_, bh * 0.5f, 0xFF262C3A);
-        v.draw_text(FontId::Body, back_btn_.x + bw * 0.5f, back_btn_.y + (bh - v.line_height(FontId::Body)) * 0.5f, back, 0xFFD8DDE8,
-                    Align::Center);
+        v.fill_round_rect(back_btn_, bh * 0.5f, ar ? 0xFF2C1A5C : 0xFF262C3A);
+        if (ar) v.outline_round_rect(back_btn_, bh * 0.5f, std::max(1.0f, H / 540.0f), kGold);
+        v.draw_text(FontId::Body, back_btn_.x + bw * 0.5f, back_btn_.y + (bh - v.line_height(FontId::Body)) * 0.5f, back,
+                    ar ? kCream : 0xFFD8DDE8, Align::Center);
     }
-    v.draw_text(FontId::Title, panel.x + pad, y, p.title, accent, Align::Left, fit(FontId::Title, p.title));
+    if (ar) {   // gold, outlined in ink, with a shadow
+        const float ts = fit(FontId::Title, p.title), o = std::max(1.5f, H / 400.0f);
+        v.draw_text(FontId::Title, panel.x + pad + o * 1.2f, y + o * 2.0f, p.title, 0xA0000000, Align::Left, ts);
+        draw_text_outlined(v, FontId::Title, panel.x + pad, y, p.title, c_title, kInk, Align::Left, ts, o);
+    } else {
+        v.draw_text(FontId::Title, panel.x + pad, y, p.title, c_title, Align::Left, fit(FontId::Title, p.title));
+    }
     y += v.line_height(FontId::Title);
     if (!p.subtitle.empty()) {
-        v.draw_text(FontId::Small, panel.x + pad, y - v.line_height(FontId::Small) * 0.15f, p.subtitle, 0xFFB7BFCE, Align::Left,
+        v.draw_text(FontId::Small, panel.x + pad, y - v.line_height(FontId::Small) * 0.15f, p.subtitle, c_sub, Align::Left,
                     fit(FontId::Small, p.subtitle));
         y += v.line_height(FontId::Small);
     }
     y += pad * 0.35f;
-    v.fill_rect({panel.x + pad, y, panel.w - pad * 2, std::max(1.0f, H / 720.0f)}, with_alpha(accent, 0.35f));
+    if (ar) {   // a gold rule with a diamond in its middle
+        const float ly = y, lw = std::max(1.0f, H / 600.0f), cx = panel.x + panel.w * 0.5f, dh = pad * 0.42f;
+        v.fill_rect({panel.x + pad, ly, cx - dh * 0.6f - panel.x - pad, lw}, with_alpha(kGold, 0.55f));
+        v.fill_rect({cx + dh * 0.6f, ly, panel.x + panel.w - pad - cx - dh * 0.6f, lw}, with_alpha(kGold, 0.55f));
+        draw_ornament(v, Ornament::Diamond, cx, ly + lw * 0.5f, dh);
+    } else {
+        v.fill_rect({panel.x + pad, y, panel.w - pad * 2, std::max(1.0f, H / 720.0f)}, with_alpha(accent, 0.35f));
+    }
     y += pad * 0.45f;
 
     const float row = v.line_height(FontId::Body) * 1.32f;
@@ -257,29 +323,46 @@ void Menu::draw(Video& v, float time) {
         bool sel = i == p.sel;
         float ty = ry + (row - v.line_height(FontId::Body)) * 0.5f;
         if (it.kind == MenuItem::Header) {
-            v.draw_text(FontId::Small, tx, ry + row - v.line_height(FontId::Small) * 1.1f, it.label, with_alpha(accent, 0.9f));
+            const float hy = ry + row - v.line_height(FontId::Small) * 1.1f;
+            if (ar) {   // a small diamond before it
+                const float dh = v.line_height(FontId::Small) * 0.62f;
+                draw_ornament(v, Ornament::Diamond, tx + dh * 0.32f, hy + v.line_height(FontId::Small) * 0.52f, dh);
+                v.draw_text(FontId::Small, tx + dh * 0.9f, hy, it.label, c_head);
+            } else {
+                v.draw_text(FontId::Small, tx, hy, it.label, c_head);
+            }
             continue;
         }
         if (sel) {
             float pulse = 0.22f + 0.06f * std::sin(time * 4.0f);
             Rect hr = {panel.x + pad * 0.5f, ry + row * 0.06f, panel.w - pad, row * 0.88f};
-            v.fill_round_rect(hr, row * 0.2f, with_alpha(accent, pulse));
-            v.fill_round_rect({hr.x, hr.y + hr.h * 0.18f, std::max(3.0f, H / 300.0f), hr.h * 0.64f}, 2.0f, accent);
+            if (ar) {   // a violet glow in a gold rim, an eight-pointed star at its left with the game's colour in it
+                v.fill_round_rect(hr, row * 0.2f, with_alpha(0xFF8A4FD8, pulse * 1.6f));
+                v.outline_round_rect(hr, row * 0.2f, std::max(1.0f, H / 600.0f), with_alpha(kGold, 0.85f));
+                const float ss = std::min(pad * 0.62f, hr.h * 0.62f), sx = hr.x + pad * 0.38f, sy = hr.y + hr.h * 0.5f;
+                draw_ornament(v, Ornament::Star8, sx, sy, ss);
+                const float jr = ss * 0.12f;
+                v.fill_round_rect({sx - jr, sy - jr, jr * 2, jr * 2}, jr, accent);
+            } else {
+                v.fill_round_rect(hr, row * 0.2f, with_alpha(accent, pulse));
+                v.fill_round_rect({hr.x, hr.y + hr.h * 0.18f, std::max(3.0f, H / 300.0f), hr.h * 0.64f}, 2.0f, accent);
+            }
         }
-        uint32_t col = !en ? 0xFF5A6070 : sel ? 0xFFFFFFFF : 0xFFD4DAE6;
+        uint32_t col = !en ? c_off : sel ? 0xFFFFFFFF : c_text;
         const float label_fit = it.kind == MenuItem::Info && !it.value_text ? text_fit : 1.0f;
         v.draw_text(FontId::Body, tx + (sel ? pad * 0.35f : 0), ty, it.label, col, Align::Left, label_fit);
         std::string val;
-        uint32_t vcol = !en ? 0xFF5A6070 : sel ? 0xFFFFFFFF : 0xFFA9B3C6;
+        uint32_t vcol = !en ? c_off : sel ? (ar ? 0xFFFFEBB8 : 0xFFFFFFFF) : c_value;
         switch (it.kind) {
         case MenuItem::Toggle: {
             bool on = it.get_bool && it.get_bool();
             // pill switch
             float sh = v.line_height(FontId::Body) * 0.62f, sw = sh * 1.9f;
             Rect sr = {vx - sw, ry + (row - sh) * 0.5f, sw, sh};
-            v.fill_round_rect(sr, sh * 0.5f, on ? with_alpha(accent, en ? 1.0f : 0.4f) : 0xFF3A404E);
+            v.fill_round_rect(sr, sh * 0.5f, on ? with_alpha(c_on, en ? 1.0f : 0.4f) : c_track);
+            if (ar && sel) v.outline_round_rect(sr, sh * 0.5f, std::max(1.0f, H / 600.0f), with_alpha(kInk, 0.7f));
             float kx = on ? sr.x + sw - sh : sr.x;
-            v.fill_round_rect({kx + sh * 0.12f, sr.y + sh * 0.12f, sh * 0.76f, sh * 0.76f}, sh * 0.38f, 0xFFF4F6FA);
+            v.fill_round_rect({kx + sh * 0.12f, sr.y + sh * 0.12f, sh * 0.76f, sh * 0.76f}, sh * 0.38f, c_knob);
             // a note next to the switch (e.g. what a setting needs to work), shrunk to fit beside the label
             const std::string note = it.value_text ? it.value_text() : "";
             if (!note.empty()) {
@@ -303,17 +386,17 @@ void Menu::draw(Video& v, float time) {
             std::string txt = it.format ? it.format(c) : std::to_string(c);
             float tw = v.measure_text(FontId::Body, "00000") ;
             Rect br = {vx - bw - tw, ry + row * 0.5f - bh * 0.5f, bw, bh};
-            v.fill_round_rect(br, bh * 0.5f, 0xFF3A404E);
+            v.fill_round_rect(br, bh * 0.5f, c_track);
             float f = it.max > it.min ? (float)(c - it.min) / (it.max - it.min) : 0;
-            v.fill_round_rect({br.x, br.y, br.w * f, bh}, bh * 0.5f, en ? accent : 0xFF5A6070);
-            v.fill_round_rect({br.x + br.w * f - bh * 1.4f, br.y - bh * 0.9f, bh * 2.8f, bh * 2.8f}, bh * 1.4f, 0xFFF4F6FA);
+            v.fill_round_rect({br.x, br.y, br.w * f, bh}, bh * 0.5f, en ? c_on : c_off);
+            v.fill_round_rect({br.x + br.w * f - bh * 1.4f, br.y - bh * 0.9f, bh * 2.8f, bh * 2.8f}, bh * 1.4f, c_knob);
             v.draw_text(FontId::Body, vx, ty, txt, vcol, Align::Right);
             break;
         }
         case MenuItem::Bind:
             val = capture_ && sel ? (it.bind_pad ? "Press a button\xE2\x80\xA6" : "Press a key\xE2\x80\xA6") :
                   (it.value_text ? it.value_text() : "");
-            if (capture_ && sel) vcol = accent;
+            if (capture_ && sel) vcol = c_on;
             break;
         default:
             if (it.value_text) val = it.value_text();
@@ -322,17 +405,18 @@ void Menu::draw(Video& v, float time) {
         if (!val.empty()) v.draw_text(FontId::Body, vx, ty, val, vcol, Align::Right);
     }
     // scroll indicators
-    if (p.scroll > 0.05f) v.draw_text(FontId::Small, panel.x + panel.w * 0.5f, list_top - v.line_height(FontId::Small) * 0.9f, "\xE2\x86\x91", 0xFF8A93A6, Align::Center);
-    if (p.scroll + visible < (float)p.items.size() - 0.05f) v.draw_text(FontId::Small, panel.x + panel.w * 0.5f, list_bottom - v.line_height(FontId::Small) * 0.2f, "\xE2\x86\x93", 0xFF8A93A6, Align::Center);
+    if (p.scroll > 0.05f) v.draw_text(FontId::Small, panel.x + panel.w * 0.5f, list_top - v.line_height(FontId::Small) * 0.9f, "\xE2\x86\x91", c_crumb, Align::Center);
+    if (p.scroll + visible < (float)p.items.size() - 0.05f) v.draw_text(FontId::Small, panel.x + panel.w * 0.5f, list_bottom - v.line_height(FontId::Small) * 0.2f, "\xE2\x86\x93", c_crumb, Align::Center);
 
     // footer: hint + controls
     float fy = panel.y + panel.h - footer_h;
-    v.fill_rect({panel.x + pad, fy, panel.w - pad * 2, std::max(1.0f, H / 720.0f)}, 0x30FFFFFF);
+    v.fill_rect({panel.x + pad, fy, panel.w - pad * 2, std::max(1.0f, H / 720.0f)}, ar ? with_alpha(kGold, 0.35f) : 0x30FFFFFF);
     if (p.sel >= 0 && !p.items[p.sel].hint.empty()) {
         const std::string& hint = p.items[p.sel].hint;
-        v.draw_text(FontId::Small, tx, fy + v.line_height(FontId::Small) * 0.35f, hint, 0xFFC9D0DC, Align::Left, fit(FontId::Small, hint));
+        v.draw_text(FontId::Small, tx, fy + v.line_height(FontId::Small) * 0.35f, hint, ar ? 0xFFE6DCC6 : 0xFFC9D0DC, Align::Left,
+                    fit(FontId::Small, hint));
     }
-    v.draw_text(FontId::Small, tx, fy + v.line_height(FontId::Small) * 1.75f, footer, 0xFF7C8598);
+    v.draw_text(FontId::Small, tx, fy + v.line_height(FontId::Small) * 1.75f, footer, ar ? 0xFFA597C8 : 0xFF7C8598);
 }
 
 void Menu::toast(const std::string& msg, float seconds) {
@@ -361,8 +445,14 @@ void Menu::draw_toasts(Video& v, float dt, bool bottom) {
         float tw = v.measure_text(font, t.text);
         float bw = tw + H * 0.05f;
         Rect r = {bottom ? (W - bw) * 0.5f : W - tw - H * 0.09f, y, bw, h};
-        v.fill_round_rect(r, h * 0.3f, with_alpha(0xF0181C26, a));
-        v.fill_round_rect({r.x, r.y + h * 0.2f, std::max(3.0f, H / 300.0f), h * 0.6f}, 2.0f, with_alpha(accent, a));
+        if (g_style == kStyleArabian) {
+            v.fill_round_rect(r, h * 0.3f, with_alpha(0xF2221448, a));
+            v.outline_round_rect(r, h * 0.3f, std::max(1.0f, H / 600.0f), with_alpha(kGold, a));
+            v.fill_round_rect({r.x, r.y + h * 0.2f, std::max(3.0f, H / 300.0f), h * 0.6f}, 2.0f, with_alpha(kGold, a));
+        } else {
+            v.fill_round_rect(r, h * 0.3f, with_alpha(0xF0181C26, a));
+            v.fill_round_rect({r.x, r.y + h * 0.2f, std::max(3.0f, H / 300.0f), h * 0.6f}, 2.0f, with_alpha(accent, a));
+        }
         v.draw_text(font, r.x + H * 0.025f, r.y + h * 0.17f, t.text, with_alpha(0xFFFFFFFF, a));
         y += bottom ? -h * 1.15f : h * 1.15f;
     }

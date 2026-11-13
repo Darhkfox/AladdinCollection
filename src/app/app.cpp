@@ -22,8 +22,15 @@ static Settings preview_settings(const Settings& s) {
     return p;
 }
 
+// The menu style (Arabian Nights / Classic) for the menus and the launcher, and the launcher's pictures.
+void App::apply_ui_style() {
+    set_ui_style(settings_.menu_style);
+    load_launcher_art();
+}
+
 void App::apply_settings() {
     video_.set_vsync(settings_.vsync);
+    apply_ui_style();
     if (session_) session_->apply_settings(settings_);
     for (auto& g : games_)
         if (g.preview) g.preview->apply_settings(preview_settings(settings_));
@@ -251,6 +258,7 @@ void App::frame(double dt) {
     if (touch_active_) menu_.footer = "Tap an item to choose    Drag to scroll    Back to return";
     if (picking_roms_) poll_pick();
     if (picking_soundtrack_) poll_soundtrack();
+    if (!picking_image_.empty()) poll_image();
 #endif
     // With achievements on, rewind and fast forward are off; using them says so (now and then).
     if (ach_locked_note_ > 0) ach_locked_note_ -= (float)dt;
@@ -436,7 +444,8 @@ bool App::load_script(const std::wstring& path) {
         else if (c == "stoprec") script_.push_back({fr, 0, 7, ""});
         else if (c == "loadstate") script_.push_back({fr, 0, 8, a});  // <dir>\<a>.state into the running game
         else if (c == "pads") script_.push_back({fr, 0, 9, a});       // <dir>\<a>.pads: uint16 p1, p2 per frame
-        else if (c == "set") script_.push_back({fr, 0, 10, a});       // key=value: widescreen, color, filter, hud_anchor
+        else if (c == "set") script_.push_back({fr, 0, 10, a});       // key=value: widescreen, color, filter, hud_anchor,
+                                                                      // menu_style, covers, background, cover_fill
         else if (c == "award") script_.push_back({fr, 0, 11, a});     // an achievement id (tests of the pop-up / pages)
         else if (c == "welcome") script_.push_back({fr, 0, 12, ""});  // the first start's achievements page
     }
@@ -496,6 +505,10 @@ void App::run_script() {
             else if (k == "filter") settings_.filter = std::clamp(v, 0, 4);
             else if (k == "hud_anchor") settings_.hud_anchor = v != 0;
             else if (k == "black_frames") settings_.black_frames = v != 0;
+            else if (k == "menu_style") settings_.menu_style = std::clamp(v, 0, 1);
+            else if (k == "covers") settings_.launcher_covers = v != 0;
+            else if (k == "background") settings_.launcher_background = v != 0;
+            else if (k == "cover_fill") settings_.cover_fill = v != 0;
             else if (k == "refresh") test_refresh_ = v;
             apply_settings();
             break;
@@ -578,10 +591,22 @@ void App::find_game_roms() {
         found.push_back(std::move(g.rom));
     }
     find_roms(specs, found);
+    for (int i = 0; i < kGameCount; i++) games_[i].rom = std::move(found[i]);
+    load_launcher_art();   // (the first time: which cards have covers, so get no preview)
+    ensure_previews();
+}
+
+// A preview for each found game without a cover on its card; none for the others (lighter on slow devices).
+void App::ensure_previews() {
     for (int i = 0; i < kGameCount; i++) {
         GameSlot& g = games_[i];
-        g.rom = std::move(found[i]);
-        if (!g.rom.found || g.preview) continue;
+        if (has_cover(i) || !g.rom.found) {
+            g.preview.reset();
+            g.preview_start.clear();
+            continue;
+        }
+        if (g.preview) continue;
+        launcher_heard_ = -1;   // (a new preview starts over at its start point when its card is chosen)
         g.preview = Session::create(g.module.get());
         g.preview->set_audio_rate(48000);
         g.preview->open(g.module.get(), g.rom.data);
