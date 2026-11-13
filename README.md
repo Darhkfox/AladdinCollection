@@ -346,7 +346,8 @@ gradlew assembleDebug
 ## Credits and licences
 
 - PC port by Darhkfox — [YouTube](https://www.youtube.com/adhgaming) ·
-  [Reddit u/Darhkwing](https://www.reddit.com/user/Darhkwing) · [GitHub](https://github.com/Darhkfox).
+  [Reddit u/Darhkwing](https://www.reddit.com/user/Darhkwing) · [GitHub](https://github.com/Darhkfox) ·
+  [X](https://x.com/ADH_Gaming) · [Patreon](https://www.patreon.com/c/TeamRedTail).
 - The port's own code is released under the MIT licence (`LICENSE`). The emulation cores are written from
   scratch. UI text uses the system font (Segoe UI through DirectWrite on Windows, Android's own font on Android).
 - The Android build uses SDL2 by Sam Lantinga and contributors, zlib licence (fetched by
