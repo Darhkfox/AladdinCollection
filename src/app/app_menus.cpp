@@ -110,6 +110,7 @@ void App::open_options_menu(bool from_launcher) {
     // (right under what it switches off)
     p.items.push_back(MenuItem::header("Achievements"));
     p.items.push_back(achievements_switch());
+    add_update_items(p);
 #ifdef __ANDROID__
     p.items.push_back(MenuItem::header("Touch screen"));
     p.items.push_back(MenuItem::choice("On-screen Controls", {"When touched", "Always", "Off"}, [this]() { return settings_.touch_mode; },

@@ -42,6 +42,9 @@ add_library(main SHARED
   ${SRC}/app/app_android.cpp
   ${SRC}/app/app_achievements.cpp
   ${SRC}/app/achievements.cpp
+  ${SRC}/app/achexport.cpp
+  ${SRC}/app/updatecheck.cpp
+  ${SRC}/app/app_updates.cpp
   ${SRC}/app/app_menus.cpp
   ${SRC}/app/launcher.cpp
   ${SRC}/app/jukebox.cpp

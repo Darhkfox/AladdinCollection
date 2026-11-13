@@ -74,6 +74,11 @@ struct Settings {
     // SNES: the CPU runs the game's frame work faster (GameConfig::cpu_turbo = kNoSlowdownTurbo): no slowdown
     bool        no_slowdown = true;
 
+    // Update check: once a day the launcher reads the latest release's version on GitHub (nothing else is sent)
+    bool        check_updates = true;
+    std::string update_checked_on;          // "YYYY-MM-DD" of the last check that got an answer
+    std::string update_latest;              // the latest release's tag it found ("v1.1")
+
     // Touch screens (Android): on-screen pad 0 = when the screen is touched, 1 = always, 2 = never; opacity %
     int         touch_mode = 0;
     int         touch_opacity = 55;
