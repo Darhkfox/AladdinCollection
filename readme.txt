@@ -159,6 +159,12 @@
                       Patreon) and what the collection is made with.
      Quit ........... Exit to the desktop.
 
+  The launcher and the menus come in two styles (Options > Launcher &
+  Menus > Menu Style): Arabian Nights (deep indigo and gold arabesques
+  under the stars) or Classic (the original dark panels). Your own cover
+  pictures can take the place of the previews, and your own picture can go
+  behind the launcher (see LAUNCHER & MENUS under OPTIONS).
+
   To start a game straight from a shortcut, make a shortcut to
   AladdinCollection.exe and add  --game md,  --game snes  or  --game sms  to
   the end of its Target.
@@ -340,6 +346,27 @@
      cancels). Also: Device (which pad), Left Stick Moves (default ON) and
      Reset to Defaults.
 
+  LAUNCHER & MENUS
+     Menu Style ........ Arabian Nights: deep indigo panels in gold
+                         arabesque frames, gold titles, and Agrabah's night
+                         sky with glints and gold dust. Classic: the
+                         original dark panels.   (default: Arabian Nights)
+     Game Covers ....... Your own cover pictures on the game cards instead
+                         of the live previews (a card with a cover runs no
+                         preview).                         (default: OFF)
+     Custom Background . Your own picture behind the launcher, filling the
+                         screen.                           (default: OFF)
+     Cover Shape ....... Whole Cover (all of it, bars beside it) or Fill the
+                         Frame (trimmed to fill).
+     Open Covers Folder  Opens the "covers" folder next to the exe. Put
+                         md, snes, sms (the covers) and background there as
+                         .png or .jpg; they're read when you leave the page.
+                         None are included. A picture that's missing or
+                         can't be read is skipped: that card keeps its
+                         preview, the launcher its night sky.
+                         On Android: Choose Cover / Choose Background pick
+                         a picture from your device instead.
+
   ACHIEVEMENTS
      Achievements ...... Earn achievements as you play. While this is on,
                          cheats, the level select, fast forward and rewind
@@ -518,6 +545,8 @@
   saves\ ............. Save states.
   screenshots\ ....... F12 screenshots.
   soundtracks\ ....... MD+ soundtrack packs (Mega Drive), if you have any.
+  covers\ ............ Your launcher pictures: md, snes, sms, background
+                       (.png or .jpg).
   shaders\ ........... Slang shader presets (Options > Video > Slang
                        Shader), with librashader.dll next to the exe.
 
@@ -545,6 +574,9 @@
   its own licence (public domain, GPL v2 or later, MIT): see
   shaders\README.txt. They are separate files loaded at run time, not part
   of the program.
+
+  Cover and background pictures are read with stb_image by Sean Barrett,
+  public domain (or MIT, at your choice).
 
   Aladdin (c) Disney. The Mega Drive version (c) 1993 Sega / Virgin Games,
   the SNES version (c) 1993 Capcom, the Master System version (c) 1994

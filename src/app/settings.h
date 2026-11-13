@@ -88,6 +88,13 @@ struct Settings {
     // Cheats per game: game id -> cheat key -> enabled
     std::map<std::string, std::map<std::string, bool>> cheats;
 
+    // Launcher and menus: the menus' look (UiStyle), and the player's own pictures on the launcher (none are shipped:
+    // covers/<game id>.png or .jpg and covers/background.png in the data folder)
+    int         menu_style = 0;             // 0 Arabian Nights, 1 Classic
+    bool        launcher_covers = false;    // the game cards show covers/<id> in place of the live previews
+    bool        launcher_background = false;   // the launcher's background is covers/background
+    bool        cover_fill = false;         // covers fill their frames (trimmed); else shown whole
+
     std::string last_game;
 
     Settings();

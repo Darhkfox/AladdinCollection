@@ -32,6 +32,10 @@ import org.libsdl.app.SDLActivity;
 public class CollectionActivity extends SDLActivity {
     private static final int PICK_ROMS = 0x4D44;
     private static final int PICK_SOUNDTRACK = 0x4D45;
+    private static final int PICK_IMAGE = 0x4D46;
+    // the launcher's pictures (a card's cover or the background): the name it's saved as, and the result
+    private static volatile String imageName = "";
+    private static volatile int imageResult = -1;
     private static final long MAX_FILE = 64L << 20;
     // set when the picker returns: the number of files copied (-1 while the picker is open / nothing yet)
     private static volatile int pickResult = -1;
@@ -86,6 +90,53 @@ public class CollectionActivity extends SDLActivity {
         });
     }
 
+    // ---- launcher pictures (called from native code, app_android.cpp) ----------------------------------
+    // The player's own cover or background picture, copied to files/covers/<name>.png (read by its content:
+    // a JPEG under that name is fine). Result: -1 while the picker is open, then 0 cancelled / failed, 1 copied.
+    public static void pickImage(String name) {
+        imageName = name;
+        imageResult = -1;
+        final SDLActivity act = mSingleton;
+        act.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                i.addCategory(Intent.CATEGORY_OPENABLE);
+                i.setType("image/*");
+                try {
+                    act.startActivityForResult(i, PICK_IMAGE);
+                } catch (Exception e) {
+                    imageResult = 0;
+                }
+            }
+        });
+    }
+
+    public static int pollImageResult() {
+        int r = imageResult;
+        if (r >= 0) imageResult = -1;
+        return r;
+    }
+
+    private boolean copyImage(Uri uri, File out) {
+        File tmp = new File(out.getParentFile(), out.getName() + ".tmp");
+        try (InputStream in = getContentResolver().openInputStream(uri); OutputStream os = new FileOutputStream(tmp)) {
+            byte[] buf = new byte[65536];
+            long total = 0;
+            int n;
+            while ((n = in.read(buf)) > 0) {
+                os.write(buf, 0, n);
+                total += n;
+                if (total > (48L << 20)) throw new Exception("too big a picture");
+            }
+        } catch (Exception e) {
+            tmp.delete();
+            return false;
+        }
+        out.delete();
+        return tmp.renameTo(out);
+    }
+
     // polled from native code: -1 while the picker is open, else the number of files copied (once)
     public static int pollPickResult() {
         int r = pickResult;
@@ -126,6 +177,18 @@ public class CollectionActivity extends SDLActivity {
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == PICK_IMAGE) {
+            int ok = 0;
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+                File dir = new File(getFilesDir(), "covers");
+                dir.mkdirs();
+                String name = imageName.replace('/', '_').replace('\\', '_');
+                for (String ext : new String[] { ".jpg", ".jpeg" }) new File(dir, name + ext).delete();
+                if (copyImage(data.getData(), new File(dir, name + ".png"))) ok = 1;
+            }
+            imageResult = ok;
+            return;
+        }
         if (requestCode == PICK_SOUNDTRACK) {
             if (resultCode != RESULT_OK || data == null || data.getData() == null) { soundtrackResult = 0; return; }
             final Uri tree = data.getData();

@@ -144,6 +144,18 @@ private:
     int  launcher_heard_ = -1;           // the card whose preview is heard (restarted when another card is chosen)
     float launcher_anim_[kGameCount + 5] = {};
     Rect launcher_hit_[kGameCount + 5] = {};   // cards then buttons, where the last draw put them (taps)
+    // The player's own launcher pictures (Options > Launcher & Menus): covers/<game id> and covers/background in the
+    // data folder, PNG or JPEG (imageload.h); pixels kept until the picture is first drawn
+    struct Art { std::vector<uint32_t> px; int w = 0, h = 0, image = 0; };
+    Art cover_art_[kGameCount], bg_art_;
+    bool art_covers_ = false, art_bg_ = false, art_loaded_ = false;
+    std::wstring covers_dir() const;
+    bool has_cover(int g) const;
+    void load_launcher_art(bool reload = false);   // reads the pictures the settings ask for; starts / stops previews
+    int art_image(Art& a);
+    void ensure_previews();              // previews for the found games without a cover; none for the others
+    void apply_ui_style();               // the menu style (the menus and the launcher), and the launcher's pictures
+    MenuPage launcher_page();            // Options > Launcher & Menus
 #ifdef __ANDROID__
     TouchControls touch_;
     bool touch_active_ = true;           // the last input came from the touch screen (else a controller / keys)
@@ -158,6 +170,9 @@ private:
     double soundtrack_note_at_ = 0;      // when the next "copying" message is due
     void pick_soundtrack();              // Android: picks an MD+ pack's folder; it is copied into files/soundtracks
     void poll_soundtrack();              // while it is picked / copied: progress, then the pack it found
+    std::string picking_image_;          // the launcher picture being picked (a game id or "background")
+    void pick_image(const std::string& name);   // Android's picture picker; copied to files/covers/<name>.png
+    void poll_image();
 #endif
     uint64_t rom_sig_ = 0;
     double rom_poll_ = 0;

@@ -140,11 +140,12 @@ void App::draw_ach_banners(float dt) {
                                video_.measure_text(FontId::Small, b.desc) * desc_s});
     const float w = icon + tw + pad * 3.0f, h = text_h + pad * 1.6f;
     Rect r = {(W - w) * 0.5f, H * 0.025f - (1.0f - slide) * (h + H * 0.025f), w, h};
-    video_.fill_round_rect(r, h * 0.2f, with_alpha(0xF0141824, a));
+    const bool ar = ui_style() == kStyleArabian;   // (the menu style: indigo, or the classic slate)
+    video_.fill_round_rect(r, h * 0.2f, with_alpha(ar ? 0xF2221448 : 0xF0141824, a));
     video_.outline_round_rect(r, h * 0.2f, std::max(1.5f, H / 480.0f), with_alpha(gold, a));
     // the badge: a gold star in a gold ring
     const Rect ic = {r.x + pad * 1.1f, r.y + (h - icon) * 0.5f, icon, icon};
-    video_.fill_round_rect(ic, icon * 0.5f, with_alpha(0xFF262B38, a));
+    video_.fill_round_rect(ic, icon * 0.5f, with_alpha(ar ? 0xFF35206A : 0xFF262B38, a));
     video_.outline_round_rect(ic, icon * 0.5f, std::max(1.5f, icon * 0.06f), with_alpha(gold, a));
     video_.fill_star(ic.x + icon * 0.5f, ic.y + icon * 0.5f, icon * 0.36f, with_alpha(gold, a));
     const float tx = ic.x + icon + pad;
