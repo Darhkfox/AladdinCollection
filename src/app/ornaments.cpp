@@ -149,6 +149,16 @@ std::vector<uint32_t> make_sparkle(int& w, int& h) {
     return c.argb();
 }
 
+std::vector<uint32_t> make_glow(int& w, int& h) {
+    w = h = 128;
+    Canvas c(w, h);
+    c.glow([](float x, float y) {
+        const float r2 = x * x + y * y;
+        return r2 >= 1.0f ? 0.0f : std::exp(-r2 * 5.0f) * (1.0f - r2);
+    }, 0xFFFFE6B0);
+    return c.argb();
+}
+
 struct Pic { int id = 0; float aspect = 1.0f; };
 Pic g_pics[(int)Ornament::Count];
 
@@ -156,8 +166,10 @@ const Pic& pic(Video& v, Ornament o) {
     Pic& p = g_pics[(int)o];
     if (!p.id) {
         int w = 0, h = 0;
-        std::vector<uint32_t> px = o == Ornament::Star8 ? make_star8(w, h) : o == Ornament::Diamond ? make_diamond(w, h)
-                                                                                                    : make_sparkle(w, h);
+        std::vector<uint32_t> px = o == Ornament::Star8     ? make_star8(w, h)
+                                   : o == Ornament::Diamond ? make_diamond(w, h)
+                                   : o == Ornament::Sparkle ? make_sparkle(w, h)
+                                                            : make_glow(w, h);
         p.id = v.create_image(px.data(), w, h);
         p.aspect = (float)w / h;
     }

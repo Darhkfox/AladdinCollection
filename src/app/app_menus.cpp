@@ -203,7 +203,7 @@ MenuPage App::launcher_page() {
         make_dir(covers_dir());
         if (!autotest_) open_url(to_utf8(covers_dir()).c_str());
     }, "Put md, snes, sms (the covers) and background there as .png or .jpg; they're read when you leave this page."));
-    p.items.push_back(MenuItem::info("Covers: md.png, snes.png, sms.png    Background: background.png"));
+    p.items.push_back(MenuItem::info("Covers: md, snes, sms    Background: background    (.png or .jpg)"));
 #endif
     p.on_back = [this]() { load_launcher_art(true); save_settings(); };
     return p;

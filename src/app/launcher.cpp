@@ -53,10 +53,7 @@ void draw_night(Video& v, float W, float H, float t, bool magic) {
     v.fill_round_rect({mx - mr * 0.62f, my - mr * 1.12f, mr * 2, mr * 2}, mr, 0xFF0A0A21);
     if (magic) {
         // a soft glow round the moon (over it: the dark side catches a little of it, like earthshine)
-        for (int k = 1; k <= 4; k++) {
-            const float g = mr * (1.0f + 0.5f * k);
-            v.fill_round_rect({mx - g, my - g, g * 2, g * 2}, g, with_alpha(0xFFFFE2A0, 0.035f));
-        }
+        draw_ornament(v, Ornament::Glow, mx, my, mr * 6.0f, 0.22f);
         // glints: now and then one of them flashes, turning slowly
         for (int i = 0; i < 14; i++) {
             const float x = rnd() * W, y = (0.04f + rnd() * 0.5f) * H, ph = rnd() * 6.2832f, sp = 0.35f + rnd() * 0.5f;

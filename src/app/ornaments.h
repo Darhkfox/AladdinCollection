@@ -8,6 +8,7 @@ enum class Ornament : int {
     Star8,     // an eight-pointed star (two overlapping squares) in gold, an indigo medallion in its middle
     Diamond,   // a tall gold rhombus with an engraved inner line
     Sparkle,   // a four-pointed glint with a soft glow (the night sky, the lamp's magic)
+    Glow,      // a soft round warm glow, fading out to its edge (the moon's halo)
     Count
 };
 

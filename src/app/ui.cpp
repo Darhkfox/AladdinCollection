@@ -55,8 +55,8 @@ void draw_panel(Video& v, Rect r, uint32_t accent, float alpha) {
         const float H = (float)v.height(), rad = H * 0.02f, line = std::max(1.5f, H / 420.0f);
         v.fill_round_rect({r.x + rad * 0.25f, r.y + rad * 0.45f, r.w, r.h}, rad, with_alpha(0x90000000, alpha));
         v.fill_round_rect(r, rad, with_alpha(kIndigo, alpha));
-        v.fill_rect_gradient({r.x + rad, r.y + line * 2.0f, r.w - rad * 2, std::min(r.h * 0.3f, H * 0.2f)},
-                             with_alpha(0x306A3CB0, alpha), with_alpha(0x006A3CB0, alpha));
+        v.fill_rect_gradient({r.x + line * 2.0f, r.y + rad * 0.6f, r.w - line * 4.0f, std::min(r.h * 0.3f, H * 0.2f)},
+                             with_alpha(0x286A3CB0, alpha), with_alpha(0x006A3CB0, alpha));
         draw_arabesque_frame(v, r, rad, alpha);
         return;
     }
@@ -339,7 +339,7 @@ void Menu::draw(Video& v, float time) {
             if (ar) {   // a violet glow in a gold rim, an eight-pointed star at its left with the game's colour in it
                 v.fill_round_rect(hr, row * 0.2f, with_alpha(0xFF8A4FD8, pulse * 1.6f));
                 v.outline_round_rect(hr, row * 0.2f, std::max(1.0f, H / 600.0f), with_alpha(kGold, 0.85f));
-                const float ss = std::min(pad * 0.62f, hr.h * 0.62f), sx = hr.x + pad * 0.38f, sy = hr.y + hr.h * 0.5f;
+                const float ss = std::min(pad * 0.8f, hr.h * 0.72f), sx = hr.x + pad * 0.42f, sy = hr.y + hr.h * 0.5f;
                 draw_ornament(v, Ornament::Star8, sx, sy, ss);
                 const float jr = ss * 0.12f;
                 v.fill_round_rect({sx - jr, sy - jr, jr * 2, jr * 2}, jr, accent);
