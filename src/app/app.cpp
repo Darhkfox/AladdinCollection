@@ -230,6 +230,7 @@ void App::frame(double dt) {
     time_ += dt;
     if (autotest_) { if (!autotest_realtime_) dt = 1.0 / emu_fps(); run_script(); }   // one game frame per loop
     loop_frame_++;
+    update_tick();   // (the day's update check: started once, its answer taken when it comes)
     input_.poll();
     UiInput ui = poll_ui((float)dt);
     menu_.footer = "\xE2\x86\x91\xE2\x86\x93 Select    \xE2\x86\x90\xE2\x86\x92 Change    Enter / (A) Confirm    Esc / (B) Back";

@@ -85,7 +85,8 @@ void App::update_launcher(const UiInput& ui, double dt) {
     if (ui.down && s < N) s = N + 2;
     if (ui.up && s >= N) s = launcher_last_card_;
     bool go = ui.confirm;
-    if (ui.tap)   // touch: a card or button is chosen and used at once
+    if (ui.tap && over_update_badge(ui.tap_x, ui.tap_y)) open_update_page();
+    else if (ui.tap)   // touch: a card or button is chosen and used at once
         for (int i = 0; i < N + kButtonCount; i++) {
             const Rect& r = launcher_hit_[i];
             if (ui.tap_x >= r.x && ui.tap_x < r.x + r.w && ui.tap_y >= r.y && ui.tap_y < r.y + r.h) { s = i; go = true; }
@@ -131,6 +132,7 @@ void App::draw_launcher() {
     tscale = std::min(tscale, 0.8f);
     video_.draw_text(FontId::Huge, W * 0.5f + H * 0.004f, ty0 + H * 0.005f, "Aladdin Collection", 0xC0000000, Align::Center, tscale);
     video_.draw_text(FontId::Huge, W * 0.5f, ty0, "Aladdin Collection", 0xFFF2C14E, Align::Center, tscale);
+    draw_update_badge(W * 0.5f + video_.measure_text(FontId::Huge, "Aladdin Collection", tscale) * 0.5f);   // (a newer release)
     ty0 += video_.line_height(FontId::Huge, tscale);
 #ifdef __ANDROID__
     const char* edition = "Android Edition";

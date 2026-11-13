@@ -13,6 +13,7 @@ public:
 
     bool unlocked(const std::string& id) const { return unlocked_.count(id) != 0; }
     std::string unlocked_on(const std::string& id) const;   // "2026-10-16", or "" if not earned
+    std::string unlocked_at(const std::string& id) const;   // "2026-10-16 14:05:09" (older files: the day only)
     bool unlock(const std::string& id);                     // true if it was newly earned
     int  progress(const std::string& id) const;
     bool set_progress(const std::string& id, int value);    // keeps the highest; true if it grew
@@ -21,7 +22,7 @@ public:
 
 private:
     std::wstring path_;
-    std::map<std::string, std::string> unlocked_;   // id -> date earned
+    std::map<std::string, std::string> unlocked_;   // id -> when earned ("YYYY-MM-DD HH:MM:SS"; older files: the day)
     std::map<std::string, int> progress_;
 };
 

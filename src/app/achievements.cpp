@@ -10,7 +10,8 @@ std::string trim(const std::string& s) {
     return a == std::string::npos ? std::string() : s.substr(a, b - a + 1);
 }
 
-std::string today() {
+// The local time now, "2026-10-16 14:05:09" (older achievements.ini files kept only the day: both load).
+std::string now_text() {
     time_t t = time(nullptr);
     tm lt;
 #ifdef _WIN32
@@ -18,8 +19,9 @@ std::string today() {
 #else
     localtime_r(&t, &lt);
 #endif
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%04d-%02d-%02d", lt.tm_year + 1900, lt.tm_mon + 1, lt.tm_mday);
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d", lt.tm_year + 1900, lt.tm_mon + 1, lt.tm_mday, lt.tm_hour,
+             lt.tm_min, lt.tm_sec);
     return buf;
 }
 }  // namespace
@@ -67,14 +69,16 @@ bool AchievementStore::save() const {
     return write_file(path_, s.data(), s.size());
 }
 
-std::string AchievementStore::unlocked_on(const std::string& id) const {
+std::string AchievementStore::unlocked_on(const std::string& id) const { return unlocked_at(id).substr(0, 10); }
+
+std::string AchievementStore::unlocked_at(const std::string& id) const {
     auto it = unlocked_.find(id);
     return it == unlocked_.end() ? std::string() : it->second;
 }
 
 bool AchievementStore::unlock(const std::string& id) {
     if (unlocked(id)) return false;
-    unlocked_[id] = today();
+    unlocked_[id] = now_text();
     return true;
 }
 
