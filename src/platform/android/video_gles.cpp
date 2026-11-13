@@ -681,6 +681,15 @@ float Video::line_height(FontId font, float scale) {
 
 void Video::rebuild_fonts() { impl->fonts_dirty = true; impl->ensure_fonts(); }
 
+// (slang presets are Windows only: librashader's Direct3D 11 runtime)
+bool Video::slang_available() { return false; }
+bool Video::slang_active() const { return false; }
+bool Video::set_slang(const std::wstring& path, std::string* error) {
+    if (path.empty()) return true;
+    if (error) *error = "not available on Android";
+    return false;
+}
+
 bool Video::capture(std::vector<uint32_t>& pixels, int& w, int& h) {
     Impl& I = *impl;
     if (!I.gl) return false;

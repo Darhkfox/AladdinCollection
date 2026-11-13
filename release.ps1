@@ -1,6 +1,7 @@
 # Makes the release zip, dist\Aladdin-Collection-v<version>-win64.zip, holding only what is needed to play:
-# the executable, the player's readme and the licence (MIT: its notice goes with every copy). No ROMs, settings,
-# saves, screenshots or shortcuts.
+# the executable, the player's readme and the licence (MIT: its notice goes with every copy), and librashader.dll
+# with its licence and the bundled slang shader presets (shaders\, with their README.txt and licences).
+# No ROMs, settings, saves, screenshots or shortcuts.
 # Build first with build.bat.   Usage:  powershell -ExecutionPolicy Bypass -File release.ps1
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
@@ -16,6 +17,16 @@ $files = @(
   @((Join-Path $root "readme.txt"), "readme.txt"),
   @((Join-Path $root "LICENSE"), "LICENSE")
 )
+# Slang shader support: librashader.dll (loaded at run time) with its licence, and the bundled presets
+$bin = Split-Path $exe
+if (Test-Path (Join-Path $bin "librashader.dll")) {
+  $files += ,@((Join-Path $bin "librashader.dll"), "librashader.dll")
+  $files += ,@((Join-Path $bin "librashader-LICENSE.md"), "librashader-LICENSE.md")
+  $shaders = Join-Path $bin "shaders"
+  Get-ChildItem $shaders -Recurse -File | ForEach-Object {
+    $files += ,@($_.FullName, ("shaders/" + $_.FullName.Substring($shaders.Length + 1).Replace("\", "/")))
+  }
+} else { Write-Warning "librashader.dll not in build\bin: the zip has no slang shader support" }
 $stream = [System.IO.File]::Open($zipPath, [System.IO.FileMode]::Create)
 $zip = New-Object System.IO.Compression.ZipArchive($stream, [System.IO.Compression.ZipArchiveMode]::Create)
 try {
