@@ -85,6 +85,16 @@ Bluetooth / USB controller.
   stretch or frame oddly in widescreen.
 - Sprite flicker removal (no sprites-per-line limit), V-Sync, FPS counter.
 - Black frame insertion for sharper motion on 120, 180 and 240 Hz displays.
+- High frame rate (Windows) for smoother motion on 100 Hz and faster displays: the refreshes between the games'
+  60 frames show in-between pictures, drawn by each console's core with each layer's scroll and the sprites part
+  of the way back to the last frame (sprites are matched by their look, as games reorder them; jumps of more than
+  32 px are cuts). The game itself still runs at 60, so nothing about how it plays changes; the picture is one
+  frame later. 2 pictures per frame at 100 / 120 Hz, 3 at 144 / 165 / 180 Hz, 4 at 240 Hz. With V-Sync off
+  (G-SYNC / FreeSync) they are shown at that rate. Not together with black frame insertion; it works with a slang
+  preset (the in-betweens go through it too). The widescreen sides move with the 4:3 part: what is drawn from the
+  level data beside it is drawn at the in-between's own place, the slide at a level's ends and the SNES raster
+  bands move band by band, and the HUD stays still. Scene cuts, fades to black, level starts, a loaded state, a
+  width change and anything that jumps are shown as they are, never mixed with the frame before.
 
 **Colours**
 - Profiles: Accurate (each console's measured output levels), Linear, Vivid, Warm CRT, Cool, Grayscale, Sepia,
@@ -301,7 +311,7 @@ gradlew assembleDebug
 
 | Path | Contents |
 |---|---|
-| `src/core/` | Mega Drive (`m68k`, `vdp`, `ym2612`, `md`), SNES (`cpu65816`, `apu`, `dsp`, `ppu`, `snes`) and Master System (`sms`, `sms_vdp`) hardware; the Z80 and SN76489 (`z80`, `psg`) serve both Sega consoles. Each video chip renders a widened picture with hooks for the game modules |
+| `src/core/` | Mega Drive (`m68k`, `vdp`, `ym2612`, `md`), SNES (`cpu65816`, `apu`, `dsp`, `ppu`, `snes`) and Master System (`sms`, `sms_vdp`) hardware; the Z80 and SN76489 (`z80`, `psg`) serve both Sega consoles. Each video chip renders a widened picture with hooks for the game modules, and the high frame rate's in-between pictures (`hfr_match`: matching the sprites of two frames) |
 | `src/game/` | `game.h` (the module interface, typed per console), the three modules `md_aladdin.cpp`, `snes_aladdin.cpp`, `sms_aladdin.cpp` and each console's helpers (`*_common.cpp`: verified ROM patching, scripted input) |
 | `src/app/` | Launcher, sessions (`session.cpp` and one per console: `session_md/snes/sms.cpp`), menus, music player / sound test, rewind, achievements and their export (`achexport.cpp`), the update check (`updatecheck.cpp`, `app_updates.cpp`; the repository is `kUpdateRepo`), settings, ROM finder, PNG writer, touch controls; per platform `app_win.cpp` / `app_android.cpp` and `sys_win.cpp` / `sys_android.cpp` |
 | `src/platform/` | Windows: Direct3D 11 video and DirectWrite UI text, slang shader presets through librashader (`slang.cpp`), XAudio2 audio, keyboard / XInput / DirectInput input. `android/`: OpenGL ES 3.0 video, SDL audio and controllers |

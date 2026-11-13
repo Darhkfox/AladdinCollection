@@ -34,5 +34,11 @@ widescreen=4`, `loadstate`, `pads`, `quit`). A state for `loadstate` is a core s
 bookkeeping (a 4-byte length, 0 for none) and the tag `<id>|<ext>|` with its length byte; see
 `tools/re/md_apptest.py` and `tools/re/sms_app_test.py`.
 
+High frame rate: `tools/re/hfr_test.py [md|snes|sms]` renders the in-between pictures headlessly (each wrapper's
+`set_sub_frames` / `sub_pixels`) and checks the game state, the in-betweens' places, the widescreen sides, cuts and
+the status bar against a run without them (`--perf`: the cores' time per frame with and without);
+`tools/re/hfr_apptest.py <dir>` runs the app's autotest at 21:9 with the display taken as 240 Hz (`set refresh=240`,
+`set high_frame_rate=1`): the picture each refresh shows, captures, and the speed with V-Sync off.
+
 Per-game notes and the scripts behind them: `docs/re_md_*.md` + `tools/re/md_*.py`, `docs/re_snes_*.md` +
 `tools/re/snes_*.py`, `docs/re_sms_*.md` + `tools/re/sms_*.py`.

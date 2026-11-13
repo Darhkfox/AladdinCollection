@@ -81,6 +81,7 @@ protected:
         snes_->runFrame();
         // A module's redraw holding the NMI, the frame it ends in, and the game's first two frames after it (its
         // sprites come one frame late): the picture shown stays the last finished one.
+        thawed_ = freeze_ > 0;
         if (snes_->nmiHold || snes_->vblankHeld) freeze_ = 3;
         else if (freeze_ > 0) freeze_--;
         if (mod()) mod()->post_frame(*snes_, c, info);
@@ -101,11 +102,15 @@ protected:
         }
         return l.data();
     }
-    bool core_convert(std::vector<uint32_t>& px, std::vector<uint8_t>& sprite, int& w, int& h) override {
+    void core_sub_frames(int k) override { snes_->ppu.subFrames = k; }
+    bool core_convert(std::vector<uint32_t>& px, std::vector<uint8_t>& sprite, int& w, int& h, int sub) override {
         // While a module's redraw holds the NMI (several frames after a width change), and on the frame it ends in,
         // the game updates neither its status bar nor its sprites and scroll: keep showing the last finished picture.
         if (freeze_ > 0) return false;
+        // (the first frame shown after that: nothing in between with the frames that weren't)
+        if (sub >= Ppu::kMaxSubFrames || thawed_) sub = 0;
         const Ppu& p = snes_->ppu;
+        const uint32_t* frame = sub > 0 ? p.subFrame[sub - 1] : p.frame;
         const int el = p.extL, er = p.extR;
         w = 256 + el + er;
         h = p.frameHeight();
@@ -114,7 +119,7 @@ protected:
         int cur_b = -1;
         const uint32_t* table = nullptr;
         for (int y = 0; y < h; y++) {
-            const uint32_t* src = p.frame + (size_t)y * kLineW + (kMaxExt - el);
+            const uint32_t* src = frame + (size_t)y * kLineW + (kMaxExt - el);
             uint32_t* dst = &px[(size_t)y * w];
             for (int x = 0; x < w; x++) {
                 const uint32_t c = src[x];
@@ -146,6 +151,7 @@ private:
     // Colour lookup per master brightness (0-15), built on first use after a profile change.
     std::vector<uint32_t> lut_[16];
     int freeze_ = 0;                  // frames left that keep showing the last picture (see core_run_frame)
+    bool thawed_ = false;             // ...this frame is the first shown after them
     std::vector<int32_t> audio_;
     int audio_frames_ = 0;
     float levels_[8] = {};

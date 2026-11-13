@@ -283,13 +283,16 @@ private:
   int16_t subHofs_[4] = {}, subVofs_[4] = {};
   int16_t objSubDx_[128] = {}, objSubDy_[128] = {};
   int subExt_ = 0;  // (the view's slide part of the way back: sprites not placed by a zone go with it)
+  static constexpr int kCacheMargin = 96;
+  Px subCache_[4][kLineW + 2 * kCacheMargin];  // a line's BG layers at the frame's scroll, wider (renderSubLine)
+  bool subCacheOk_[4] = {};
   void objMoves();
   void renderSubLine(int row, int k, int subs, int x0, int x1, int eL, int eR, bool mirror);
   void composeLine(uint32_t* fb, int x0, int x1, int eL, int eR, bool mirror);
 
   uint16_t readVramWord(uint16_t adr) const { return vram[adr & 0x7fff]; }
   uint16_t remapVramAdr(uint16_t adr) const;
-  void renderBg(int l, int row, int x0, int x1);
+  void renderBg(int l, int row, int x0, int x1, Px* outBase = nullptr);   // (outBase: index 0 is screen x 0)
   void renderMode7(int l, int row, int x0, int x1);
   void renderObj(int row, int x0, int x1);
   void computeWindows(int x0, int x1);

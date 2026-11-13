@@ -728,5 +728,6 @@ void VDP::load_state(const uint8_t* src) {
     addr = s->addr; hv_latch = s->hv_latch; hint_counter = s->hint_counter;
     dma_busy_until = s->dma_busy_until;
     delete s;
+    hfr_forget();   // (nothing in between with what was shown before)
     update_irq();
 }

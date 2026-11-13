@@ -298,6 +298,15 @@ MenuPage App::video_page() {
     }, "Sharper motion: a black frame between the game's frames, like a CRT. Needs a 120 Hz screen; the picture gets darker.");
     bfi.value_text = [this]() { return black_frames_note(); };
     p.items.push_back(bfi);
+#ifdef _WIN32
+    MenuItem hfr = MenuItem::toggle("High Frame Rate", [this]() { return settings_.high_frame_rate; },
+                                    [this](bool v) { settings_.high_frame_rate = v; },
+                                    "Smoother motion on 100 Hz and faster screens: the refreshes between the game's 60 frames "
+                                    "show in-between pictures (scrolling and sprites part of the way). The game still runs at "
+                                    "60; the picture is one frame later. Not with Black Frame Insertion.");
+    hfr.value_text = [this]() { return high_frame_rate_note(); };
+    p.items.push_back(hfr);
+#endif
     p.items.push_back(MenuItem::toggle("Remove Sprite Flicker", [this]() { return settings_.no_sprite_limit; },
                                        [this, changed](bool v) { settings_.no_sprite_limit = v; changed(); },
                                        "Lifts the hardware limit on sprites per line."));

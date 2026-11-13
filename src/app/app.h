@@ -226,6 +226,9 @@ private:
     double frame_acc_ = 0;
     unsigned vsync_phase_ = 0;           // display refreshes counted, for one game frame every N of them
     bool black_frame_ = false;           // this refresh is one of black frame insertion's black ones
+    int  hfr_subs_ = 1;                  // high frame rate: pictures per game frame (the frame + in-betweens), 1 = off
+    int  hfr_pick_ = 0;                  // ...the one this refresh shows: 0 = the frame, k = in-between k
+    int64_t pace_next_ = 0;              // (V-Sync off with in-betweens: the next pass's moment, performance counter)
     double fps_display_ = 0;
     int    fps_frames_ = 0;
     double fps_timer_ = 0;
@@ -285,6 +288,8 @@ private:
     void move_to_monitor(int index);
     double refresh_rate();
     std::string black_frames_note();     // Video menu: the refresh rate in use, or why black frames can't be shown
+    int  hfr_sub_frames();               // high frame rate: pictures per game frame at this display (1 = off)
+    std::string high_frame_rate_note();  // Video menu: the refresh rate and in-betweens, or why there are none
     void apply_settings();
     void save_settings();
     // Slang shader presets (Windows): loads settings_.slang_preset if it changed; a failure is told and turns it off.
@@ -320,7 +325,7 @@ private:
     void reset_game();                    // Reset Game: power-on, or a fresh start when the soundtrack changed
     void back_to_launcher();
     void run_game_frames(int count, bool audio);
-    void draw_game_view(int slot, Session& s, Rect area, float alpha, float dim);
+    void draw_game_view(int slot, Session& s, Rect area, float alpha, float dim, int sub = 0);   // sub: in-between
     Rect game_rect(int fw, int fh, Rect area, System sys);
 
     // menus (app_menus.cpp)

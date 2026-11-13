@@ -384,8 +384,8 @@ uint16_t Ppu::directColor(uint8_t idx, uint8_t pal) const {
   return r | (g << 5) | (b << 10);
 }
 
-void Ppu::renderBg(int l, int row, int x0, int x1) {
-  Px* out = layer_[l] + kMaxExt;
+void Ppu::renderBg(int l, int row, int x0, int x1, Px* outBase) {
+  Px* out = outBase ? outBase : layer_[l] + kMaxExt;
   const Bg& b = bg_[l];
   int bpp = kBpp[mode_][l];
   int palBase = mode_ == 0 ? l * 32 : 0;
@@ -864,6 +864,7 @@ void Ppu::renderLine(int line) {
   composeLine(fb, x0, x1, eL, eR, mirror);
   if (subs > 1) {
     const bool range2 = rangeOver_, time2 = timeOver_;
+    for (bool& c : subCacheOk_) c = false;
     for (int k = 1; k < subs; k++) {
       rangeOver_ = range, timeOver_ = time;
       renderSubLine(row, k, subs, x0, x1, eL, eR, mirror);
@@ -1050,8 +1051,26 @@ void Ppu::renderSubLine(int row, int k, int subs, int x0, int x1, int eL, int eR
       for (int x = x0; x < x1; x++) o[x].pri = 0;
       continue;
     }
-    if (mode_ == 7) renderMode7(l, row, x0, x1);
-    else renderBg(l, row, x0, x1);
+    if (mode_ == 7) {
+      renderMode7(l, row, x0, x1);
+    } else if (subVofs_[l] == 0) {
+      // Moved across only: the layer drawn once for the line's in-betweens, at the frame's scroll and 2 kMaxMove px
+      // further each side, then each in-between's part of it. (Sampling at x + sh is what renderBg does with the
+      // shift itself - the margin test and the hook take the sampled place - so this is the same picture; drawing
+      // every layer again for each in-between cost as much as the frame.)
+      Px* c = subCache_[l] + kCacheMargin + kMaxExt;
+      if (!subCacheOk_[l]) {
+        const int sh = subHofs_[l];
+        subHofs_[l] = 0;
+        renderBg(l, row, x0 - 2 * kMaxMove, x1 + 2 * kMaxMove, c);   // (the slide adds up to kMaxMove)
+        subHofs_[l] = (int16_t)sh;
+        subCacheOk_[l] = true;
+      }
+      const int sh = subHofs_[l];
+      std::memcpy(o + x0, c + x0 + sh, (size_t)(x1 - x0) * sizeof(Px));
+    } else {
+      renderBg(l, row, x0, x1);
+    }
     applyRemap(l, x0, x1);
   }
   if (used & 0x10) {
