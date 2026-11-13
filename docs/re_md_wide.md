@@ -528,3 +528,25 @@ look-ahead would mean running the game ahead (the player decides the crashes) or
 | Rug Ride, 4:3 against wide | `md_wide_rug.py 20 32 40 54 64 80 108 128`: 8 seeds of the autopilot with random spells (out by the third crash at speeds 8-16), 8 with invincibility, 8 flying the whole ride (6 to its end without a crash, one after two; one out at speed 18), the same input at every width | at every width: 68000 and Z80 RAM identical to 4:3 on every frame (43,350 / 42,703 / 62,121 iterations), the same lag frames, the 4:3 area of the picture identical on every frame shown wide (HUD unanchored); nothing appears in the extension but from something there (a geyser's sparks); every object despawned inside the view (1,704 / 1,673 / 4,994) goes on as a ghost; achievements as at 4:3, to the frame (Magic Carpet Ride at the end of each completed ride, the Genie's wheel) |
 | Rug Ride ghosts | a pickup across its despawn at 21:9, the sprite layer alone | the same 210 pixels, 6 px further each frame: the takeover doesn't show |
 | Rug Ride save states | `md_wide_rug.py 20 54 80 108 128 --states`: states saved mid-ride (some holding ghosts), loaded into a fresh instance as the app does, run 90 frames | picture and RAM identical to the run they came from; without the module's part (as an older state) RAM identical and only the ghosts it held missing (1-2 frames at 21:9) |
+
+## 9. High frame rate
+
+With *High Frame Rate* on a 100 Hz+ display the VDP draws up to three in-between pictures with each line
+(`VDP::sub_frames`, `sub_fb`; the app shows them on the refreshes between the game's frames, a frame late). Each
+plane's line is drawn again with its scroll part of the way back to the last frame's on that line as the screen shows
+it: the line's H scroll less the view shift it was drawn with, so the slide that holds the picture still near a
+level's ends holds it still in the in-betweens too (Sultan's Dungeon's swapped planes: the line hook tells the VDP
+plane A's own shift, `plane_a_drawn_with`). `render_plane` takes the in-between's offset itself, and the module's
+line hook runs for the in-between lines with `VDP::sub_dx` / `sub_dy`: `line_view` adds them, so `draw_map_ext` draws
+the columns beyond the plane's 368 px at the in-between's place and the level-edge masks move with the map (the
+extension can't drift from the 4:3 part, and nothing at the picture's edges is repeated or smeared). The Rug Ride:
+the wave's cut-off back moves with plane B (`ride_wave`), the ghosts with the camera the floor scrolls by (`RideView`
+keeps the last frame's). Sprites go part of the way back to where they were, matched by their look (`hfr_match`:
+games reorder the sprite table), their places as the screen shows them - with `sprite_xoff`, so the anchored HUD and
+the screen-fixed messages, held still against the slide there, are still here too. A lag frame that rewrites the
+sprite table or changes the slide while the frame is drawn has the moves worked out again from that line. Cuts are
+shown as they are: a scroll jump over 32 px, a line drawn with the display off (fades to black, the death and level
+screens), another width, plane or sprite table than the last frame's, a loaded state. The game's own state is
+untouched (the status bits stay the frame's). `tools/re/hfr_test.py md`: RAM and picture identical with and without,
+every frame; layer by layer the in-betweens at (1 - k/4) of the frame's move and the sides moved as the 4:3 part
+(Agrabah Market, Sultan's Dungeon, the Desert, the Rug Ride, the attract mode).

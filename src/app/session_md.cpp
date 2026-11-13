@@ -86,14 +86,16 @@ protected:
         md_->run_frame();
         if (mod()) mod()->post_frame(*md_, c, info);
     }
-    bool core_convert(std::vector<uint32_t>& px, std::vector<uint8_t>& sprite, int& w, int& h) override {
+    void core_sub_frames(int k) override { md_->vdp.sub_frames = k; }
+    bool core_convert(std::vector<uint32_t>& px, std::vector<uint8_t>& sprite, int& w, int& h, int sub) override {
         const VDP& v = md_->vdp;
+        if (sub >= VDP::kMaxSubFrames) sub = 0;
         w = v.fb_width;
         h = v.fb_lines;
         px.resize((size_t)w * h);
         sprite.resize((size_t)w * h);
         for (int y = 0; y < h; y++) {
-            const uint16_t* src = v.fb[y];
+            const uint16_t* src = sub > 0 ? v.sub_fb[sub - 1][y] : v.fb[y];
             uint32_t* dst = &px[(size_t)y * w];
             uint8_t* spr = &sprite[(size_t)y * w];
             for (int x = 0; x < w; x++) {

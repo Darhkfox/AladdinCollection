@@ -104,6 +104,7 @@ bool Session::start_level(int index, int variant) {
 void Session::run_frame(uint16_t pad1, uint16_t pad2) {
     info_ = FrameInfo();
     core_run_frame(pad1, pad2, info_);
+    drawn_subs_ = sub_frames_;
     if (cfg_.ext == 0) {
         info_.mask_left = info_.mask_right = 0;
     } else if (!info_.gameplay) {
@@ -131,8 +132,9 @@ void Session::run_frame(uint16_t pad1, uint16_t pad2) {
     if (pending_) try_switch();
 }
 
-const uint32_t* Session::frame(int& w, int& h) {
-    if (!core_convert(pixels_, sprite_, w, h) && !pixels_.empty()) {
+const uint32_t* Session::frame(int& w, int& h, int sub) {
+    if (sub < 0 || sub >= drawn_subs_) sub = 0;   // (an in-between the last frame wasn't drawn with: the frame)
+    if (!core_convert(pixels_, sprite_, w, h, sub) && !pixels_.empty()) {
         w = frame_w_;
         h = frame_h_;
         return pixels_.data();
@@ -360,6 +362,7 @@ bool Session::load_state(const std::vector<uint8_t>& data, std::string* extra) {
         return false;
     }
     module_->load_ext(mod.data(), mod.size());
+    drawn_subs_ = 1;   // (the picture until the next frame: the state's, no in-betweens)
     set_soundtrack_state(cd);
     want_ = want;
     try_switch();

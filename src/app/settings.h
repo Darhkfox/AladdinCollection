@@ -51,6 +51,7 @@ struct Settings {
     bool        hud_anchor = true;          // re-anchor HUD to the screen edges in widescreen
     bool        show_fps = false;
     bool        black_frames = false;       // black frame insertion (120 / 180 / 240 Hz displays)
+    bool        high_frame_rate = false;    // in-between pictures on the refreshes between the game's frames (100 Hz+, Windows)
 
     // Audio
     int         volume = 80;                // 0..100

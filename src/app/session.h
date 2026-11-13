@@ -41,8 +41,12 @@ public:
 
     // Runs one emulated frame with the given pad states (the console's own button bits: see action_bits()).
     void run_frame(uint16_t pad1, uint16_t pad2);
-    // Converts the last frame to BGRA using the current colour profile; applies widescreen masks.
-    const uint32_t* frame(int& w, int& h);
+    // Converts the last frame to BGRA using the current colour profile; applies widescreen masks. sub > 0: the frame's
+    // in-between picture `sub` instead (high frame rate, see set_sub_frames).
+    const uint32_t* frame(int& w, int& h, int sub = 0);
+    // High frame rate: the video chip draws k-1 in-between pictures with each frame (1 = none; at most kMaxSubFrames).
+    static constexpr int kMaxSubFrames = 4;
+    void set_sub_frames(int k) { sub_frames_ = k < 1 ? 1 : k > kMaxSubFrames ? kMaxSubFrames : k; core_sub_frames(sub_frames_); }
     // Resamples the last frame's audio to `out` (48 kHz stereo int16), appending.
     void mix_audio(std::vector<int16_t>& out, double adjust);
     void set_audio_rate(double out_rate);
@@ -91,8 +95,9 @@ protected:
     // pre_frame, the frame, post_frame
     virtual void core_run_frame(uint16_t pad1, uint16_t pad2, FrameInfo& info) = 0;
     // The last frame as BGRA (w x h) and which pixels are sprites (for dimmed scenery strips). False: keep showing
-    // the previous picture (a module's redraw is holding the screen).
-    virtual bool core_convert(std::vector<uint32_t>& px, std::vector<uint8_t>& sprite, int& w, int& h) = 0;
+    // the previous picture (a module's redraw is holding the screen). sub: an in-between picture (1 .. sub frames - 1).
+    virtual bool core_convert(std::vector<uint32_t>& px, std::vector<uint8_t>& sprite, int& w, int& h, int sub) = 0;
+    virtual void core_sub_frames(int k) = 0;                 // the video chip's in-betweens (high frame rate)
     virtual const int32_t* core_audio(int& frames) = 0;      // the last frame's audio, int32 stereo
     virtual double core_sample_rate() const = 0;
     virtual float  core_audio_gain() const = 0;              // the console's mix to the output's scale
@@ -135,4 +140,6 @@ private:
     int    dim_l_ = 0, dim_r_ = 0;       // dimmed scenery strips (FrameInfo::dim_left / dim_right)
     bool   pillar_below_ = false;
     bool   configured_ = false;
+    int    sub_frames_ = 1;                // in-between pictures asked for (high frame rate), and the last frame drawn with
+    int    drawn_subs_ = 1;
 };

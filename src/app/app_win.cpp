@@ -125,12 +125,23 @@ int App::run(HINSTANCE inst, int show) {
             // Software pacing when not synchronised to the display (fast forward too: it runs more game frames
             // per displayed frame, not more displayed frames).
             LARGE_INTEGER t;
-            double target = 1.0 / emu_fps();
+            double target = 1.0 / (emu_fps() * hfr_subs_);   // (high frame rate: a pass per picture, see frame())
+            // (high frame rate: on a schedule, so the passes after the one that runs the game's frame, its longest,
+            // make up for it - the pictures keep their rate; a pass far behind starts the schedule over)
+            if (hfr_subs_ > 1) {
+                QueryPerformanceCounter(&t);
+                const double behind = pace_next_ ? (double)(t.QuadPart - pace_next_) / freq.QuadPart : 1.0;
+                pace_next_ = behind > 2 * target ? last.QuadPart + (int64_t)(target * freq.QuadPart)
+                                                 : pace_next_ + (int64_t)(target * freq.QuadPart);
+            } else {
+                pace_next_ = 0;
+            }
             for (;;) {
                 QueryPerformanceCounter(&t);
                 double el = (double)(t.QuadPart - last.QuadPart) / freq.QuadPart;
-                if (el >= target) break;
-                if (target - el > 0.002) Sleep(1);
+                if (pace_next_ ? t.QuadPart >= pace_next_ : el >= target) break;
+                const double left = pace_next_ ? (double)(pace_next_ - t.QuadPart) / freq.QuadPart : target - el;
+                if (left > 0.002) Sleep(1);
             }
         }
     }

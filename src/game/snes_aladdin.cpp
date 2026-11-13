@@ -582,7 +582,8 @@ public:
         // game's own code would scroll it with its camera at the picture's middle (band_adj), so where the view stops
         // at a level's end it holds still with the picture and moves exactly as the game moves it.
         if (band_on_) {
-            const int adj = band_adj(p, row, line_[1]);
+            int band = 0;
+            const int adj = band_adj(p, row, line_[1], &band);
             if (adj != 0) {
                 p.bgHofsAdj[1] = (int16_t)adj;
                 if (line_[1].decode) {
@@ -590,6 +591,8 @@ public:
                     line_[1].wx += adj;
                 }
             }
+            // (high frame rate: the in-between pictures move each band with its own last place)
+            p.lineBand[1] = (uint8_t)band;
         }
         // A picture an object moves on BG2 (the Carpet Escape's wave: the map's first 256x256 screen, the rest empty,
         // placed by the scroll at [-x, 256 - x); parked at x = 256 while it isn't there): in the margins only its
@@ -739,7 +742,7 @@ public:
         uint16_t flip = 0;
         if (x < ll.lo) { x = 2 * ll.lo - 1 - x; flip = 0x4000; }          // (mirrored about the layer's ends)
         else if (x >= ll.hi) { x = 2 * ll.hi - 1 - x; flip = 0x4000; }
-        *entry = (uint16_t)(tile_at(*snes_, ll, x, ll.wy) ^ flip);
+        *entry = (uint16_t)(tile_at(*snes_, ll, x, ll.wy + p.subDy(layer)) ^ flip);
         return kWideEntry;
     }
 
@@ -1181,7 +1184,7 @@ private:
     // start (the page table's border column isn't that repeat in every row: the Rooftops' palace and bottom rows, the
     // Market's sky); Jafar's Palace 3's background at half speed is mirrored past what the game shows of it (the line's
     // extent, `ll`).
-    int band_adj(const Ppu& p, int row, LineLayer& ll) const {
+    int band_adj(const Ppu& p, int row, LineLayer& ll, int* band_id = nullptr) const {
         const Snes& s = *snes_;
         const int mode = rd16(s, kBgMode);
         const int c = band_cam_, v = band_vcam_, h = p.bgHofs(1) & 0x3FF;
@@ -1206,6 +1209,7 @@ private:
                 if (k > 0 && value(k - 1) == h) k--;
                 else if (k + 1 < n && value(k + 1) == h) k++;
             }
+            if (band_id) *band_id = k + 1;
             const int sh = band_sum_shift(mode, k);
             if (sh >= 0) {
                 const int low = value(k) == h ? band_shown_.t & ((1 << sh) - 1) : 0;
@@ -1227,6 +1231,7 @@ private:
                     start += cnt;
                 }
             }
+            if (band_id) *band_id = band + 1;
             dh = band == 9 ? v - c : 0;
         } else if (mode == 0x10) {
             const int sub = rd16(s, kBgSub);

@@ -463,6 +463,28 @@ margins and, where the view is split, moved to the picture's middle (`(extR - ex
   `r2_dusk_window.py` (all ok), `snes_lava.py` (all ok), `snes_bands.py 106` (0 bad), `snes_rewind.py 140 all` and
   106 in levels 6 and 13 (0 differing): as before.
 
+## 7. High frame rate
+
+With *High Frame Rate* on a 100 Hz+ display the PPU draws up to three in-between pictures with each line
+(`Ppu::subFrames`, `subFrame`; ported from the Super Mario All-Stars port's PPU). Each BG layer's line is drawn again
+with its scroll part of the way back to the last frame's on that line, as the picture shows it: the register plus the
+hook's `bgHofsAdj`, less the left extension, so where the view stops at a level's end (the extension changing while
+the game's camera moves) the picture holds still in the in-betweens too; layers the hook remaps (the status bar, the
+centred texts) were placed already. Unlike All-Stars, which moved the drawn pixels and repeated the edge column in
+widescreen, a layer is drawn again sampled at the in-between's place: `renderBg` takes the margin test and
+`fetchWideTile`'s screen x there (and the module adds `Ppu::subDy` to the line's world y), so the margins are fetched
+from the level's data where the layer is drawn and go along with the game's 256 px to the picture's edges. The raster
+bands (Agrabah's `$0A` / `$0E`, the Lava Cavern's `$0C`) carry their band per line (`Ppu::lineBand`, set by
+`beginLine` from `band_adj`): a band line moves with the last frame's line of the same band (where its content was, or
+the nearest), and BG2's bands aren't moved vertically, so a band's edge stays with its content instead of taking a
+neighbour's scroll for a line or two. Sprites go part of the way back, matched by their look (`hfr_match`); a zone's
+sprites (texts placed on the picture) don't take the view's slide. Cuts are shown as they are: a jump over 32 px, a
+line in forced blank or at brightness 0, another BG mode, map or width, a view jumping more than 32 px, a loaded state,
+and the first picture after a module's redraw held the screen (`SnesSession::thawed_`). The game's state is untouched
+(the range / time over bits stay the frame's). `tools/re/hfr_test.py snes`: RAM and picture identical with and without,
+every frame; layer by layer the in-betweens at (1 - k/4) of the frame's move and the margins moved as the game's
+256 px (Agrabah Market, the Market at Dusk, the Lava Cavern, the attract mode).
+
 ## Known limitations
 
 - Objects that only exist where the game's camera is (scripted events, bosses) appear as in the original; enemies

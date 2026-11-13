@@ -303,6 +303,20 @@ alone (`--no-ext`) gives wrong extra sprites for a frame (stage 5 at 102: 17 of 
 | slowdown | `r2_lag.py` (QA, round 2), every stage at 0 / 22 / 74 / 102, 3000 frames | section 3, "CPU time": near 4:3 everywhere |
 | left behind, fade-outs | stage 1 standing still and walking back, stage 8's wall; every auto-scrolling stage's exit, a death to TRY AGAIN | sections 2 and 5 |
 | screens | `sms_wide_shots.py`, `sms_run_sheet.py` (whole stages 0 1 5 7 at 74 / 102), `sms_app_test.py` (16:9 and 21:9 CRT, 21:9 square) | reviewed: stages, ends, HUD, scenes |
+| high frame rate | `hfr_test.py sms` (attract mode, stages 0 1 5 7) | RAM and picture identical with and without; in-betweens between the frames, the sides with the 256 px (section 7a) |
+
+## 7a. High frame rate
+
+With *High Frame Rate* on a 100 Hz+ display the VDP draws up to three in-between pictures with each line
+(`SmsVdp::sub_frames`, `sub_fb`), as the Mega Drive's and SNES cores do. The background's line is drawn again with its
+scroll part of the way back to the last frame's on that line as the screen shows it (the scroll less the line's
+`bg_shift`, so the slide at a stage's ends and the parallax bands held still against it stay still), sampled at the
+in-between's place: `render_bg`'s hardware-column test and `bg_entry` take that place, so the columns beyond the 256-px
+name table come from the level map where the background is drawn and can't drift from it. The line hook runs for the
+in-between lines too (the stone counter, the rows below the playfield). Sprites, the table's and the module's extra
+ones, go part of the way back to where they were, matched by their pattern (`hfr_match`; the true X from `sprite_x`,
+the view's shift taken off). Cuts are shown as they are: a scroll jump over 32 px, a line drawn with the display off,
+another width, name or sprite table, a loaded state. The status bits stay the frame's.
 
 ## 8. Known limitations
 

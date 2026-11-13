@@ -212,6 +212,7 @@ bool Settings::load(const std::wstring& path) {
             else if (k == "hud_anchor") hud_anchor = iv != 0;
             else if (k == "show_fps") show_fps = iv != 0;
             else if (k == "black_frames") black_frames = iv != 0;
+            else if (k == "high_frame_rate") high_frame_rate = iv != 0;
         } else if (section == "audio") {
             if (k == "volume") volume = clampi(iv, 0, 100);
             else if (k == "filter") audio_filter = (AudioFilter)clampi(iv, 0, (int)AudioFilter::Count - 1);
@@ -268,7 +269,8 @@ bool Settings::save(const std::wstring& path) const {
       << "\nfilter=" << filter << "\nslang_preset=" << slang_preset << "\nwidescreen=" << (int)widescreen << "\naspect=" << (int)aspect
       << "\ninteger_scale=" << integer_scale << "\ncolor=" << (int)color << "\nbrightness=" << brightness
       << "\nsaturation=" << saturation << "\ngamma=" << gamma << "\nno_sprite_limit=" << no_sprite_limit
-      << "\nhud_anchor=" << hud_anchor << "\nshow_fps=" << show_fps << "\nblack_frames=" << black_frames << "\n\n[audio]\n"
+      << "\nhud_anchor=" << hud_anchor << "\nshow_fps=" << show_fps << "\nblack_frames=" << black_frames
+      << "\nhigh_frame_rate=" << high_frame_rate << "\n\n[audio]\n"
       << "volume=" << volume << "\nfilter=" << (int)audio_filter << "\nladder_effect=" << ladder_effect
       << "\ninterpolation=" << interpolation << "\nsoundtrack_volume=" << soundtrack_volume << "\n";
     for (const auto& kv : soundtrack)

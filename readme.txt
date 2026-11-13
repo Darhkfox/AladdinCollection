@@ -314,6 +314,20 @@
                          can't line up with the games' 60 frames a second:
                          set 120 Hz in Windows' display settings). The
                          picture gets darker.            (default: OFF)
+     High Frame Rate ... Smoother motion on 100 Hz and faster screens: the
+                         refreshes between the games' 60 frames show
+                         in-between pictures, with the scrolling and the
+                         sprites part of the way (2 pictures a frame at
+                         100 / 120 Hz, 3 at 144 / 165 / 180 Hz, 4 at
+                         240 Hz). The games still run at 60 frames a
+                         second, so nothing about how they play changes;
+                         the picture is one frame later. With V-Sync off
+                         (G-SYNC / FreeSync) the pictures come at the
+                         screen's own rate. Works with a slang shader;
+                         not together with Black Frame Insertion. Next to
+                         the switch: the rate and how many in-between
+                         pictures, or what's missing. Windows only.
+                                                         (default: OFF)
      Remove Sprite Flicker .. Lifts the consoles' limit on sprites per
                          line, so busy scenes don't flicker. (default: ON)
      Show FPS .......... Frame rate in the corner.       (default: OFF)

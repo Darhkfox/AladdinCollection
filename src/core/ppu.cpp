@@ -7,6 +7,9 @@
 #include "ppu.h"
 #include "statefix.h"
 #include <algorithm>
+#include <cmath>
+#include <cstdlib>
+#include <vector>
 
 namespace {
 // bits per pixel for each layer by mode (0 = not present)
@@ -85,6 +88,7 @@ void Ppu::reset(bool hard) {
   rangeOver_ = timeOver_ = false;
   std::memset(frame, 0, sizeof(frame));
   buildLut();
+  hfrForget();
 }
 
 void Ppu::buildLut() {
@@ -380,8 +384,8 @@ uint16_t Ppu::directColor(uint8_t idx, uint8_t pal) const {
   return r | (g << 5) | (b << 10);
 }
 
-void Ppu::renderBg(int l, int row, int x0, int x1) {
-  Px* out = layer_[l] + kMaxExt;
+void Ppu::renderBg(int l, int row, int x0, int x1, Px* outBase) {
+  Px* out = outBase ? outBase : layer_[l] + kMaxExt;
   const Bg& b = bg_[l];
   int bpp = kBpp[mode_][l];
   int palBase = mode_ == 0 ? l * 32 : 0;
@@ -401,19 +405,23 @@ void Ppu::renderBg(int l, int row, int x0, int x1) {
   uint8_t pix[8] = {};
   uint8_t cPal = 0, cPri = 0;
 
-  for (int x = x0; x < x1; x++) {
+  // (a high frame rate in-between line: the layer sampled sh px further right, as if scrolled part of the way back;
+  // the margin test and the hook take that place, so the margins are fetched where the layer is drawn)
+  const int sh = sub_ ? subHofs_[l] : 0, sv = sub_ ? subVofs_[l] : 0;
+  for (int ox = x0; ox < x1; ox++) {
+    const int x = ox + sh;
     bool margin = x < 0 || x >= 256;
     if (margin && hideWideBg[l]) {
-      out[x].pri = 0;
+      out[ox].pri = 0;
       continue;
     }
     int sx = x;
     if (msize > 1) sx = x - floorMod(x, msize);
-    int hofs = (b.hofs + bgHofsAdj[l]) & 0x3ff, vofs = b.vofs;
+    int hofs = (b.hofs + bgHofsAdj[l]) & 0x3ff, vofs = b.vofs + sv;
     const bool alt = margin && wideAlt[l].on;
     if (alt) {
       hofs = (wideAlt[l].hofs + bgHofsAdj[l]) & 0x3ff;
-      vofs = wideAlt[l].vofs;
+      vofs = wideAlt[l].vofs + sv;
     }
     if (opt && sx >= 0 && sx < 256) {
       int col = (sx + (hofs & 7)) >> 3;
@@ -457,7 +465,7 @@ void Ppu::renderBg(int l, int row, int x0, int x1) {
                                                     : PpuHooks::kWideVram;
       if (wr == PpuHooks::kWideBlank) {
         cachedKey = 0x7fffffff;
-        out[x].pri = 0;
+        out[ox].pri = 0;
         continue;
       }
       if (wr == PpuHooks::kWideVram) e = alt ? mapEntryAt(l, wideAlt[l].mapBase, tx, ty) : mapEntry(l, tx, ty);
@@ -491,7 +499,7 @@ void Ppu::renderBg(int l, int row, int x0, int x1) {
     }
     uint8_t p = pix[px & 7];
     if (!p) {
-      out[x].pri = 0;
+      out[ox].pri = 0;
       continue;
     }
     uint16_t col;
@@ -499,9 +507,9 @@ void Ppu::renderBg(int l, int row, int x0, int x1) {
     else if (bpp == 8) col = cgram[p];
     else if (bpp == 4) col = cgram[(cPal << 4) + p];
     else col = cgram[palBase + (cPal << 2) + p];
-    out[x].col = col;
-    out[x].pri = cPri;
-    out[x].pal = cPal;
+    out[ox].col = col;
+    out[ox].pri = cPri;
+    out[ox].pal = cPal;
   }
 }
 
@@ -574,11 +582,11 @@ void Ppu::renderObj(int row, int x0, int x1) {
     bool big = hi & 2;
     int w = kObjSizes[objSize_][big][0];
     int h = kObjSizes[objSize_][big][1];
-    int y = oam[idx * 4 + 1];
+    int y = (oam[idx * 4 + 1] + (sub_ ? objSubDy_[idx] : 0)) & 0xff;
     int sy = (row - y) & 0xff;
     if (sy >= h) continue;
     int x9 = oam[idx * 4] | ((hi & 1) << 8);
-    int sx = objTrueXSet[idx] ? objTrueX[idx] : x9 < split ? x9 : x9 - 512;
+    int sx = (objTrueXSet[idx] ? objTrueX[idx] : x9 < split ? x9 : x9 - 512) + (sub_ ? objSubDx_[idx] - subExt_ : 0);
     if (sx <= x0 - w || sx >= rightLimit) continue;  // x0 = -extL on full lines
     bool core = sx > -w && sx < 256;
     if (core) {
@@ -603,13 +611,20 @@ void Ppu::renderObj(int row, int x0, int x1) {
     int y = oam[idx * 4 + 1];
     int x9 = oam[idx * 4] | ((hi & 1) << 8);
     int sx = objTrueXSet[idx] ? objTrueX[idx] : x9 < split ? x9 : x9 - 512;
+    bool zoned = false;
     for (int z = 0; z < objZoneCount; z++) {
       const PpuObjZone& zn = objZones[z];
       int ty = y >= 240 ? y - 256 : y;
       if (sx >= zn.x0 && sx < zn.x1 && ty >= zn.y0 && ty < zn.y1) {
         sx += zn.dx;
+        zoned = true;
         break;
       }
+    }
+    if (sub_) {
+      // (part of the way back: by its own move, and with the view's slide unless a zone places it on the picture)
+      y = (y + objSubDy_[idx]) & 0xff;
+      sx += objSubDx_[idx] - (zoned ? 0 : subExt_);
     }
     uint8_t attr = oam[idx * 4 + 3];
     int tileBase = oam[idx * 4 + 2] | ((attr & 1) << 8);
@@ -740,6 +755,16 @@ void Ppu::mirrorOutside(int x0, int x1) {
   }
 }
 
+void Ppu::hfrForget() {
+  hfrRec_[0] = hfrRec_[1] = ~0u;
+  hfrPrevOk_ = false;
+  std::memset(lineOk_, 0, sizeof lineOk_);
+  for (int i = 0; i < 128; i++) {
+    objPrev_[i].on = objPrev2_[i].on = false;
+    objDx_[i] = objDy_[i] = 0;
+  }
+}
+
 void Ppu::renderLine(int line) {
   int row = line - 1;
   if (row < 0 || row >= kFrameH) return;
@@ -753,6 +778,7 @@ void Ppu::renderLine(int line) {
     bgHofsAdj[l] = 0;
     wideFetchAll[l] = false;
     wideAlt[l].on = false;
+    lineBand[l] = 0;
   }
   hideWideObj = false;
   maskWide = false;
@@ -776,8 +802,34 @@ void Ppu::renderLine(int line) {
 
   int eL = extL, eR = extR;
   int x0 = -eL, x1 = 256 + eR;
+  const int subs = subFrames < 1 ? 1 : subFrames > kMaxSubFrames ? kMaxSubFrames : subFrames;
+  if (subs > 1) {
+    // (this line's scroll, kept for the next frame's in-between pictures; at the frame's first line, after the hook
+    // has placed the sprites, their moves since the last frame)
+    if (row == 0) {
+      hfrFrame_++;
+      const int prev = scrollCur_;
+      scrollCur_ ^= 1;
+      hfrRec_[scrollCur_] = hfrFrame_;
+      // (the width, the BG mode and the maps: another is a scene cut)
+      hfrSig_[scrollCur_] = (uint32_t)(eL + eR) | (uint32_t)mode_ << 10 |
+                            (uint32_t)(bg_[0].mapBase ^ bg_[1].mapBase << 1 ^ bg_[2].mapBase << 2) << 13;
+      hfrPrevOk_ = hfrRec_[prev] == hfrFrame_ - 1 && hfrSig_[prev] == hfrSig_[scrollCur_];
+      objMoves();
+    }
+    lineExt_[scrollCur_][row] = (int16_t)eL;
+    lineOk_[scrollCur_][row] = !forcedBlank_ && brightness_ > 0;
+    for (int l = 0; l < 4; l++) {
+      lineScroll_[scrollCur_][l][row][0] = (int16_t)((bg_[l].hofs + bgHofsAdj[l]) & 0x3ff);
+      lineScroll_[scrollCur_][l][row][1] = (int16_t)(bg_[l].vofs & 0x3ff);
+      lineBand_[scrollCur_][l][row] = lineBand[l];
+    }
+  } else if (row == 0) {
+    hfrFrame_++;
+  }
   if (forcedBlank_) {
     for (int x = 0; x < kLineW; x++) fb[x] = 0;
+    for (int k = 1; k < subs; k++) std::memset(subFrame[k - 1] + row * kLineW, 0, kLineW * sizeof(uint32_t));
     return;
   }
 
@@ -793,6 +845,7 @@ void Ppu::renderLine(int line) {
     else renderBg(l, row, x0, x1);
     applyRemap(l, x0, x1);
   }
+  const bool range = rangeOver_, time = timeOver_;
   if (used & 0x10) {
     renderObj(row, x0, x1);
     if (hideWideObj) {
@@ -808,7 +861,21 @@ void Ppu::renderLine(int line) {
                       std::min(wideShowHi, x1) > std::max(wideShowLo, x0);
   if (mirror) mirrorOutside(x0, x1);
   computeWindows(x0, x1);
+  composeLine(fb, x0, x1, eL, eR, mirror);
+  if (subs > 1) {
+    const bool range2 = rangeOver_, time2 = timeOver_;
+    for (bool& c : subCacheOk_) c = false;
+    for (int k = 1; k < subs; k++) {
+      rangeOver_ = range, timeOver_ = time;
+      renderSubLine(row, k, subs, x0, x1, eL, eR, mirror);
+    }
+    rangeOver_ = range2, timeOver_ = time2;   // (the status bits stay the frame's: the game reads them)
+  }
+}
 
+// The line's layers composed into its pixels (priority, windows, colour maths, brightness, the margins' dimming and
+// masks).
+void Ppu::composeLine(uint32_t* fb, int x0, int x1, int eL, int eR, bool mirror) {
   const PriEntry* list;
   int n;
   switch (mode_) {
@@ -912,6 +979,147 @@ void Ppu::renderLine(int line) {
   if (!keepOutside && !mirror) {
     for (int x = -eL; x < std::min(0, wideShowLo); x++) fb[x + kMaxExt] = 0;
     for (int x = std::max(256, wideShowHi); x < 256 + eR; x++) fb[x + kMaxExt] = 0;
+  }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// High frame rate (see subFrames)
+// ---------------------------------------------------------------------------------------------------------------------
+
+// An in-between picture's line (t = k / subs): each BG layer drawn again with its scroll part of the way back to the
+// last frame's on this line (a change too big for a move, a cut, isn't), horizontally by sampling it that much further
+// (renderBg: the margins fetched from the hook at that place too, so they go along with the game's 256 px), vertically
+// through the scroll; the sprites part of the way back. The view's slide (the left extension changing: the view
+// stopped at a level's end while the game's camera moves) goes back too: the picture holds still where it does.
+// Layers the hook remaps (the status bar, the centred texts) were placed for the slide already. A layer the hook marks
+// as raster bands is matched band by band with the last frame (its line there: where the content of this one was,
+// else the nearest line of the same band) and isn't moved vertically, so the bands' edges stay with their content.
+// The windows are the line's own (winMask_ as the frame's line left them).
+void Ppu::renderSubLine(int row, int k, int subs, int x0, int x1, int eL, int eR, bool mirror) {
+  constexpr int kMaxMove = 32;
+  const int cur = scrollCur_, prev = cur ^ 1;
+  float back = hfrPrevOk_ && lineOk_[prev][row] && lineOk_[cur][row] ? 1.0f - (float)k / subs : 0.0f;
+  const int dExt = lineExt_[cur][row] - lineExt_[prev][row];
+  if (std::abs(dExt) > kMaxMove) back = 0.0f;   // (the view jumped: a cut)
+  const int fh = frameHeight();
+  auto wrap10 = [](int d) { return ((d + 512) & 1023) - 512; };
+  bool moved = false;
+  for (int l = 0; l < 4; l++) {
+    subHofs_[l] = subVofs_[l] = 0;
+    if (back <= 0 || mode_ == 7) continue;
+    const int16_t* now = lineScroll_[cur][l][row];
+    int dv = wrap10(now[1] - lineScroll_[prev][l][row][1]);
+    int dh;
+    const uint8_t band = lineBand_[cur][l][row];
+    if (band) {
+      // the last frame's line of this band: where this line's content was (dv lines further), else the nearest
+      int pr = -1;
+      const int at = row + dv;
+      if (at >= 0 && at < fh && lineBand_[prev][l][at] == band && lineOk_[prev][at]) pr = at;
+      for (int d = 0; pr < 0 && d <= kMaxMove; d++)
+        for (int r : {row - d, row + d})
+          if (pr < 0 && r >= 0 && r < fh && lineBand_[prev][l][r] == band && lineOk_[prev][r]) pr = r;
+      dh = pr < 0 ? 0 : wrap10(now[0] - lineScroll_[prev][l][pr][0]);
+      dv = 0;
+    } else {
+      dh = wrap10(now[0] - lineScroll_[prev][l][row][0]);
+    }
+    if (std::abs(dh) > kMaxMove || std::abs(dv) > kMaxMove) dh = dv = 0;  // (a cut either way)
+    // (its move on the picture: scrolled on by dh, the view slid by dExt)
+    if (!layerRemap[l].count) dh -= dExt;
+    subHofs_[l] = (int16_t)-std::lround(back * dh);
+    subVofs_[l] = (int16_t)-std::lround(back * dv);
+    moved = moved || subHofs_[l] || subVofs_[l];
+  }
+  subExt_ = (int)std::lround(back * dExt);
+  for (int i = 0; i < 128; i++) {
+    objSubDx_[i] = (int16_t)-std::lround(back * objDx_[i]);
+    objSubDy_[i] = (int16_t)-std::lround(back * objDy_[i]);
+    moved = moved || objSubDx_[i] || objSubDy_[i];
+  }
+  uint32_t* out = subFrame[k - 1] + row * kLineW;
+  if (!moved && !subExt_) {
+    std::memcpy(out, frame + row * kLineW, kLineW * sizeof(uint32_t));
+    return;
+  }
+  sub_ = true;
+  uint8_t used = (tm_ | ts_) & debugLayers;
+  for (int l = 0; l < 4; l++) {
+    Px* o = layer_[l] + kMaxExt;
+    bool present = mode_ == 7 ? (l == 0 || (l == 1 && (setini_ & 0x40))) : kBpp[mode_][l] != 0;
+    if (!present || !(used & (1 << l))) {
+      for (int x = x0; x < x1; x++) o[x].pri = 0;
+      continue;
+    }
+    if (mode_ == 7) {
+      renderMode7(l, row, x0, x1);
+    } else if (subVofs_[l] == 0) {
+      // Moved across only: the layer drawn once for the line's in-betweens, at the frame's scroll and 2 kMaxMove px
+      // further each side, then each in-between's part of it. (Sampling at x + sh is what renderBg does with the
+      // shift itself - the margin test and the hook take the sampled place - so this is the same picture; drawing
+      // every layer again for each in-between cost as much as the frame.)
+      Px* c = subCache_[l] + kCacheMargin + kMaxExt;
+      if (!subCacheOk_[l]) {
+        const int sh = subHofs_[l];
+        subHofs_[l] = 0;
+        renderBg(l, row, x0 - 2 * kMaxMove, x1 + 2 * kMaxMove, c);   // (the slide adds up to kMaxMove)
+        subHofs_[l] = (int16_t)sh;
+        subCacheOk_[l] = true;
+      }
+      const int sh = subHofs_[l];
+      std::memcpy(o + x0, c + x0 + sh, (size_t)(x1 - x0) * sizeof(Px));
+    } else {
+      renderBg(l, row, x0, x1);
+    }
+    applyRemap(l, x0, x1);
+  }
+  if (used & 0x10) {
+    renderObj(row, x0, x1);
+    if (hideWideObj) {
+      Px* o = layer_[4] + kMaxExt;
+      for (int x = x0; x < 0; x++) o[x].pri = 0;
+      for (int x = 256; x < x1; x++) o[x].pri = 0;
+    }
+  } else {
+    Px* o = layer_[4] + kMaxExt;
+    for (int x = x0; x < x1; x++) o[x].pri = 0;
+  }
+  sub_ = false;
+  if (mirror) mirrorOutside(x0, x1);
+  composeLine(out, x0, x1, eL, eR, mirror);
+}
+
+// The sprites' moves since the last frame (at the frame's first line; hfr_match: matched by their look, as games
+// reorder their OAM entries; a character of touching sprites moves as one). Sprites parked below the picture match
+// nothing. Places are the hook's true X where it set one, in the game's 256-px coordinates (the view's slide is added
+// in renderSubLine).
+void Ppu::objMoves() {
+  if (!hfrPrevOk_)
+    for (int i = 0; i < 128; i++) objPrev_[i].on = objPrev2_[i].on = false;
+  const int rightLimit = 256 + extR;
+  const int split = rightLimit + std::max(0, 256 - extL - extR) / 2;
+  const int fh = frameHeight();
+  HfrSprite cur[128];
+  for (int idx = 0; idx < 128; idx++) {
+    uint8_t hi = oam[512 + (idx >> 2)] >> ((idx & 3) * 2);
+    bool big = hi & 2;
+    int x9 = oam[idx * 4] | ((hi & 1) << 8);
+    int y = oam[idx * 4 + 1];
+    HfrSprite& s = cur[idx];
+    s.w = kObjSizes[objSize_][big][0];
+    s.h = kObjSizes[objSize_][big][1];
+    s.x = (int16_t)(objTrueXSet[idx] ? objTrueX[idx] : x9 < split ? x9 : x9 - 512);
+    s.y = (int16_t)y;
+    const uint8_t attr = oam[idx * 4 + 3];
+    s.key = (uint32_t)(oam[idx * 4 + 2] | (attr & 0xcf) << 8) | (big ? 0x10000u : 0);   // (tile, name, palette, flips)
+    s.group = (uint16_t)((attr >> 1) & 7);                                              // (palette)
+    s.look = (uint16_t)(s.group | (big ? 8 : 0));
+    s.on = !(y >= fh && y + s.h <= 256);
+  }
+  hfr_match(cur, objPrev_, objPrev2_, 128, 256, objDx_, objDy_);
+  for (int i = 0; i < 128; i++) {
+    objPrev2_[i] = objPrev_[i];
+    objPrev_[i] = cur[i];
   }
 }
 
@@ -1038,4 +1246,5 @@ void Ppu::loadState(const uint8_t* src) {
   mosaicSize_ = (uint8_t)std::clamp<int>(mosaicSize_, 1, 16);
   if (vramInc_ != 1 && vramInc_ != 32 && vramInc_ != 128) vramInc_ = 1;
   vramRemap_ &= 3;
+  hfrForget();
 }

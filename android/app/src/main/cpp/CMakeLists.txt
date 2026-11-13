@@ -25,6 +25,7 @@ add_library(main SHARED
   ${SRC}/core/apu.cpp
   ${SRC}/core/dsp.cpp
   ${SRC}/core/ppu.cpp
+  ${SRC}/core/hfr_match.cpp
   ${SRC}/core/snes.cpp
   ${SRC}/core/disasm.cpp
   ${SRC}/core/z80.cpp

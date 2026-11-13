@@ -55,6 +55,9 @@ _dll.smst_get_cpu.argtypes = [C.c_void_p, C.POINTER(C.c_uint32)]
 _dll.smst_set_cpu.argtypes = [C.c_void_p, C.c_int, C.c_uint32]
 _dll.smst_write.argtypes = [C.c_void_p, C.c_int, C.c_int]
 _dll.smst_frame.argtypes = [C.c_void_p, C.POINTER(C.c_uint32), C.POINTER(C.c_int), C.POINTER(C.c_int)]
+if hasattr(_dll, "smst_sub_frame"):
+    _dll.smst_set_sub_frames.argtypes = [C.c_void_p, C.c_int]
+    _dll.smst_sub_frame.argtypes = [C.c_void_p, C.c_int, C.POINTER(C.c_uint32), C.POINTER(C.c_int), C.POINTER(C.c_int)]
 _dll.smst_save_png.argtypes = [C.c_void_p, C.c_char_p, C.c_int]
 _dll.smst_write_png.argtypes = [C.c_char_p, C.POINTER(C.c_uint32), C.c_int, C.c_int, C.c_int]
 _dll.smst_coverage_enable.argtypes = [C.c_void_p, C.c_int]
@@ -227,6 +230,18 @@ class SMS:
         n = _dll.smst_frame(self.h, None, C.byref(w), C.byref(h))
         buf = (C.c_uint32 * n)()
         _dll.smst_frame(self.h, buf, C.byref(w), C.byref(h))
+        return list(buf), w.value, h.value
+
+    def set_sub_frames(self, k):
+        """high frame rate: K-1 in-between pictures drawn with each frame (1 = off)"""
+        _dll.smst_set_sub_frames(self.h, k)
+
+    def sub_pixels(self, k):
+        """in-between picture k (1 .. K-1; 0 = the frame itself): (pixels, w, h) as pixels()"""
+        w, h = C.c_int(), C.c_int()
+        n = _dll.smst_sub_frame(self.h, k, None, C.byref(w), C.byref(h))
+        buf = (C.c_uint32 * max(n, 1))()
+        _dll.smst_sub_frame(self.h, k, buf, C.byref(w), C.byref(h))
         return list(buf), w.value, h.value
 
     def png(self, path, scale=2):

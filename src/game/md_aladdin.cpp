@@ -484,12 +484,13 @@ int line_hscroll(const VDP& v, int line, bool plane_b) {
 
 // The map plane's scroll on a line: the map x shown at screen x 0 (before the slide) and the map y of the line. The
 // plane holds map x [L, L+368) and y [Y, Y+256): the map position a screen pixel shows is the one, among those
-// congruent mod 512 / 256 with its plane position, inside that range.
+// congruent mod 512 / 256 with its plane position, inside that range. (On a high frame rate in-between line the plane
+// is drawn part of the way back, VDP::sub_dx / sub_dy: so is what is drawn from the map.)
 struct LineView { int mx0, my; };
 LineView line_view(const MegaDrive& md, int line, bool plane_b) {
     const VDP& v = md.vdp;
-    const int hs = line_hscroll(v, line, plane_b);
-    const int vs = v.vsram[plane_b ? 1 : 0] & 0x3FF;
+    const int hs = line_hscroll(v, line, plane_b) - v.sub_dx(plane_b);
+    const int vs = (v.vsram[plane_b ? 1 : 0] & 0x3FF) + v.sub_dy(plane_b);
     const int L = md.ram16(STREAM_X), Y = md.ram16(STREAM_Y);
     LineView lv;
     lv.mx0 = L + ((-hs - L) & 511);
@@ -1529,6 +1530,9 @@ struct RideView {
     struct Piece { int x, y, w, h; uint8_t attr; bool hf, vf; size_t data; };   // screen x / y, cells
     std::vector<Piece> pieces;                                // this frame's, and the tiles they draw from
     std::vector<uint8_t> tiles;
+    int camx = 0, prev_camx = 0;                              // the camera they were placed with, and the last frame's
+    uint64_t cam_frame = ~0ull;                               // (the frame camx is for)
+    bool prev_ok = false;                                     // ...the last frame's is known (high frame rate)
     AnimProbe probe;
 };
 
@@ -1606,6 +1610,12 @@ void ride_frame(Wide& w) {
     int d = (ram_x + 16 + line_hscroll(md.vdp, 216, false)) & 511;
     if (d >= 256) d -= 512;
     const int camx = ram_x - d, camy = (int16_t)md.ram16(CAM_Y), left = -md.vdp.ext + md.vdp.view_shift;
+    if (md.frame_count != r->cam_frame) {   // (once a frame: a width change draws the same frame again)
+        r->prev_ok = r->cam_frame == md.frame_count - 1;
+        r->prev_camx = r->camx;
+        r->cam_frame = md.frame_count;
+    }
+    r->camx = camx;
     for (size_t i = 0; i < r->ghosts.size();) {
         const size_t np = r->pieces.size(), nt = r->tiles.size();
         if (ghost_pieces(md, r->ghosts[i].obj, camx, camy, *r) > left) { i++; continue; }
@@ -1665,7 +1675,7 @@ void ride_wave(const MegaDrive& md, int line, uint8_t* lb) {
         return row[x & 7];
     };
     if (!(pixel(WAVE_X, 150) & 15) || (pixel(WAVE_X - 1, 150) & 15)) return;   // (not the ride's picture)
-    const int cut = ((WAVE_X + line_hscroll(v, line, true)) & 511) - 512, left = -v.ext + v.view_shift;
+    const int cut = ((WAVE_X + line_hscroll(v, line, true) - v.sub_dx(true)) & 511) - 512, left = -v.ext + v.view_shift;
     for (int x = left; x < cut; x++) {
         const int d = cut - x, top = WAVE_TOP + d * 4 / 9;
         uint8_t& p = lb[x - left];
@@ -1704,7 +1714,11 @@ void ride_line(Wide& w, int line, uint8_t* plane_b, uint8_t* sprites) {
     ride_flames(md, plane_b, std::clamp(md.vdp.ext - md.vdp.view_shift, 0, 320 + 2 * md.vdp.ext));   // (left of screen x 0)
     if (!w.ride) return;
     const RideView& r = *w.ride;
-    const int TW = std::min(320 + 2 * md.vdp.ext, md.vdp.ext - md.vdp.view_shift), at = md.vdp.ext - md.vdp.view_shift;   // (at: screen x 0)
+    const int TW = std::min(320 + 2 * md.vdp.ext, md.vdp.ext - md.vdp.view_shift), at0 = md.vdp.ext - md.vdp.view_shift;   // (at: screen x 0)
+    // (a high frame rate in-between line: the ghosts stay put in the cave, so they go part of the way back with the
+    // camera, as the floor does)
+    const int dcam = r.prev_ok ? (int16_t)(r.camx - r.prev_camx) : 0;
+    const int at = at0 + (std::abs(dcam) <= 32 ? (int)std::lround(md.vdp.sub_back() * dcam) : 0);
     for (const RideView::Piece& p : r.pieces) {
         int row = line - p.y;
         if (row < 0 || row >= 8 * p.h) continue;
@@ -1738,6 +1752,7 @@ void line_hook(void* host, int line, uint8_t* plane_a, uint8_t* plane_b, uint8_t
     // (The Rug Ride doesn't stream: its planes are 512-px loops of the lava cave the VDP wraps, its "map" nominal.)
     if (rug_ride(md)) return ride_line(w, line, plane_b, sprites);
     const int E = v.ext, TW = 320 + 2 * E;
+    if (w.shift_a_on) v.plane_a_drawn_with(w.shift_a[line]);
     if (w.shift_a_on && w.shift_a[line] != v.view_shift)   // plane A's own slide (the renderer used the view's)
         v.render_plane(plane_a, line, false, -E + w.shift_a[line], 320 + E + w.shift_a[line]);
     const bool swapped = md.ram8(SWAP_PLANES) != 0;
