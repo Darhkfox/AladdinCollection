@@ -76,6 +76,9 @@ _sig('snt_ppu_info', None, V, C.c_char_p, I)
 _sig('snt_ppu_regs', None, V, C.POINTER(C.c_int))
 _sig('snt_set_ext', None, V, I, I, I)
 _sig('snt_frame', None, V, PU32, C.POINTER(C.c_int), C.POINTER(C.c_int))
+if hasattr(_dll, 'snt_sub_frame'):
+    _sig('snt_set_sub_frames', None, V, I)
+    _sig('snt_sub_frame', I, V, I, PU32, C.POINTER(C.c_int), C.POINTER(C.c_int))
 _sig('snt_save_png', I, V, C.c_char_p, I)
 _sig('snt_write_png', I, C.c_char_p, PU32, I, I, I)
 _sig('snt_layers', None, V, I)
@@ -261,6 +264,18 @@ class SNES:
         _dll.snt_frame(self.h, None, C.byref(w), C.byref(h))
         buf = (C.c_uint32 * (w.value * h.value))()
         _dll.snt_frame(self.h, buf, C.byref(w), C.byref(h))
+        return w.value, h.value, buf
+
+    def set_sub_frames(self, k):
+        """high frame rate: K-1 in-between pictures drawn with each frame (1 = off)"""
+        _dll.snt_set_sub_frames(self.h, k)
+
+    def sub_pixels(self, k):
+        """in-between picture k (1 .. K-1; 0 = the frame itself): (w, h, 0xAARRGGBB pixels)"""
+        w, h = C.c_int(), C.c_int()
+        _dll.snt_sub_frame(self.h, k, None, C.byref(w), C.byref(h))
+        buf = (C.c_uint32 * (w.value * h.value))()
+        _dll.snt_sub_frame(self.h, k, buf, C.byref(w), C.byref(h))
         return w.value, h.value, buf
 
     def png(self, path, scale=2):

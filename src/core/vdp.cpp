@@ -2,6 +2,9 @@
 #include "vdp.h"
 #include <cstring>
 #include <algorithm>
+#include <cmath>
+#include <cstdlib>
+#include <vector>
 
 // CRAM is stored internally as BGR333 (9 bits).
 static inline uint16_t cram_pack(uint16_t v) {
@@ -26,6 +29,17 @@ void VDP::reset() {
     hv_latched = false;
     dot_overflow_prev = false;
     dma_busy_until = 0;
+    hfr_forget();
+}
+
+void VDP::hfr_forget() {
+    memset(hfr_ok_, 0, sizeof(hfr_ok_));
+    hfr_rec_[0] = hfr_rec_[1] = ~0u;
+    hfr_prev_ok_ = false;
+    for (int i = 0; i < kSat; i++) {
+        spr_prev_[i].on = spr_prev2_[i].on = spr_cur_[i].on = false;
+        spr_dx_[i] = spr_dy_[i] = 0;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -272,14 +286,19 @@ void VDP::render_plane(uint8_t* dst, int ln, bool plane_b, int x0, int x1) {
     bool col_vs = (reg[11] & 4) != 0;
     int ncols = active_width() / 16;
     int wmask = cw * 8 - 1, hmask = ch * 8 - 1;
-    int vs = vsram[plane_b ? 1 : 0] & 0x3FF;
+    if (sub_) {   // (an in-between line: the plane part of the way back)
+        x0 += sub_h_[plane_b ? 1 : 0];
+        x1 += sub_h_[plane_b ? 1 : 0];
+    }
+    const int vadd = sub_ ? sub_v_[plane_b ? 1 : 0] : 0;
+    int vs = (vsram[plane_b ? 1 : 0] + vadd) & 0x3FF;
     int last_key = -1;
     uint8_t row[8] = {};
     for (int x = x0; x < x1; x++) {
         if (col_vs) {
             int col = x >> 4;
             if (col < 0) col = 0; else if (col >= ncols) col = ncols - 1;
-            vs = vsram[col * 2 + (plane_b ? 1 : 0)] & 0x3FF;
+            vs = (vsram[col * 2 + (plane_b ? 1 : 0)] + vadd) & 0x3FF;
         }
         int py = (ln + vs) & hmask;
         int px = (x - hs) & wmask;
@@ -331,6 +350,7 @@ void VDP::render_sprites(uint8_t* dst, int ln) {
         int link = vram[(base + 3) & 0xFFFF] & 0x7F;
         int hcells = ((size >> 2) & 3) + 1, vcells = (size & 3) + 1;
         int sy = y - 128;
+        if (sub_ && idx < kSat) sy += spr_sub_dy_[idx];
         if (ln >= sy && ln < sy + vcells * 8) {
             if (count >= max_line) { sprite_overflow = true; break; }
             count++;
@@ -345,6 +365,7 @@ void VDP::render_sprites(uint8_t* dst, int ln) {
             dots += width;
             if (!masked && draw_w > 0) {
                 int sx = x - 128;
+                if (sub_ && idx < kSat) sx += spr_sub_dx_[idx];
                 if (sprite_xoff) sx += sprite_xoff(hook_host, idx, attr, x, y);
                 uint8_t hud = sprite_is_hud && sprite_is_hud(hook_host, idx) ? 1 : 0;
                 int row = ln - sy;
@@ -388,53 +409,116 @@ void VDP::blank_line(int ln) {
     for (int i = 0; i < TW; i++) fb[ln][i] = bg;
 }
 
+// The window's span on a line: screen x in [ws, we) (empty if ws >= we).
+void VDP::window_span(int ln, int* ws, int* we) const {
+    const int W = active_width();
+    *ws = 0; *we = 0;
+    int wvp = (reg[18] & 0x1F) * 8;
+    bool vwin = (reg[18] & 0x80) ? (ln >= wvp) : (ln < wvp);
+    if (vwin) { *ws = -ext; *we = W + ext; }
+    else {
+        int hp = (reg[17] & 0x1F) * 16;
+        if (reg[17] & 0x80) { if (hp < W) { *ws = hp; *we = W + ext; } }
+        else if (hp > 0) { *ws = -ext; *we = hp >= W ? W + ext : hp; }
+    }
+}
+
+// Plane A with the window over it, screen x in [x0, x1) into la (la[0] = x0).
+void VDP::draw_plane_a(uint8_t* la, int ln, int x0, int x1, int ws, int we) {
+    const int vs = view_shift;
+    if (ws >= we) render_plane(la, ln, false, x0 + vs, x1 + vs);
+    else if (vs != 0) {
+        render_plane(la, ln, false, x0 + vs, x1 + vs);   // shifted plane, window stays put
+        render_window(la + (ws - x0), ln, ws, we);
+    } else {
+        if (ws > x0) render_plane(la, ln, false, x0, ws);
+        render_window(la + (ws - x0), ln, ws, we);
+        if (we < x1) render_plane(la + (we - x0), ln, false, we, x1);
+    }
+}
+
 void VDP::render_line(int ln) {
     if (ln < 0 || ln >= kMaxLines) return;
-    if (!display_enabled()) { blank_line(ln); return; }
+    const int subs = sub_frames < 1 ? 1 : sub_frames > kMaxSubFrames ? kMaxSubFrames : sub_frames;
+    if (ln == 0) {   // a new frame: its line records (the last frame's are the other half)
+        hfr_frame_++;
+        if (subs > 1) {
+            const int prev = hfr_cur_;
+            hfr_cur_ ^= 1;
+            hfr_rec_[hfr_cur_] = hfr_frame_;
+            // (the width, the plane and sprite tables, the plane size: another is a scene cut)
+            hfr_sig_[hfr_cur_] = (uint32_t)ext | (uint32_t)(reg[12] & 0x81) << 8 | (uint32_t)(reg[16] & 0x33) << 16 |
+                                 (uint32_t)((reg[2] & 0x38) ^ (reg[4] & 7)) << 24;
+            hfr_sig_[hfr_cur_] = hfr_sig_[hfr_cur_] * 31u + (reg[5] & 0x7F);
+            hfr_prev_ok_ = hfr_rec_[prev] == hfr_frame_ - 1 && hfr_sig_[prev] == hfr_sig_[hfr_cur_];
+        }
+    }
+    if (!display_enabled()) {
+        blank_line(ln);
+        if (subs > 1) {
+            if (ln == 0) sprite_moves(true);
+            hfr_ok_[hfr_cur_][ln] = 0;
+            for (int k = 1; k < subs; k++) memcpy(sub_fb[k - 1][ln], fb[ln], (size_t)fb_width * 2);
+        }
+        return;
+    }
     const int W = active_width();
     const int TW = W + 2 * ext;
     fb_width = TW;
     fb_lines = active_lines();
     if (pre_line_hook) pre_line_hook(hook_host, ln);
+    if (subs > 1) {
+        // (the sprites' moves since the last frame; again if the game rewrote its sprite table or the slide changed
+        // while the frame is drawn: a lag frame)
+        const uint32_t sat = h40() ? ((reg[5] & 0x7E) << 9) : ((reg[5] & 0x7F) << 9);
+        bool same = ln > 0 && spr_seen_shift_ == view_shift;
+        for (int i = 0; i < kSat * 8 && same; i++) same = spr_seen_[i] == vram[(sat + i) & 0xFFFF];
+        if (!same) sprite_moves(ln == 0);
+    }
 
     uint8_t la[kMaxWidth], lb[kMaxWidth], ls[kMaxWidth];
-    const int vs = view_shift;
-    const int vsb = view_shift_b_on ? view_shift_b[ln] : vs;
+    const int vsb = view_shift_b_on ? view_shift_b[ln] : view_shift;
     render_plane(lb, ln, true, -ext + vsb, W + ext + vsb);
-
-    // Window / plane A split
-    int ws = 0, we = 0;
-    int wvp = (reg[18] & 0x1F) * 8;
-    bool vwin = (reg[18] & 0x80) ? (ln >= wvp) : (ln < wvp);
-    if (vwin) { ws = -ext; we = W + ext; }
-    else {
-        int hp = (reg[17] & 0x1F) * 16;
-        if (reg[17] & 0x80) { if (hp < W) { ws = hp; we = W + ext; } }
-        else if (hp > 0) { ws = -ext; we = hp >= W ? W + ext : hp; }
-    }
-    if (ws >= we) render_plane(la, ln, false, -ext + vs, W + ext + vs);
-    else if (vs != 0) {
-        render_plane(la, ln, false, -ext + vs, W + ext + vs);   // shifted plane, window stays put
-        render_window(la + (ws + ext), ln, ws, we);
-    } else {
-        if (ws > -ext) render_plane(la, ln, false, -ext, ws);
-        render_window(la + (ws + ext), ln, ws, we);
-        if (we < W + ext) render_plane(la + (we + ext), ln, false, we, W + ext);
-    }
+    int ws, we;
+    window_span(ln, &ws, &we);
+    draw_plane_a(la, ln, -ext, W + ext, ws, we);
 
     memset(ls, 0, TW);
     memset(spr_hud_, 0, TW);
+    const bool dot_in = dot_overflow_prev;
     render_sprites(ls, ln);
 
+    line_shift_a_ = view_shift;
     if (line_hook) line_hook(hook_host, ln, la, lb, ls);
     if (debug_layers != 7) {
         if (!(debug_layers & 1)) memset(la, 0, TW);
         if (!(debug_layers & 2)) memset(lb, 0, TW);
         if (!(debug_layers & 4)) memset(ls, 0, TW);
     }
+    compose(fb[ln], la, lb, ls, TW);
 
+    if (subs > 1) {
+        // (the scroll each plane was drawn with, as the screen shows it: the view shift taken off)
+        hfr_h_[hfr_cur_][0][ln] = (int16_t)(line_hscroll(ln, false) - line_shift_a_);
+        hfr_h_[hfr_cur_][1][ln] = (int16_t)(line_hscroll(ln, true) - vsb);
+        hfr_v_[hfr_cur_][0][ln] = (int16_t)(vsram[0] & 0x3FF);   // (2-cell columns: the first column's)
+        hfr_v_[hfr_cur_][1][ln] = (int16_t)(vsram[1] & 0x3FF);
+        hfr_ok_[hfr_cur_][ln] = 1;
+        const bool ovf = sprite_overflow, col = sprite_collision, dot = dot_overflow_prev;
+        const int mask_l = edge_mask_l, mask_r = edge_mask_r;
+        for (int k = 1; k < subs; k++) {
+            dot_overflow_prev = dot_in;   // (the line's sprite masking as the frame's line had it)
+            render_sub_line(ln, k, subs);
+        }
+        // (the status bits and the next line's masking state stay the frame's own: the game reads them)
+        sprite_overflow = ovf; sprite_collision = col; dot_overflow_prev = dot;
+        edge_mask_l = mask_l; edge_mask_r = mask_r;
+    }
+}
+
+// The line's layers composed into colour codes (priority, shadow / highlight, left column blank, edge masks).
+void VDP::compose(uint16_t* out, const uint8_t* la, const uint8_t* lb, const uint8_t* ls, int TW) {
     uint16_t bgc = cram[reg[7] & 0x3F];
-    uint16_t* out = fb[ln];
     const uint16_t spr_mark = mark_sprites ? kSpritePixel : 0;
     if (!(reg[12] & 0x08)) {
         for (int i = 0; i < TW; i++) {
@@ -484,6 +568,119 @@ void VDP::render_line(int ln) {
             out[i] = (spr_hud_[i] && (ls[i] & 0x0F)) ? cram[ls[i] & 0x3F] : 0;
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// High frame rate (see sub_frames)
+// ---------------------------------------------------------------------------
+int VDP::line_hscroll(int ln, bool plane_b) const {
+    uint32_t hsbase = (reg[13] & 0x3F) << 10;
+    int hsoff;
+    switch (reg[11] & 3) {
+    case 0: hsoff = 0; break;
+    case 1: hsoff = (ln & 7) * 4; break;
+    case 2: hsoff = (ln & ~7) * 4; break;
+    default: hsoff = ln * 4; break;
+    }
+    return vram16(hsbase + hsoff + (plane_b ? 2 : 0)) & 0x3FF;
+}
+
+// An in-between line (k / subs of the way from the last frame to this one): each plane drawn again with its scroll
+// part of the way back to the last frame's on this line (render_plane takes sub_h_ / sub_v_), a plane on a line with
+// the window staying (as the window does); the sprites part of the way back; the module's line hook run as for the
+// frame's line, with sub_dx / sub_dy, so what it draws from the level is drawn at the same place as the plane.
+void VDP::render_sub_line(int ln, int k, int subs) {
+    const int W = active_width(), TW = W + 2 * ext;
+    const int cur = hfr_cur_, prev = cur ^ 1;
+    uint16_t* out = sub_fb[k - 1][ln];
+    const float back = hfr_prev_ok_ && hfr_ok_[prev][ln] ? 1.0f - (float)k / subs : 0.0f;
+    constexpr int kMaxMove = 32;
+    auto wrap10 = [](int d) { return ((d + 512) & 1023) - 512; };
+    int ws, we;
+    window_span(ln, &ws, &we);
+    for (int p = 0; p < 2; p++) {
+        int dh = 0, dv = 0;
+        if (back > 0) {
+            dh = wrap10(hfr_h_[cur][p][ln] - hfr_h_[prev][p][ln]);
+            dv = wrap10(hfr_v_[cur][p][ln] - hfr_v_[prev][p][ln]);
+            if (std::abs(dh) > kMaxMove || std::abs(dv) > kMaxMove) dh = dv = 0;   // (a cut)
+        }
+        sub_h_[p] = (int)std::lround(back * dh);   // (scrolled on by dh: the picture back that way)
+        sub_v_[p] = -(int)std::lround(back * dv);
+    }
+    if (ws < we) sub_h_[0] = sub_v_[0] = 0;   // (the window stays put, and plane A with it on its lines)
+    bool moved = sub_h_[0] || sub_v_[0] || sub_h_[1] || sub_v_[1];
+    for (int i = 0; i < kSat; i++) {
+        spr_sub_dx_[i] = (int16_t)-std::lround(back * spr_dx_[i]);
+        spr_sub_dy_[i] = (int16_t)-std::lround(back * spr_dy_[i]);
+        moved = moved || spr_sub_dx_[i] || spr_sub_dy_[i];
+    }
+    if (!moved) { memcpy(out, fb[ln], (size_t)TW * 2); return; }
+
+    uint8_t la[kMaxWidth], lb[kMaxWidth], ls[kMaxWidth];
+    sub_ = true;
+    sub_back_ = back;
+    const int vsb = view_shift_b_on ? view_shift_b[ln] : view_shift;
+    render_plane(lb, ln, true, -ext + vsb, W + ext + vsb);
+    draw_plane_a(la, ln, -ext, W + ext, ws, we);
+    memset(ls, 0, TW);
+    memset(spr_hud_, 0, TW);
+    render_sprites(ls, ln);
+    if (line_hook) line_hook(hook_host, ln, la, lb, ls);
+    sub_ = false;
+    if (debug_layers != 7) {
+        if (!(debug_layers & 1)) memset(la, 0, TW);
+        if (!(debug_layers & 2)) memset(lb, 0, TW);
+        if (!(debug_layers & 4)) memset(ls, 0, TW);
+    }
+    compose(out, la, lb, ls, TW);
+}
+
+// The sprites' moves since the last frame (hfr_match: matched by their look, as games reorder their sprite table).
+// Places are as the screen shows them: the module's sprite_xoff (the HUD re-anchored and held still against the slide)
+// included, the view shift taken off; masking sprites (X = 0) and parked ones match nothing. At a frame's first line
+// the last frame's sprites become the ones matched against; later in the frame (the game rewrote its table, a lag
+// frame) the moves are worked out again against the same ones.
+void VDP::sprite_moves(bool first) {
+    if (first || !hfr_prev_ok_) {
+        if (hfr_prev_ok_) {
+            for (int i = 0; i < kSat; i++) { spr_prev2_[i] = spr_prev_[i]; spr_prev_[i] = spr_cur_[i]; }
+        } else {
+            for (int i = 0; i < kSat; i++) spr_prev2_[i].on = spr_prev_[i].on = false;
+        }
+    }
+    HfrSprite* cur = spr_cur_;
+    const bool wide = h40();
+    const uint32_t sat = wide ? ((reg[5] & 0x7E) << 9) : ((reg[5] & 0x7F) << 9);
+    for (int i = 0; i < kSat * 8; i++) spr_seen_[i] = vram[(sat + i) & 0xFFFF];
+    spr_seen_shift_ = view_shift;
+    const int max_total = wide ? 80 : 64;
+    const int lines = active_lines();
+    for (int i = 0; i < kSat; i++) cur[i].on = false;
+    for (int n = 0, idx = 0; n < max_total; n++) {
+        uint32_t base = sat + idx * 8;
+        int y = vram16(base) & 0x1FF;
+        uint8_t size = vram[(base + 2) & 0xFFFF];
+        int link = vram[(base + 3) & 0xFFFF] & 0x7F;
+        uint16_t attr = vram16(base + 4);
+        int x = vram16(base + 6) & (sprite_x10 ? 0x3FF : 0x1FF);
+        const bool mask = x == 0;
+        if (sprite_x10 && x >= 0x300) x -= 0x400;
+        HfrSprite& s = cur[idx];
+        s.w = (uint8_t)((((size >> 2) & 3) + 1) * 8);
+        s.h = (uint8_t)(((size & 3) + 1) * 8);
+        int sx = x - 128 - view_shift;
+        if (sprite_xoff) sx += sprite_xoff(hook_host, idx, attr, x, y);
+        s.x = (int16_t)sx;
+        s.y = (int16_t)(y - 128);
+        s.key = attr | (uint32_t)(size & 0x0F) << 16;
+        s.look = (uint16_t)((attr >> 13 & 3) | (size & 0x0F) << 2);   // (palette, size)
+        s.group = (uint16_t)(attr >> 13 & 3);                          // (palette)
+        s.on = !mask && y - 128 + s.h > -32 && y - 128 < lines + 32;
+        if (link == 0 || link >= max_total) break;
+        idx = link;
+    }
+    hfr_match(cur, spr_prev_, spr_prev2_, kSat, 0, spr_dx_, spr_dy_);
 }
 
 // ---------------------------------------------------------------------------

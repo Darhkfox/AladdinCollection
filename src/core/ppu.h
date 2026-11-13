@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include "hfr_match.h"
 
 // Max extra pixels on each side: a game module may split up to twice its widest extension to one side (the view
 // stopped at a level's edge: Aladdin's 140 at 21:9 square pixels gives 280).
@@ -140,6 +141,24 @@ public:
   }
   int frameHeight() const { return overscan_ ? 239 : 224; }
 
+  // ---- high frame rate: in-between pictures
+  // With subFrames = K > 1 every line is also drawn into subFrame[k-1] (k = 1 .. K-1, same format as frame), k/K of
+  // the way from the last frame to this one: each BG layer drawn again with its scroll part of the way back to the
+  // last frame's on that line, as the picture shows it (the scroll with the hook's bgHofsAdj, less the left
+  // extension: a view that slid moves back with it); the sprites part of the way back to where they were (matched by
+  // their look, see objMoves). The margins are fetched from the hook at the place the layer is drawn (fetchWideTile
+  // gets the screen x the pixel has at the frame's scroll; subDy tells it how far the layer is drawn down). A jump of
+  // more than 32 px, a line in forced blank or black, another BG mode, map or width than the last frame's are cuts:
+  // shown as they are. Lines the hook marks with a band (lineBand: raster bands, each scrolled its own way) are
+  // matched with the last frame's line of the same band, and not moved vertically. Nothing the game reads changes.
+  static constexpr int kMaxSubFrames = 4;
+  int subFrames = 1;
+  uint32_t subFrame[kMaxSubFrames - 1][kLineW * kFrameH];
+  void hfrForget();  // nothing in between with the last frame (a state loaded, a reset)
+  uint8_t lineBand[4] = {};  // per line, set by the hook: the raster band a BG layer shows on it (0 = none)
+  bool subLine() const { return sub_; }
+  int subDy(int l) const { return sub_ ? subVofs_[l & 3] : 0; }
+
   // Memory (public for debugging and game hooks)
   uint16_t vram[0x8000];
   uint16_t cgram[256];
@@ -248,6 +267,25 @@ private:
   Px layer_[5][kLineW];
   uint8_t winMask_[6][kLineW];  // 1 = inside effective window for layer
   uint8_t colorLut_[16][32];    // brightness scaled 5-bit -> 8-bit
+
+  // ---- high frame rate (see subFrames): each line's scroll as shown, this frame's and the last one's (by
+  // scrollCur_); the sprites' places and their moves
+  int16_t lineScroll_[2][4][kFrameH][2] = {};
+  uint8_t lineBand_[2][4][kFrameH] = {};
+  int16_t lineExt_[2][kFrameH] = {};  // each line's left extension (the view sliding)
+  uint8_t lineOk_[2][kFrameH] = {};   // the line was drawn lit (not forced blank, not black)
+  int scrollCur_ = 0;
+  uint32_t hfrFrame_ = 0, hfrRec_[2] = {~0u, ~0u}, hfrSig_[2] = {};
+  bool hfrPrevOk_ = false;  // the last frame was recorded, and is this one's kind (a cut otherwise)
+  HfrSprite objPrev_[128], objPrev2_[128];  // last frame's sprites, and the frame before's (flicker)
+  int16_t objDx_[128] = {}, objDy_[128] = {};
+  bool sub_ = false;  // an in-between picture's line is being drawn
+  int16_t subHofs_[4] = {}, subVofs_[4] = {};
+  int16_t objSubDx_[128] = {}, objSubDy_[128] = {};
+  int subExt_ = 0;  // (the view's slide part of the way back: sprites not placed by a zone go with it)
+  void objMoves();
+  void renderSubLine(int row, int k, int subs, int x0, int x1, int eL, int eR, bool mirror);
+  void composeLine(uint32_t* fb, int x0, int x1, int eL, int eR, bool mirror);
 
   uint16_t readVramWord(uint16_t adr) const { return vram[adr & 0x7fff]; }
   uint16_t remapVramAdr(uint16_t adr) const;

@@ -191,6 +191,20 @@ API int smst_frame(void* h, uint32_t* out, int* w, int* hgt) {
             for (int x = 0; x < v.fb_width; x++) out[y * v.fb_width + x] = sms_rgb(v.fb[y][x] & 0x3F);
     return v.fb_width * v.fb_lines;
 }
+// High frame rate: draw K-1 in-between pictures with each frame (1 = off), and read one (k = 1 .. K-1; 0 = the
+// frame itself) as RGB pixels.
+API void smst_set_sub_frames(void* h, int k) { ((Tool*)h)->sms.vdp.sub_frames = k; }
+API int smst_sub_frame(void* h, int k, uint32_t* out, int* w, int* hgt) {
+    const SmsVdp& v = ((Tool*)h)->sms.vdp;
+    *w = v.fb_width;
+    *hgt = v.fb_lines;
+    if (k < 0 || k >= SmsVdp::kMaxSubFrames) return 0;
+    if (out)
+        for (int y = 0; y < v.fb_lines; y++)
+            for (int x = 0; x < v.fb_width; x++)
+                out[y * v.fb_width + x] = sms_rgb((k ? v.sub_fb[k - 1][y][x] : v.fb[y][x]) & 0x3F);
+    return v.fb_width * v.fb_lines;
+}
 API int smst_save_png(void* h, const char* path, int scale) {
     const SmsVdp& v = ((Tool*)h)->sms.vdp;
     std::vector<uint32_t> px((size_t)v.fb_width * v.fb_lines);

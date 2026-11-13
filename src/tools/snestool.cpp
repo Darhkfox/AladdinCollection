@@ -301,6 +301,22 @@ API void snt_frame(void* h, uint32_t* out, int* w, int* hh) {
     frame_rgb(t, *w, *hh);
     if (out) memcpy(out, t->rgb.data(), t->rgb.size() * 4);
 }
+// High frame rate: draw K-1 in-between pictures with each frame (1 = off), and read one (k = 1 .. K-1; 0 = the
+// frame itself) as RGB pixels.
+API void snt_set_sub_frames(void* h, int k) { ((Tool*)h)->snes.ppu.subFrames = k; }
+API int snt_sub_frame(void* h, int k, uint32_t* out, int* w, int* hh) {
+    const Ppu& p = ((Tool*)h)->snes.ppu;
+    *w = 256 + p.extL + p.extR;
+    *hh = p.frameHeight();
+    if (k < 0 || k >= Ppu::kMaxSubFrames) return 0;
+    const uint32_t* src = k ? p.subFrame[k - 1] : p.frame;
+    if (out)
+        for (int y = 0; y < *hh; y++) {
+            const uint32_t* row = src + (size_t)y * kLineW + (kMaxExt - p.extL);
+            for (int x = 0; x < *w; x++) out[(size_t)y * *w + x] = 0xFF000000u | Ppu::to_rgb(row[x]);
+        }
+    return 1;
+}
 API int snt_save_png(void* h, const char* path, int scale) {
     Tool* t = (Tool*)h;
     int w, hh;

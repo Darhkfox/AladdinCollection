@@ -25,6 +25,7 @@ add_library(emucore STATIC
     src/core/apu.cpp
     src/core/dsp.cpp
     src/core/ppu.cpp
+    src/core/hfr_match.cpp
     src/core/snes.cpp
     src/core/disasm.cpp
     # Master System (and the Z80 / PSG the Mega Drive shares)

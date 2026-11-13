@@ -4,6 +4,7 @@
 #pragma once
 #include <cstdint>
 #include <cstddef>
+#include "hfr_match.h"
 
 class SmsVdp {
 public:
@@ -89,6 +90,21 @@ public:
     void* hook_host = nullptr;
 
     void render_line(int ln);       // renders an active line into the frame buffer
+
+    // ---- high frame rate: in-between pictures ------------------------------------
+    // With sub_frames = K > 1 every line is also drawn into sub_fb[k-1] (k = 1 .. K-1), k/K of the way from the last
+    // frame to this one: the background with its scroll part of the way back to the last frame's on that line as the
+    // screen shows it (the view's shift taken off: a slide that holds the picture still holds it here too; the
+    // extension asked of bg_entry at the place drawn, so it goes along), the sprites part of the way back to where they
+    // were (matched by their look: hfr_match). A scroll jump of more than 32 px, a line drawn with the display off,
+    // another width or name table than the last frame's are cuts: shown as they are. The line hook runs for the
+    // in-between lines too (sub_line()). Nothing the game can read changes (the status bits stay the frame's).
+    static constexpr int kMaxSubFrames = 4;
+    int  sub_frames = 1;
+    uint8_t sub_fb[kMaxSubFrames - 1][kMaxLines][kMaxWidth];
+    void hfr_forget();              // nothing in between with the last frame (a state loaded, a reset)
+    bool sub_line() const { return sub_; }
+    float sub_back() const { return sub_ ? sub_back_ : 0.0f; }
     // One 8-pixel row of the pattern a name-table entry points at, in line-buffer format.
     void pattern_row(uint16_t entry, int row, uint8_t* out8) const;
     // Renders background pixels for screen x in [x0, x1) of line `ln` from the table (with bg_entry), line format.
@@ -136,4 +152,22 @@ public:
 private:
     void update_irq();
     void render_sprites(uint8_t* dst, int ln);
+    void compose(uint8_t* out, const uint8_t* bg, const uint8_t* spr, int W);
+
+    // high frame rate state (see sub_frames)
+    static constexpr int kSpr = 64 + kMaxExtra;   // the table's sprites, then the module's extra ones
+    bool    sub_ = false;                  // an in-between line is being drawn
+    int     sub_h_ = 0, sub_v_ = 0;        // ...the background this much further right / down
+    float   sub_back_ = 0;
+    int16_t spr_sub_dx_[kSpr] = {}, spr_sub_dy_[kSpr] = {};
+    int     hfr_cur_ = 0;
+    uint32_t hfr_frame_ = 0, hfr_rec_[2] = {~0u, ~0u}, hfr_sig_[2] = {};
+    bool    hfr_prev_ok_ = false;
+    int16_t hfr_h_[2][kMaxLines] = {};    // [frame] each line's H scroll as shown (scroll - shift)
+    uint8_t hfr_v_[2][kMaxLines] = {};    // [frame] the V scroll
+    uint8_t hfr_ok_[2][kMaxLines] = {};
+    HfrSprite spr_prev_[kSpr], spr_prev2_[kSpr];
+    int16_t spr_dx_[kSpr] = {}, spr_dy_[kSpr] = {};
+    void sprite_moves();
+    void render_sub_line(int ln, int k, int subs);
 };
