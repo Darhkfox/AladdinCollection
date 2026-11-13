@@ -48,6 +48,15 @@ Bluetooth / USB controller.
 **Launcher**
 - One card per console with a live attract-mode preview, plus Options, Achievements, the Music Player and
   Credits, over Agrabah by night.
+- **Menu Style** (Options > Launcher & Menus): *Arabian Nights* (the default: deep indigo panels in gold
+  arabesque frames with eight-pointed stars, gold titles, and the night sky with a glowing moon, glints among the
+  stars and gold dust rising from the palace) or *Classic* (the original dark panels). It styles the launcher,
+  every menu, the pause menu and the achievement pages.
+- **Your own covers and background**: cover pictures on the cards in place of the previews, and a picture behind
+  the launcher (PNG or JPEG; none are included). On PC put `md`, `snes`, `sms` and `background` (.png / .jpg) in
+  the `covers` folder next to the exe (*Open Covers Folder*); on Android pick them with *Choose Cover* /
+  *Choose Background*. Covers can be shown whole or fill the frame. A card with a cover runs no preview; a missing
+  or unreadable picture is skipped (that card keeps its preview, the launcher its night sky).
 
 **Widescreen**
 - 16:10, 16:9, 2:1 and 21:9 ultrawide (fills 3440×1440 and 2560×1080 screens), for all three games. The width
@@ -250,7 +259,8 @@ that is already in use swaps the two.
 
 Settings are stored in `settings.ini`, earned achievements in `achievements.ini` (each with the date and time it
 was earned; older files, with the date only, still load), save states in `saves\`, screenshots in
-`screenshots\`, the achievements export in `achievements export\`; soundtrack packs go in `soundtracks\`. These live next to the exe (the folder is
+`screenshots\`, the achievements export in `achievements export\`; soundtrack packs go in `soundtracks\`, launcher pictures
+in `covers\`. These live next to the exe (the folder is
 portable), or in `%LOCALAPPDATA%\Aladdin Collection` if that folder isn't writable. Delete `settings.ini` to
 restore the defaults.
 
@@ -295,7 +305,7 @@ gradlew assembleDebug
 | `src/game/` | `game.h` (the module interface, typed per console), the three modules `md_aladdin.cpp`, `snes_aladdin.cpp`, `sms_aladdin.cpp` and each console's helpers (`*_common.cpp`: verified ROM patching, scripted input) |
 | `src/app/` | Launcher, sessions (`session.cpp` and one per console: `session_md/snes/sms.cpp`), menus, music player / sound test, rewind, achievements and their export (`achexport.cpp`), the update check (`updatecheck.cpp`, `app_updates.cpp`; the repository is `kUpdateRepo`), settings, ROM finder, PNG writer, touch controls; per platform `app_win.cpp` / `app_android.cpp` and `sys_win.cpp` / `sys_android.cpp` |
 | `src/platform/` | Windows: Direct3D 11 video and DirectWrite UI text, slang shader presets through librashader (`slang.cpp`), XAudio2 audio, keyboard / XInput / DirectInput input. `android/`: OpenGL ES 3.0 video, SDL audio and controllers |
-| `third_party/` | `librashader` (the DLL, its C headers and licence) and `slang-shaders` (the bundled presets, with their licences) |
+| `third_party/` | `librashader` (the DLL, its C headers and licence), `slang-shaders` (the bundled presets, with their licences) and `stb` (`stb_image.h`, which reads the cover pictures) |
 | `src/tools/` + `tools/` | Headless cores as DLLs with Python wrappers (`mdt.py`, `snt.py`, `smst.py`) used for the reverse engineering and testing; `tools/re/` the scripts behind the notes in `docs/` |
 | `docs/` | Reverse-engineering notes per game (`re_*_game.md`: logic, levels, cheats, sound; `re_*_wide.md`: widescreen) |
 
@@ -356,6 +366,8 @@ gradlew assembleDebug
   (`librashader-LICENSE.md` next to the exe). The bundled presets are unmodified files from the libretro
   slang-shaders collection, each with its own licence (public domain, GPL v2 or later, MIT): see
   `shaders/README.txt`. They are separate files loaded at run time, not part of the program.
+- Cover and background pictures are read with stb_image by Sean Barrett, public domain (or MIT, at your choice;
+  `third_party/stb`). The Arabian Nights style's ornaments are drawn by the program itself.
 - *Aladdin* © Disney. The Mega Drive version © 1993 Sega / Virgin Games; the SNES version © 1993 Capcom; the
   Master System version © 1994 Sega. This project contains no ROM data. It is an unofficial fan project, not
   affiliated with or endorsed by Disney, Sega, Virgin, Capcom or Nintendo.
