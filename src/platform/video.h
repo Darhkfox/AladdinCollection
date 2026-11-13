@@ -54,6 +54,12 @@ public:
     // `src`: the part of the picture to draw, in its pixels (w or h 0: all of it).
     void draw_image(int id, Rect dst, Rect src = {0, 0, 0, 0}, float alpha = 1.0f);
 
+    // ---- RetroArch slang shader presets (Windows, librashader.dll) ---------
+    // A preset (.slangp) draws the main game picture (slot 0) in place of `filter`; empty path = off.
+    bool slang_available();                                         // librashader.dll found
+    bool set_slang(const std::wstring& path, std::string* error);   // false (and why): the old preset stays
+    bool slang_active() const;
+
     void fill_rect(Rect r, uint32_t color);
     void fill_rect_gradient(Rect r, uint32_t top, uint32_t bottom);
     void fill_round_rect(Rect r, float radius, uint32_t color);   // anti-aliased edges

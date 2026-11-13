@@ -31,6 +31,7 @@ void App::apply_ui_style() {
 void App::apply_settings() {
     video_.set_vsync(settings_.vsync);
     apply_ui_style();
+    apply_slang();
     if (session_) session_->apply_settings(settings_);
     for (auto& g : games_)
         if (g.preview) g.preview->apply_settings(preview_settings(settings_));
@@ -444,8 +445,9 @@ bool App::load_script(const std::wstring& path) {
         else if (c == "stoprec") script_.push_back({fr, 0, 7, ""});
         else if (c == "loadstate") script_.push_back({fr, 0, 8, a});  // <dir>\<a>.state into the running game
         else if (c == "pads") script_.push_back({fr, 0, 9, a});       // <dir>\<a>.pads: uint16 p1, p2 per frame
-        else if (c == "set") script_.push_back({fr, 0, 10, a});       // key=value: widescreen, color, filter, hud_anchor,
-                                                                      // menu_style, covers, background, cover_fill
+        else if (c == "set") script_.push_back({fr, 0, 10, a});       // key=value: widescreen, color, filter, slang_preset,
+                                                                      // aspect, integer_scale, hud_anchor, menu_style, covers,
+                                                                      // background, cover_fill
         else if (c == "award") script_.push_back({fr, 0, 11, a});     // an achievement id (tests of the pop-up / pages)
         else if (c == "welcome") script_.push_back({fr, 0, 12, ""});  // the first start's achievements page
     }
@@ -503,6 +505,9 @@ void App::run_script() {
             if (k == "widescreen") settings_.widescreen = (WideMode)std::clamp(v, 0, (int)WideMode::Count - 1);
             else if (k == "color") settings_.color = (ColorMode)std::clamp(v, 0, (int)ColorMode::Count - 1);
             else if (k == "filter") settings_.filter = std::clamp(v, 0, 4);
+            else if (k == "slang_preset") settings_.slang_preset = s.arg.substr(eq + 1);   // "" (off) or a .slangp
+            else if (k == "aspect") settings_.aspect = (AspectMode)std::clamp(v, 0, (int)AspectMode::Count - 1);
+            else if (k == "integer_scale") settings_.integer_scale = v != 0;
             else if (k == "hud_anchor") settings_.hud_anchor = v != 0;
             else if (k == "black_frames") settings_.black_frames = v != 0;
             else if (k == "menu_style") settings_.menu_style = std::clamp(v, 0, 1);

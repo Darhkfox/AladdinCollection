@@ -257,8 +257,23 @@ MenuPage App::video_page() {
                                        "CRT shows each console's pixels as a 4:3 television did. Widescreen widths follow it."));
     p.items.push_back(MenuItem::toggle("Integer Scaling", [this]() { return settings_.integer_scale; },
                                        [this](bool v) { settings_.integer_scale = v; }, "Scale only by whole numbers for perfectly even pixels."));
-    p.items.push_back(MenuItem::choice("Filter", {"Nearest (sharp)", "Sharp bilinear", "Bilinear (smooth)", "Scanlines", "CRT"},
-                                       [this]() { return settings_.filter; }, [this](int v) { settings_.filter = v; }));
+    MenuItem filter = MenuItem::choice("Filter", {"Nearest (sharp)", "Sharp bilinear", "Bilinear (smooth)", "Scanlines", "CRT"},
+                                       [this]() { return settings_.filter; }, [this](int v) { settings_.filter = v; });
+#ifdef _WIN32
+    filter.enabled = [this]() { return settings_.slang_preset.empty(); };   // (a slang shader draws instead)
+    p.items.push_back(filter);
+    MenuItem slang = MenuItem::action("Slang Shader", [this]() { menu_.push(slang_page()); },
+                                      "RetroArch slang shader presets (.slangp) from the 'shaders' folder next to the game, "
+                                      "in place of the filter above.");
+    slang.value_text = [this]() {
+        if (settings_.slang_preset.empty()) return std::string("Off");
+        std::string n = settings_.slang_preset.substr(settings_.slang_preset.find_last_of("\\/") + 1);
+        return n.size() > 7 ? n.substr(0, n.size() - 7) : n;
+    };
+    p.items.push_back(slang);
+#else
+    p.items.push_back(filter);
+#endif
 #ifdef _WIN32
     p.items.push_back(MenuItem::toggle("VSync", [this]() { return settings_.vsync; }, [this, changed](bool v) { settings_.vsync = v; changed(); }));
 #endif

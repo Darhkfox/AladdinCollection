@@ -71,6 +71,7 @@ add_executable(AladdinCollection WIN32
     src/app/ornaments.cpp
     src/app/imageload.cpp
     src/platform/video.cpp
+    src/platform/slang.cpp
     src/platform/audio.cpp
     src/platform/input.cpp
     res/app.rc
@@ -81,6 +82,17 @@ target_include_directories(AladdinCollection PRIVATE third_party/stb)   # (stb_i
 set_target_properties(AladdinCollection PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_BINARY_DIR}/bin
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/bin-debug)
+# Slang shader presets: librashader.dll (loaded at run time when present, third_party/librashader) and the
+# bundled presets (a few of the libretro slang-shaders, with their licences) next to the exe
+if(EXISTS ${CMAKE_SOURCE_DIR}/third_party/librashader/librashader.dll)
+    add_custom_command(TARGET AladdinCollection POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/third_party/librashader/librashader.dll $<TARGET_FILE_DIR:AladdinCollection>
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/third_party/librashader/LICENSE.md $<TARGET_FILE_DIR:AladdinCollection>/librashader-LICENSE.md)
+endif()
+if(EXISTS ${CMAKE_SOURCE_DIR}/third_party/slang-shaders)
+    add_custom_command(TARGET AladdinCollection POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/third_party/slang-shaders $<TARGET_FILE_DIR:AladdinCollection>/shaders)
+endif()
 
 # ---- analysis DLLs for tools/mdt.py, tools/snt.py, tools/smst.py ----------------
 foreach(tool mdtool snestool smstool)
