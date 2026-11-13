@@ -200,6 +200,7 @@ bool Settings::load(const std::wstring& path) {
             else if (k == "window_scale") window_scale = clampi(iv, 1, 6);
             else if (k == "vsync") vsync = iv != 0;
             else if (k == "filter") filter = clampi(iv, 0, 4);
+            else if (k == "slang_preset") slang_preset = v;
             else if (k == "widescreen") widescreen = (WideMode)clampi(iv, 0, (int)WideMode::Count - 1);
             else if (k == "aspect") aspect = (AspectMode)clampi(iv, 0, (int)AspectMode::Count - 1);
             else if (k == "integer_scale") integer_scale = iv != 0;
@@ -255,7 +256,7 @@ bool Settings::save(const std::wstring& path) const {
     std::ostringstream o;
     o << "; Aladdin Collection - settings\n\n[video]\n"
       << "fullscreen=" << fullscreen << "\nmonitor=" << monitor << "\nwindow_scale=" << window_scale << "\nvsync=" << vsync
-      << "\nfilter=" << filter << "\nwidescreen=" << (int)widescreen << "\naspect=" << (int)aspect
+      << "\nfilter=" << filter << "\nslang_preset=" << slang_preset << "\nwidescreen=" << (int)widescreen << "\naspect=" << (int)aspect
       << "\ninteger_scale=" << integer_scale << "\ncolor=" << (int)color << "\nbrightness=" << brightness
       << "\nsaturation=" << saturation << "\ngamma=" << gamma << "\nno_sprite_limit=" << no_sprite_limit
       << "\nhud_anchor=" << hud_anchor << "\nshow_fps=" << show_fps << "\nblack_frames=" << black_frames << "\n\n[audio]\n"

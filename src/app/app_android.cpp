@@ -276,6 +276,10 @@ void App::set_frame_rate() {
            1 /* ANATIVEWINDOW_FRAME_RATE_COMPATIBILITY_FIXED_SOURCE */);
 }
 
+// Slang shader presets are Windows only (librashader's Direct3D 11 runtime).
+void App::apply_slang() {}
+MenuPage App::slang_page() { return MenuPage(); }
+
 // Trailer recording is a Windows test feature.
 void App::start_recording(const std::string&) {}
 void App::record_frame() {}

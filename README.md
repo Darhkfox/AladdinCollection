@@ -69,6 +69,11 @@ Bluetooth / USB controller.
 - Borderless fullscreen or windowed, monitor selection (by name; dragging the window to another screen selects
   it), window size 1×–6×, integer scaling, CRT (4:3 TV) or square pixels, or stretch.
 - Filters: nearest, sharp bilinear, bilinear, scanlines, CRT. Direct3D 11.
+- RetroArch slang shader presets (Windows) in place of the filter, through librashader: seven CRT presets are
+  included (crt-royale, crt-geom, crt-lottes, crt-easymode, crt-aperture, crt-pi, zfast-crt), and any other
+  `.slangp` preset put in the `shaders` folder appears in the list (e.g. the libretro slang-shaders collection).
+  They work with every widescreen width and pixel aspect; some presets were made for a 4:3 picture and can
+  stretch or frame oddly in widescreen.
 - Sprite flicker removal (no sprites-per-line limit), V-Sync, FPS counter.
 - Black frame insertion for sharper motion on 120, 180 and 240 Hz displays.
 
@@ -234,15 +239,19 @@ restore the defaults.
 ## Building from source
 
 Requirements: Windows 10/11, Visual Studio 2022 (or the Build Tools) with the C++ workload, CMake 3.20+.
-The Windows build has no third-party dependencies.
+Slang shaders use librashader through its C header (`third_party/librashader`, loaded at run time): when
+`third_party/librashader/librashader.dll` is there the build copies it, with the presets of
+`third_party/slang-shaders`, next to the exe; without it the game runs on its built-in filters.
 
 ```
 build.bat                                         :: builds build\bin\AladdinCollection.exe (Release, static CRT)
 package.bat                                       :: dist\Aladdin Collection: the exe, per-game shortcuts and the
-                                                  ::   ROMs in this folder, for local play
+                                                  ::   ROMs in this folder, librashader.dll and the shader
+                                                  ::   presets, for local play
 powershell -ExecutionPolicy Bypass -File release.ps1
                                                   :: dist\Aladdin-Collection-v<version>-win64.zip:
-                                                  ::   the exe, readme.txt and LICENSE only (no ROMs)
+                                                  ::   the exe, readme.txt, LICENSE, librashader.dll and the
+                                                  ::   bundled shader presets (no ROMs)
 ```
 
 ### Android
@@ -263,7 +272,8 @@ gradlew assembleDebug
 | `src/core/` | Mega Drive (`m68k`, `vdp`, `ym2612`, `md`), SNES (`cpu65816`, `apu`, `dsp`, `ppu`, `snes`) and Master System (`sms`, `sms_vdp`) hardware; the Z80 and SN76489 (`z80`, `psg`) serve both Sega consoles. Each video chip renders a widened picture with hooks for the game modules |
 | `src/game/` | `game.h` (the module interface, typed per console), the three modules `md_aladdin.cpp`, `snes_aladdin.cpp`, `sms_aladdin.cpp` and each console's helpers (`*_common.cpp`: verified ROM patching, scripted input) |
 | `src/app/` | Launcher, sessions (`session.cpp` and one per console: `session_md/snes/sms.cpp`), menus, music player / sound test, rewind, achievements, settings, ROM finder, PNG writer, touch controls; per platform `app_win.cpp` / `app_android.cpp` and `sys_win.cpp` / `sys_android.cpp` |
-| `src/platform/` | Windows: Direct3D 11 video and DirectWrite UI text, XAudio2 audio, keyboard / XInput / DirectInput input. `android/`: OpenGL ES 3.0 video, SDL audio and controllers |
+| `src/platform/` | Windows: Direct3D 11 video and DirectWrite UI text, slang shader presets through librashader (`slang.cpp`), XAudio2 audio, keyboard / XInput / DirectInput input. `android/`: OpenGL ES 3.0 video, SDL audio and controllers |
+| `third_party/` | `librashader` (the DLL, its C headers and licence) and `slang-shaders` (the bundled presets, with their licences) |
 | `src/tools/` + `tools/` | Headless cores as DLLs with Python wrappers (`mdt.py`, `snt.py`, `smst.py`) used for the reverse engineering and testing; `tools/re/` the scripts behind the notes in `docs/` |
 | `docs/` | Reverse-engineering notes per game (`re_*_game.md`: logic, levels, cheats, sound; `re_*_wide.md`: widescreen) |
 
@@ -319,6 +329,10 @@ gradlew assembleDebug
   scratch. UI text uses the system font (Segoe UI through DirectWrite on Windows, Android's own font on Android).
 - The Android build uses SDL2 by Sam Lantinga and contributors, zlib licence (fetched by
   `android/fetch_sdl.ps1`, not stored in this repository).
+- Slang shaders run through librashader by Ronny Chan (chyyran), Mozilla Public License 2.0
+  (`librashader-LICENSE.md` next to the exe). The bundled presets are unmodified files from the libretro
+  slang-shaders collection, each with its own licence (public domain, GPL v2 or later, MIT): see
+  `shaders/README.txt`. They are separate files loaded at run time, not part of the program.
 - *Aladdin* © Disney. The Mega Drive version © 1993 Sega / Virgin Games; the SNES version © 1993 Capcom; the
   Master System version © 1994 Sega. This project contains no ROM data. It is an unofficial fan project, not
   affiliated with or endorsed by Disney, Sega, Virgin, Capcom or Nintendo.

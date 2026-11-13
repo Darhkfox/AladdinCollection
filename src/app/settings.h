@@ -38,6 +38,8 @@ struct Settings {
     int         window_scale = 3;
     bool        vsync = true;
     int         filter = 1;                 // ScaleFilter
+    std::string slang_preset;               // a slang shader preset (.slangp) in place of the filter: relative to the
+                                            // exe's folder (or absolute), UTF-8; empty = off (Windows)
     WideMode    widescreen = WideMode::W16x9;
     AspectMode  aspect = AspectMode::Crt;
     bool        integer_scale = false;

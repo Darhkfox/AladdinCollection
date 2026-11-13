@@ -256,6 +256,9 @@ private:
     std::string black_frames_note();     // Video menu: the refresh rate in use, or why black frames can't be shown
     void apply_settings();
     void save_settings();
+    // Slang shader presets (Windows): loads settings_.slang_preset if it changed; a failure is told and turns it off.
+    void apply_slang();
+    std::wstring slang_loaded_;
 
     UiInput poll_ui(float dt);
     uint16_t pad_state(int player);
@@ -294,6 +297,7 @@ private:
     void open_options_menu(bool from_launcher);
     void open_credits(bool from_launcher);
     MenuPage video_page();
+    MenuPage slang_page();               // the presets in the 'shaders' folder (app_win.cpp; Windows only)
     MenuPage color_page();
     MenuPage audio_page();
     MenuPage controls_page(System sys, int player);
