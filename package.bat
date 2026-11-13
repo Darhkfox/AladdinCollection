@@ -1,5 +1,6 @@
 @echo off
-rem Assembles dist\ with the launcher executable, per-game shortcuts, the user's ROMs and docs.
+rem Assembles dist\ with the launcher executable, per-game shortcuts, the user's ROMs and docs, and
+rem librashader.dll with its licence and the bundled slang shader presets (shaders\) when the build has them.
 setlocal
 cd /d "%~dp0"
 if not exist build\bin\AladdinCollection.exe (
@@ -14,6 +15,15 @@ copy /y build\bin\AladdinCollection.exe "%OUT%\" >nul
 copy /y README.md "%OUT%\README.md" >nul
 copy /y readme.txt "%OUT%\readme.txt" >nul
 copy /y LICENSE "%OUT%\LICENSE" >nul
+rem Slang shader support: librashader.dll (loaded at run time), its licence and the presets with their licences
+if exist build\bin\librashader.dll (
+    copy /y build\bin\librashader.dll "%OUT%\" >nul
+    copy /y build\bin\librashader-LICENSE.md "%OUT%\" >nul
+    if exist "%OUT%\shaders" rmdir /s /q "%OUT%\shaders"
+    xcopy /e /i /q /y build\bin\shaders "%OUT%\shaders" >nul
+) else (
+    echo Warning: librashader.dll not in build\bin: no slang shader support in the package
+)
 for %%f in (*.bin *.md *.gen *.smd *.sfc *.smc *.sms) do (
     if /i not "%%~nxf"=="README.md" copy /y "%%f" "%OUT%\roms\" >nul
 )

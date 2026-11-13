@@ -284,6 +284,21 @@
      Filter ............ Nearest (sharp), Sharp bilinear, Bilinear
                          (smooth), Scanlines or CRT.
                                                 (default: Sharp bilinear)
+     Slang Shader ...... A RetroArch slang shader preset instead of the
+                         filter, for a richer CRT look: crt-royale,
+                         crt-geom, crt-lottes, crt-easymode, crt-aperture,
+                         crt-pi and zfast-crt are included, in the
+                         "shaders" folder. Any other .slangp preset you put
+                         there (with its files, e.g. from the libretro
+                         slang-shaders collection) shows up in the list too.
+                         They work at every widescreen width and pixel
+                         aspect, though some presets were made for a 4:3
+                         picture and can stretch or frame oddly in
+                         widescreen; crt-royale needs a fairly fast
+                         graphics card. Needs librashader.dll next to the
+                         game. If a preset can't be found or compiled
+                         ("Shader ... not loaded"), the game goes back to
+                         the built-in filter.             (default: Off)
      VSync ............. Sync to the monitor's refresh rate. (default: ON)
      Black Frame Insertion  Sharper motion, like a CRT: each game frame is
                          followed by a black one. Needs V-Sync and the
@@ -474,6 +489,8 @@
   saves\ ............. Save states.
   screenshots\ ....... F12 screenshots.
   soundtracks\ ....... MD+ soundtrack packs (Mega Drive), if you have any.
+  shaders\ ........... Slang shader presets (Options > Video > Slang
+                       Shader), with librashader.dll next to the exe.
 
   These live next to AladdinCollection.exe (the folder is portable), or in
   %LOCALAPPDATA%\Aladdin Collection if that folder isn't writable. Save
@@ -490,6 +507,13 @@
      GitHub:  https://github.com/Darhkfox
 
   The port's own code is released under the MIT licence: see LICENSE.
+
+  Slang shaders run through librashader by Ronny Chan (chyyran), Mozilla
+  Public License 2.0 (librashader-LICENSE.md). The bundled presets are
+  unmodified files from the libretro slang-shaders collection, each with
+  its own licence (public domain, GPL v2 or later, MIT): see
+  shaders\README.txt. They are separate files loaded at run time, not part
+  of the program.
 
   Aladdin (c) Disney. The Mega Drive version (c) 1993 Sega / Virgin Games,
   the SNES version (c) 1993 Capcom, the Master System version (c) 1994
