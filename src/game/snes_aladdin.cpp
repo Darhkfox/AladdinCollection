@@ -105,10 +105,17 @@ constexpr int kLavaLevel = 0x06;
 // the same tests, 32 px into the left margin (tools/qa round 2, N5); there too the objects' lifetime follows the
 // picture's edges.
 constexpr int kRideLevel = 0x12;
-// The Lava Cavern's lava pillar ($83:DF14): spawned hidden in the lava, it waits a time from its list entry ($D3F8 +
-// parameter frames; with the parameter's bit 7 none), bubbles for 32 frames, rises, holds and sinks, and deletes
-// itself.
-constexpr int kPillarType = 0x5B;
+// Objects on a timer from their spawn, by type, and the return address of that first wait (saved PC and bank, object
+// +$03 / +$05): the Lava Cavern's lava pillar ($5B, $83:DF14: spawned as its cap lying in the lava, animation 2, it
+// waits a time from its list entry - COP with the table $83:D3F8 by its list parameter, object +$07; with the
+// parameter's bit 7 none -, bubbles for 32 frames, rises, holds and sinks, and deletes itself) and the Carpet Escape's
+// rock hanging from the ceiling ($83, $84:9538: it hangs, waits by the table $84:D83A and falls; with the parameter's
+// bit 4 it falls once Aladdin has passed it instead, no wait).
+struct TimedType { uint8_t type, bank; uint16_t wait; };
+constexpr TimedType kTimedTypes[] = {{0x5B, 0x83, 0xDF3A}, {0x83, 0x84, 0x9579}};
+// The object runner's count of a waiting object's frames ($83:94BB DEC $01 / BEQ resume, state 1; then $83:94BF runs
+// its type's idle routine while it waits).
+constexpr uint32_t kObjWaitDec = 0x8394BB, kObjWaitIdle = 0x8394BF;
 // The lamp's beam at the Underground River's end (level $05; a screen task, $82:84CB, a frame at a time from $82:8514):
 // a column of light 17 px wide from world x $0E78, colour math (add, fixed colour) inside window 2 on the lines of an
 // HDMA table on WH2 / WH3 (channel 7, indirect: $7E:F532 / $F533 the beam's edges). Its left edge on the screen is
@@ -168,7 +175,7 @@ public:
         // 4:3 state loaded wide, knows them)
         for (uint32_t pc :
              {kOamPiece, kOamPieceFlip, kOamBuild, kOamDma, kLevelLoop, kLevelWait, kTaskYield, kSpawnInit, kObjDelete,
-              kLavaWall, kLavaBehind, kLavaAhead})
+              kLavaWall, kLavaBehind, kLavaAhead, kObjWaitDec})
             s.markExec(pc, true);
         if (ext_ > 0)
             for (uint32_t pc : {kDrawTest, kKeepTest, kSpawnInitCam, kSpawnInitRight, kSpawnInitLeft, kSpawnInitCount,
@@ -210,9 +217,30 @@ public:
             std::memset(gone_, 0, sizeof(gone_));
             std::memset(again_, 0, sizeof(again_));
             std::memset(refused_, 0, sizeof(refused_));
+            std::memset(waiting_, 0, sizeof(waiting_));
             spawn_mode_ = kSpawnGame;
             wall_valid_ = behind_valid_ = false;   // (the Lava Cavern's limits: from the picture's edges)
             return false;
+        case kObjWaitDec: {
+            // (kObjWaitDec only acts on a timed object the margins spawned early, at any width: one still waiting when
+            // widescreen is switched off is let go at the original's moment too)
+            // A timed object the margins spawned ahead of the original (waiting_: the Lava Cavern's pillar lies in the
+            // lava, its cap showing; the Carpet Escape's rock hangs from the ceiling) doesn't count its first wait
+            // down until the original's spawner would create it: in the frame after the one its column reaches the
+            // original's spawn edges (the camera here, before this frame's scroll, is the one the spawner last saw),
+            // as a fresh one runs its start then (its wait set, not counted). From then on it counts as the game's
+            // own: the pillar bubbles and rises, the rock falls, at the original's camera x.
+            const uint8_t idx = rd8(s, r.dp + 0x34);
+            if (idx == 0 || !bit(waiting_, idx)) return false;
+            const TimedType* tt = timed_type(rd8(s, r.dp + 0x06));
+            if (!tt || rd16(s, r.dp + 0x03) != tt->wait || rd8(s, r.dp + 0x05) != tt->bank) {
+                set_bit(waiting_, idx, false);
+                return false;
+            }
+            if (!beyond(s, idx)) set_bit(waiting_, idx, false);   // (this frame not counted either)
+            r.pc = (uint16_t)kObjWaitIdle;
+            return true;
+        }
         case kObjDelete: {
             // A level object deleted (killed, collected, swept, out of range, its own end): the module's own spawns
             // (a width change's, the retries) don't create it again; the game's spawner does as usual when its edge
@@ -230,6 +258,7 @@ public:
             if (idx != 0) {
                 const int x = (int16_t)rd16(s, r.dp + 0x0C), cam = (int16_t)rd16(s, kCamX);
                 const bool right = x >= cam + 0x120, left = x < cam - 0x40;
+                set_bit(waiting_, idx, false);
                 set_bit(gone_, idx, true);
                 set_bit(again_, idx, r.dp == pending_again_ || right || left);
                 if (ext_ > 0 && (right || left) && !(rd8(s, kSpawnedBits + idx) & 0x80)) {
@@ -330,13 +359,15 @@ public:
             return true;
         case kSpawnTest: {      // one list object (X): skipped by the module's own spawns as they require (skip)
             const int idx = r.x & 0xFF;
-            // An object whose script runs on a timer from its spawn (the Lava Cavern's pillar) is left for the
-            // original's moment, when its column reaches the original's spawn edges (the retry of refused_pending):
-            // spawned early by the margin it rose and sank before Aladdin got there.
+            // An object whose script runs on a timer from its spawn (kTimedTypes) mustn't start it in the margin:
+            // spawned early the Lava Cavern's pillar rose and sank before Aladdin got there, the Carpet Escape's rock
+            // fell ahead of him. It is spawned there, in its waiting state (the pillar's cap lying in the lava, the
+            // rock hanging), with its wait held until the original's moment (waiting_, kObjWaitDec); if the allocator
+            // refuses it, the retry of refused_pending creates it when its column reaches the original's spawn edges.
+            // (One without the wait - a rock that waits for Aladdin - leaves waiting_ at its first other wait.)
             if ((spawn_mode_ == kSpawnGame || spawn_mode_ == kSpawnWidth) && held(s, idx)) {
                 set_bit(refused_, idx, true);
-                r.pc = (uint16_t)kSpawnNext;
-                return true;
+                set_bit(waiting_, idx, true);   // (held: never deleted, so the width change's spawn takes it too)
             }
             if (spawn_mode_ == kSpawnGame || !skip(idx)) return false;
             r.pc = (uint16_t)kSpawnNext;
@@ -345,6 +376,7 @@ public:
         case kSpawnAllocated: { // the allocator's answer (carry set: refused): a once-only object to try again
             const uint8_t idx = rd8(s, 0x0012);
             if (r.c && idx != 0 && (rom16(s, list_entry(s, idx)) & 0x8000)) set_bit(refused_, idx, true);
+            if (r.c && idx != 0) set_bit(waiting_, idx, false);   // (a refused timed object: created fresh by the retry)
             return false;
         }
         case kSpawnInitRight:   // ADC #$0120: the right column past the view's right margin
@@ -766,7 +798,7 @@ public:
     // of the frame in progress too: its OAM DMA comes after the load) and how long ago the level loop's top ran.
     std::vector<uint8_t> save_ext() const {
         std::vector<uint8_t> v;
-        v.push_back(5);   // version
+        v.push_back(6);   // version
         v.push_back((uint8_t)((level_ ? 1 : 0) | (lim_valid_ ? 2 : 0) | (stop_ ? 4 : 0) | (respawn_ ? 16 : 0) |
                               (armed_ ? 32 : 0)));
         const uint32_t since = snes_ ? snes_->frameCount() - loop_frame_ : 255;
@@ -803,6 +835,7 @@ public:
             v.push_back((uint8_t)x);
             v.push_back((uint8_t)(x >> 8));
         }
+        v.insert(v.end(), waiting_, waiting_ + 32);   // (version 6) timed objects waiting for the original's moment
         return v;
     }
     void load_ext(const uint8_t* d, size_t n) {
@@ -818,6 +851,7 @@ public:
         std::memset(gone_, 0, sizeof(gone_));
         std::memset(again_, 0, sizeof(again_));
         std::memset(refused_, 0, sizeof(refused_));
+        std::memset(waiting_, 0, sizeof(waiting_));
         spawn_mode_ = kSpawnGame;
         retry_idx_ = 0;
         retry_frame_ = 0xFFFFFFFFu;
@@ -826,9 +860,9 @@ public:
         // (a state without it: a level being played if one is on screen)
         armed_ = snes_ && playing_level(*snes_) && in_level(*snes_);
         const size_t need1 = 2 + 5 * 2 + 128 * 3, need2 = 3 + 7 * 2 + 2 * 128 * 3, need3 = need2 + 1 + 7 * 2;
-        const size_t need5 = need3 + 2 + 3 * 32 + 5;
-        if (n < 2 || d[0] < 1 || d[0] > 5 || (d[0] == 1 && n < need1) || (d[0] == 2 && n < need2) ||
-            (d[0] >= 3 && n < need3) || (d[0] >= 5 && n < need5))
+        const size_t need5 = need3 + 2 + 3 * 32 + 5, need6 = need5 + 32;
+        if (n < 2 || d[0] < 1 || d[0] > 6 || (d[0] == 1 && n < need1) || (d[0] == 2 && n < need2) ||
+            (d[0] >= 3 && n < need3) || (d[0] >= 5 && n < need5) || (d[0] >= 6 && n < need6))
             return;
         level_ = (d[1] & 1) != 0;
         if (d[0] >= 4) armed_ = (d[1] & 32) != 0;
@@ -878,7 +912,9 @@ public:
             behind_valid_ = (d[o] & 2) != 0;
             wall_x_ = (int16_t)(d[o + 1] | (d[o + 2] << 8));
             behind_x_ = (int16_t)(d[o + 3] | (d[o + 4] << 8));
+            o += 5;
         }
+        if (d[0] >= 6) std::memcpy(waiting_, d + o, 32);
     }
 
 private:
@@ -907,8 +943,9 @@ private:
     // The level objects (by list index) deleted since the level's start (gone_), of them the ones whose last delete was
     // past the 4:3 screen's edge or the sweep's beyond the original's edges (again_), and the ones waiting for the
     // original's moment (refused_: once-only objects the allocator refused, timed ones held back from the margins).
-    // Bits by index.
-    uint8_t gone_[32] = {}, again_[32] = {}, refused_[32] = {};
+    // Bits by index. waiting_: timed objects the margins spawned ahead of the original, their first wait held
+    // (kObjWaitDec).
+    uint8_t gone_[32] = {}, again_[32] = {}, refused_[32] = {}, waiting_[32] = {};
     int spawn_mode_ = kSpawnGame, retry_idx_ = 0;
     uint32_t retry_frame_ = 0xFFFFFFFFu;
     uint16_t pending_again_ = 0;   // the object whose delete follows: past the 4:3 screen's edge, or swept beyond
@@ -1024,15 +1061,22 @@ private:
         default: return false;
         }
     }
-    // A level object to hold back from the margins until the original's spawn edges reach its column: a type whose
-    // script runs on a timer from its spawn (the Lava Cavern's lava pillar, $5B: hidden in the lava, it waits $D3F8 +
-    // list parameter frames, bubbles, rises, holds and sinks, and deletes itself - once, as the camera never comes
-    // back), not out yet, never deleted in this level, its column beyond the original's edges.
+    // A level object whose timer mustn't start in the margins, only when the original's spawn edges reach its column:
+    // a type whose script runs on a timer from its spawn (kTimedTypes: the Lava Cavern's pillar waits, bubbles, rises,
+    // holds and sinks, the Carpet Escape's rock waits and falls - once, as the camera never comes back), not out yet,
+    // never deleted in this level, its column beyond the original's edges (kSpawnTest: spawned with its wait held).
     bool held(const Snes& s, int idx) const {
         if (idx == 0 || bit(gone_, idx) || (rd8(s, kSpawnedBits + idx) & 0x81)) return false;
-        const uint32_t e = list_entry(s, idx);
-        if ((rom16(s, e) & 0xFF) != kPillarType) return false;
-        const int cam = (int16_t)rd16(s, kCamX), c = (rom16(s, e + 2) & 0x3FFF) >> 5;
+        return timed_type(rom16(s, list_entry(s, idx)) & 0xFF) && beyond(s, idx);
+    }
+    static const TimedType* timed_type(int type) {
+        for (const TimedType& t : kTimedTypes)
+            if (t.type == type) return &t;
+        return nullptr;
+    }
+    // A level object's list column beyond the original's spawn edge columns (camera + $120 / - $40).
+    static bool beyond(const Snes& s, int idx) {
+        const int cam = (int16_t)rd16(s, kCamX), c = (rom16(s, list_entry(s, idx) + 2) & 0x3FFF) >> 5;
         return c > floor_shr(cam + 0x120, 5) || c < floor_shr(cam - 0x40, 5);
     }
     // A level object to spawn at the original's moment, not out yet (spawned bits & $81 clear), its column within the
