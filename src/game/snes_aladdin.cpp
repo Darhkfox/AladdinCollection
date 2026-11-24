@@ -51,6 +51,9 @@ constexpr uint32_t kPageTable = 0x7FF000;
 // ---- code
 // The main task's frame wait in a level ($81:82E6 JSL wait, returns to $82E9) and in the pause loop.
 constexpr uint32_t kLevelWaitRet = 0x8182E9, kPauseWaitRet = 0x8183FA;
+// STAGE CLEAR: screen $24; its task's waits from the picture's set-up to the fade-out after B
+constexpr uint8_t kStageClearScreen = 0x24;
+constexpr uint32_t kStageClearFrom = 0x81F7B6, kStageClearTo = 0x81F90C;
 // Sprites: the OAM builder stores each piece's 16-bit screen x (A; X = OAM index * 4); the NMI's OAM DMA.
 constexpr uint32_t kOamPiece = 0x81938B, kOamPieceFlip = 0x8193F9, kOamBuild = 0x819258, kOamDma = 0x8081B2;
 // Objects drawn while within a range of the camera's centre ($81:91D4, table $80:BA02 by the object's class $12) and
@@ -504,13 +507,16 @@ public:
         // level's start, when its width changes or an arena holds the camera; then the view's offset closes only as
         // fast as the camera moves (it never pans by itself while the game's picture holds still).
         if (level_ && ext_ > 0) {
-            const int cam = (int16_t)rd16(s, kCamX);
+            const int cam = (int16_t)rd16(s, kCamX), camy = (int16_t)rd16(s, kCamY);
             int lo, hi;
-            span(s, cam, lo, hi);
+            bool sh = false;
+            span(s, cam, lo, hi, &sh);
             const bool stop = can_stop(s);
             const bool jump = !lim_valid_ || std::abs(cam - last_cam_) >= 64;
             if (!jump && (lo != lim_lo_ || hi != lim_hi_ || stop != stop_)) {
                 const int before = target_v(cam, lim_lo_, lim_hi_, stop_);
+                // (into or out of a shaft, where the game's camera moves only in y: the offset closes as it does)
+                if (sh || shaft_) slide_y_ = true;
                 lim_lo_ = lo;
                 lim_hi_ = hi;
                 stop_ = stop;
@@ -521,12 +527,16 @@ public:
                 stop_ = stop;
                 d_off_ = 0;
             }
-            const int moved = jump ? 0 : std::abs(cam - last_cam_);
+            shaft_ = sh;
+            int moved = jump ? 0 : std::abs(cam - last_cam_);
+            if (slide_y_ && !jump) moved = std::max(moved, std::abs(camy - last_camy_));
             lim_valid_ = true;
             last_cam_ = cam;
+            last_camy_ = camy;
             d_off_ = std::clamp(d_off_, -2 * ext_, 2 * ext_);
             const int step = std::min(kSlide, moved);
             d_off_ = d_off_ > 0 ? std::max(0, d_off_ - step) : std::min(0, d_off_ + step);
+            if (d_off_ == 0 || jump) slide_y_ = false;
             // A background the game scrolls itself: the inputs of its scroll for the frame its logic just finished.
             if (logic_done_ && !band_taken_) {
                 band_taken_ = true;
@@ -537,7 +547,7 @@ public:
             d_off_ = 0;
             band_next_.valid = band_shown_.valid = false;
         }
-        info.gameplay = level_;
+        info.gameplay = level_ || stage_clear_;   // (the frame just drawn: frame_start)
         info.view_left = level_ ? el_ : -1;
     }
 
@@ -551,6 +561,11 @@ public:
     // ---- PPU hooks
     void beginLine(Ppu& p, int row) override {
         if (row == 0) frame_start(p);
+        if (stage_clear_) {   // (the backdrop alone in the margins)
+            for (bool& h : p.hideWideBg) h = true;
+            p.hideWideObj = true;
+            return;
+        }
         if (!level_ || ext_ == 0 || !snes_) return;
         const Snes& s = *snes_;
         // The layer structs' positions as the frame starts: the game's logic moves them during the frame, a byte at a
@@ -798,12 +813,13 @@ public:
     // of the frame in progress too: its OAM DMA comes after the load) and how long ago the level loop's top ran.
     std::vector<uint8_t> save_ext() const {
         std::vector<uint8_t> v;
-        v.push_back(6);   // version
+        v.push_back(7);   // version
         v.push_back((uint8_t)((level_ ? 1 : 0) | (lim_valid_ ? 2 : 0) | (stop_ ? 4 : 0) | (respawn_ ? 16 : 0) |
                               (armed_ ? 32 : 0)));
         const uint32_t since = snes_ ? snes_->frameCount() - loop_frame_ : 255;
         v.push_back((uint8_t)std::min<uint32_t>(since, 255));
-        for (int x : {ext_, lim_lo_, lim_hi_, d_off_, last_cam_, 0, 0}) {   // (two words a dimmed range once held)
+        // (the last two words held a dimmed range once, written as 0: now the camera's y and the shaft's flags)
+        for (int x : {ext_, lim_lo_, lim_hi_, d_off_, last_cam_, last_camy_, (shaft_ ? 1 : 0) | (slide_y_ ? 2 : 0)}) {
             v.push_back((uint8_t)x);
             v.push_back((uint8_t)(x >> 8));
         }
@@ -842,6 +858,7 @@ public:
         lim_valid_ = false;
         loop_frame_ = 0x80000000u;
         d_off_ = 0;
+        shaft_ = slide_y_ = false;
         for (bool& b : oam_set_) b = false;
         for (bool& b : build_set_) b = false;
         respawn_ = true;   // (a state without the module's data: the margins' objects)
@@ -861,7 +878,7 @@ public:
         armed_ = snes_ && playing_level(*snes_) && in_level(*snes_);
         const size_t need1 = 2 + 5 * 2 + 128 * 3, need2 = 3 + 7 * 2 + 2 * 128 * 3, need3 = need2 + 1 + 7 * 2;
         const size_t need5 = need3 + 2 + 3 * 32 + 5, need6 = need5 + 32;
-        if (n < 2 || d[0] < 1 || d[0] > 6 || (d[0] == 1 && n < need1) || (d[0] == 2 && n < need2) ||
+        if (n < 2 || d[0] < 1 || d[0] > 7 || (d[0] == 1 && n < need1) || (d[0] == 2 && n < need2) ||
             (d[0] >= 3 && n < need3) || (d[0] >= 5 && n < need5) || (d[0] >= 6 && n < need6))
             return;
         level_ = (d[1] & 1) != 0;
@@ -878,6 +895,13 @@ public:
         int v[7] = {};
         for (int i = 0; i < count; i++, o += 2) v[i] = (int16_t)(d[o] | (d[o + 1] << 8));
         lim_lo_ = v[1]; lim_hi_ = v[2]; d_off_ = v[3]; last_cam_ = v[4];
+        if (d[0] >= 7) {   // (version 7: the camera's y and the shaft's flags; before, 0 or a dimmed range once held)
+            last_camy_ = v[5];
+            shaft_ = (v[6] & 1) != 0;
+            slide_y_ = (v[6] & 2) != 0;
+        } else {
+            lim_valid_ = false;   // (an older state's view knew no shafts: its first frame where the view stops now)
+        }
         // the margins' objects: spawned again for a state made at another width (or saved with that pending)
         respawn_ = v[0] != ext_ || (d[0] >= 2 && (d[1] & 16));
         auto get = [&](int16_t* x, bool* set) {
@@ -959,6 +983,10 @@ private:
     uint32_t loop_frame_ = 0x80000000u;   // the frame the level loop's top last ran in
     bool lim_valid_ = false;
     int lim_lo_ = 0, lim_hi_ = 0, d_off_ = 0, last_cam_ = 0;   // where the view stops; its offset still to close
+    int last_camy_ = 0;
+    bool shaft_ = false;     // the span is a shaft's column (span)
+    bool slide_y_ = false;   // the offset came from a shaft's span: it closes as the camera moves in x or y
+    bool stage_clear_ = false;   // this frame: the STAGE CLEAR screen (its plain backdrop fills the margins)
     bool stop_ = true;                    // the view may stop at the level's ends (can_stop)
     int el_ = 0, er_ = 0, mid_ = 0;
     int bg2_ratio_ = 0;      // this frame: BG2's x speed against the camera (8.8), 0 = scrolled by the game itself
@@ -1150,11 +1178,19 @@ private:
     }
     // Where the view stops: the level's ends (level_extent); an arena holding the camera, the picture around its
     // screen - centred on it, kept inside the level where the level is as wide as the picture (an arena at a level's
-    // end: the Cave of Wonders' last event), else centred. (Not the zones' limits nor the pages the camera can't enter
-    // at its height: they change as the camera goes, and the view would have to pan by itself; the margins show the
-    // level there.)
-    void span(const Snes& s, int cam, int& lo, int& hi) const {
+    // end: the Cave of Wonders' last event), else centred; a shaft, its column centred (shaft: the screen's rows hold
+    // nothing else). (Not the zones' limits nor the pages the camera can't enter at its height elsewhere: they change
+    // as the camera goes, and the view would have to pan by itself; the margins show the level there.)
+    void span(const Snes& s, int cam, int& lo, int& hi, bool* in_shaft = nullptr) const {
         level_extent(s, lo, hi);
+        const bool sh = !arena(s) && shaft(s, cam, lo, hi);
+        if (in_shaft) *in_shaft = sh;
+        if (sh) {
+            // a shaft: its one page column, narrower than the picture, centred
+            lo = cam;
+            hi = cam + 256;
+            return;
+        }
         if (arena(s)) {
             const int vw = 256 + 2 * ext_;
             if (hi - lo >= vw) {
@@ -1165,6 +1201,21 @@ private:
                 hi = cam + 256;
             }
         }
+    }
+    // A shaft: every page row of the game's screen (camera y to + 223) holds only the camera's own page column - the
+    // pages beside it may not be entered (bit 15) or lie outside the level - so the game's camera is pinned in x
+    // there (Inside the Lamp 3's tower, the Cave of Wonders' drop at x 2816). The pages beside it hold nothing of the
+    // level: the game draws them as page 0, its picture is the column's own 256 px.
+    static bool shaft(const Snes& s, int cam, int lo, int hi) {
+        if (cam & 0xFF) return false;
+        const int c = cam >> 8, cy = (int16_t)rd16(s, kCamY);
+        if (cy < 0) return false;
+        for (int r = cy >> 8; r <= (cy + 223) >> 8; r++) {
+            if (barrier(s, c, r)) return false;
+            if ((c - 1) * 256 >= lo && !barrier(s, c - 1, r)) return false;
+            if ((c + 1) * 256 < hi && !barrier(s, c + 1, r)) return false;
+        }
+        return true;
     }
     // The camera held in x while it follows in y: a fixed arena (Jafar's). (Both held: a death's fall.)
     static bool arena(const Snes& s) { return rd16(s, kCamHoldX) && !rd16(s, kCamHoldY); }
@@ -1332,8 +1383,21 @@ private:
         return std::clamp(cam - (target_v(cam, lim_lo_, lim_hi_, stop_) + d_off_), 0, 2 * ext_);
     }
 
+    // STAGE CLEAR (screen $24, its task from the picture's set-up to the fade-out after B, $81:F7B6-$81:F90C): a
+    // panel on a plain backdrop (colour 0, the dark purple) whose BG maps hold nothing past its 256 px. The margins
+    // show the backdrop alone, so the purple fills the width around the panel (the app's plain bars don't take it: the
+    // panel's gold frame runs 4 px inside its edges). Read as the frame starts, so a loaded state draws the same.
+    static bool stage_clear(const Snes& s) {
+        if (rd8(s, kLevel) != kStageClearScreen) return false;
+        const uint16_t sp = rd16(s, 0x0071);
+        if (sp < 0x0100 || sp > 0x0170) return false;
+        const uint32_t ret = rd16(s, sp + 7) | (rd8(s, sp + 9) << 16);
+        return ret >= kStageClearFrom && ret <= kStageClearTo;
+    }
+
     void frame_start(Ppu& p) {
         el_ = er_ = ext_;
+        stage_clear_ = ext_ > 0 && snes_ && !level_ && stage_clear(*snes_);
         mid_ = 0;
         arena_ = false;
         paint_row_ = 0x10000;
