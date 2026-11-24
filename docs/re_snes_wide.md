@@ -329,8 +329,35 @@ identical (also from near a level's end: its `state` argument).
   and mark it for the retry above (the refused once-only objects' bits, kept in states): it is spawned in the frame
   its column reaches the original's edge (camera + `$120`), so it rises at the original's camera x. At 106 and 140,
   with Remove Slowdown off and on, all seven spawn and rise at the 4:3 run's camera x to the pixel (only the last
-  ones' deletes come later, by the wide lifetime rule: they sink fully in the left margin). A pillar never spawned
-  sits invisible in the lava, so nothing pops in the margin. At 4:3 nothing is hooked.
+  ones' deletes come later, by the wide lifetime rule: they sink fully in the left margin).
+  That first fix had one flaw: a pillar is not invisible while it waits. Its script (`$83:DF14`) sets animation 2 -
+  its cap, a flat rock lying in the lava - and waits there (`COP` with A = `$83:D3F8` + its list parameter, flags &
+  `$7F`: state 1, frames at object `+$01`, return address `$83:DF3A` at `+$03`; the runner counts it down at
+  `$83:94BB` and runs the type's idle routine `$83:DFCD` meanwhile), then bubbles (animation 1, 32 frames) and
+  rises. At 4:3 it is spawned 32 px past the screen's right edge, so its cap slides in at the edge and lies there
+  a while before it rises. Held back to the original's spawn column (camera + `$120`, 74 px inside the
+  picture's right edge at 106, 108 at 140), the cap popped into view in the middle of the margin, and the rise
+  followed soon after: the user's report at 21:9 with Remove Slowdown on, "the boulders in the lava don't appear
+  till the last moment". Now the margins spawn a pillar as the game would (at their own edge column, out of view),
+  and the module holds its first wait instead (`waiting_`, kept in states): an exec hook at the runner's
+  `DEC $01` skips the count (on to the idle routine at `$83:94BF`) while the object is a `$5B` at `$83:DF3A` and its
+  column is beyond the original's spawn edges, and for one frame more - the frame a fresh pillar spawned at the
+  original's moment runs its start (the wait set, not counted). The camera the hook reads, before the frame's
+  scroll, is the one the spawner saw in the frame before, so the count starts exactly where the 4:3 spawn would
+  have. A delete, or the allocator refusing the spawn, clears the bit (a refused one is created fresh at the
+  original's edge by the retry above). The Lava Cavern at 106, the play route of `snes_lava.py` (Aladdin carried
+  at the screen's middle): the seven caps come in at x - camera 374-401 (past the picture's edge, 362), the tops
+  rise at camera 280, 3256, 3408, 3536, 3928, 4136, 4148 - the 4:3 run's to the frame with Remove Slowdown on,
+  to the camera pixel with it off.
+  **The Carpet Escape's rocks** (type `$83`, `$84:9538`, nine in its list) have the same flaw in their own way: one
+  hangs from the cave's ceiling, waits (`COP` with A = `$84:D83A` by its parameter, return `$84:9579`) and falls; at
+  4:3 it falls at x - camera 179-269, and the margins' earlier spawn made each fall 70-90 px ahead of the original,
+  in the right margin (x - camera 261-330 at 106), before the carpet got there. The same hold covers it (a table of
+  timed types, `kTimedTypes`): spawned at the margin's edge, hanging, it falls at the 4:3 run's camera x (66, 99,
+  324, 918, 1317 on a run with no input). (Its two rocks with parameter bit 4 fall once Aladdin has passed them, no
+  timer: untouched.) No other level's list has either type. At 4:3 the hook only reads (nothing is ever
+  held there: the game's spawner has no columns beyond the original's), and a pillar or rock still held when
+  widescreen is switched off is let go at the original's moment as well.
   The deleted-objects record wasn't involved: it only limits the module's own spawns (a width change's, the
   retries), never the game's spawner, and the original never spawns a pillar twice.
 - **The sweep.** An event can delete every object (`$81:9D82`: the Market at Dusk's arena at camera `$400`, `$80:A176`;
