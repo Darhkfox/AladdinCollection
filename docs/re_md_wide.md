@@ -11,7 +11,7 @@ objects first seen well inside the slid view, and objects dropped for want of sp
 Cave's stepping stones: copies per block and stones missing from the view), `md_wide_boss.py` (the idol fight's
 framing: views at the arena's ends, lurches), `md_wide_carpet.py` (the carpet after the idol: when it spawns, shows and
 picks Aladdin up, beaten beside either pedestal), `md_wide_abu.py` (the Sultan's Palace's carpet over the hole, with
-Abu in his cage and freed), `md_attract.py` (the
+Abu in his cage and freed), `md_wide_apples.py` (the out-of-apples apples `$61` in the boss arenas, §3), `md_attract.py` (the
 attract mode at every width, with and without cheats, against widescreen off), `md_apptest.py` (the real app's
 autotest on level states: HUD, pillarboxing as the player sees them), `md_wide_rug.py` (the Rug Ride at 4:3 and wide
 with the same input: RAM, lag, the 4:3 area of the picture, ghosts, achievements; `--states` its save states),
@@ -121,6 +121,32 @@ it there (§7).
   - they are never evicted for room (they would return only at their column's next entry).
   The same pass over the river: one stone per block at 16:9 and 21:9, block 156 present, 15 objects at most. The
   Escape's lava rocks are no longer spawned again over a risen rock (`md_wide_popin.py`: 6 → 0 at every width).
+  **The apples (`$61`) in the boss arenas** (the user's report at 21:9: "the apples on the final boss fight don't spawn
+  in correctly"). The handler (`$1B72FC`) spawns only while Aladdin has no apples (`$FFEFE0` = "00"), four apples
+  (object `$40`, template `$1B79B8`) in a diamond round the block: x ± 12, y ± 10. They are the fights' ammunition, their
+  blocks in the arenas: Jafar's hall (44,44) / (58,44) over the two pedestals either side of Jafar, the idol's (131,30)
+  / (144,27), the Rooftops' end (135,19) / (147,19) / (129,30), Jafar's Quarters (18,12) / (33,12); elsewhere only the
+  Cave of Wonders (106,10), (75,25), (88,28), (25,55), (52,55). The 4:3 game brings a set each time the block's column
+  enters its plane window at an edge with Aladdin out of apples: in Jafar's fight as the camera crosses 352 / 703
+  (block 44) and 576 / 928 (block 58), so a set picked up and thrown is back after a few steps away and back; leftovers
+  of a set go out of the despawn window (or get a new set stacked over them, crossing an edge back and forth). In
+  widescreen the framing holds the view on the arena, and its columns never left the slid view: at 21:9 Jafar's view
+  is 528-1104 for camera 512-768 and 268-1249 over the whole fight, so block 44's apples never came and block 58's only
+  with Aladdin at the left wall (camera ≤ 336); Jafar's Quarters (800 px, 576 shown) and the idol's arena never had any
+  (16:9: one apple left of a set, never topped up). Now, in the 4:3 window's own edge columns (L/16, L/16 + 22: the
+  game's writers; the caves spawn outside them), outside a fill, a `$61` column spawn goes ahead inside the view too, in
+  the iteration the 4:3 game brings it (`apples_43`); a set with apples missing doesn't stop it (`spawn_call`): with
+  Aladdin out of apples its leftovers, which the widened despawn window keeps alive in a held view, are despawned and
+  the handler spawns a whole set, so the block shows four apples as at 4:3, never stacked copies; a whole set (4 alive)
+  is deduplicated as before. The set then appears where the 4:3 game puts it, 0-31 px outside the 4:3 view - inside
+  the widened one (in Jafar's held view the apples show up over the pedestal, the only place they can come). The
+  stepping stones and lava rocks keep the slid view's rule. `md_wide_apples.py` (out of apples, walk to each block,
+  jump for the apples, walk to a wall, four times; apples at the jump spot on arrival, 4:3 / 16:9 / 21:9): Jafar 4 at
+  every visit but the first (all widths) - before, 21:9 0 at every visit to block 44, apples alive 932 → 2898 frames
+  of 3160 (4:3 2391); Jafar's Quarters 21:9 0 everywhere → 4 everywhere, 16:9 1 at block 33 → 4; the idol 21:9 0
+  everywhere → 4 where 4:3 has 4 (block 144; block 131's column doesn't reach a 4:3 edge on that walk at any width).
+  At most 8 alive at once (4:3: 6-12). The Rooftops' end (a map-view sweep at the apples' rows, sets taken in the
+  4:3 view): 28 apples spawned at 4:3, 28-33 in widescreen.
 * **Despawn** (`$1ADE84`): x outside [camX − `$50`, camX + `$190`] → [camX − `$50` − 16kl, camX + `$190` + 16kr]
   (`$1ADEB6` → `jsr $7380.w`, carry = out): the original's 80-px margin outside the view as slid. A wider window (±2E
   on both sides, as before) kept objects far outside the view alive, holding sprite tiles a new one needed.
@@ -625,6 +651,7 @@ look-ahead would mean running the game ahead (the player decides the crashes) or
 | after the bosses | `md_wide_carpet.py 0 54 128`; the Rooftops' boss and Jafar (both forms) beaten from one state at 0 / 54 / 128 | see §5 (After the fight): in widescreen the carpet with the idol's kill from either pedestal, at 4:3 as the original; the other two end their level from the kill, nothing streamed |
 | the Palace's hole | `md_wide_abu.py 0 54 128` (Abu left in the cage / freed / freed after standing on the carpet) | the same at every width: the carpet in the hole from frame 216 while Abu is caged, none once he is free and Aladdin down the shaft (§5, After the fight) |
 | idol arena colours | the arena runs of §3 (Palette line 2) at 0 / 54 / 128, split into frames shown as play and the death-fade / fill frames (line 2 on the all-black `$128F12`) | in other colours on shown frames: 21:9 from the left 526 → 0 (the bat), from above 31 → 0 at 16:9 and 91 → 0 at 21:9; what remains are fade and fill frames (the run now falls into the river on its second life, as at 4:3) |
+| apples in the arenas | `md_wide_apples.py jafar / quarters / idol 0 54 128`; the Rooftops' end swept in map view; save states every 150 frames of the Jafar walk at 54 / 128 run on 200 frames in a fresh instance | see §3 (The apples): a whole set wherever the 4:3 game has one; states identical (RAM, VRAM, picture) |
 | arena pop-in | `md_wide_popin.py`'s count on the idol arena in from the left / from above with a fight, and Jafar's hall | from above: 19 / 30 objects first seen inside the view and 4 / 20 dropped for want of tiles at 16:9 / 21:9 before, 9 / 7 and 0 now (rows coming in at the top on the flight, as at 4:3: 8); the rest as at 4:3 |
 | save states | a state saved with a load held / in the middle of a statue's map scan / while a boss framing eases in, holds, eases out / on each of the 13 frames around the idol's kill (16:9, 21:9), run on in a fresh instance | identical to the run it came from (RAM, VRAM, CRAM, `module_state`, picture; the first frame after a load now has the 10-bit sprite X set as `post_frame` sets it - before, a sprite past VDP X 511 showed wrong for that frame) |
 | 4:3 parity | `md_parity.py`: the module at 0 against the bare core, the same random input from power-on (12,000 frames) and in each of the 13 levels from its first frame of play (6,000 each, the Rug Ride included) | RAM, VRAM and picture identical on every frame |
