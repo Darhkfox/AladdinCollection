@@ -196,9 +196,9 @@ achievements of its own: *A Whole New World* (defeat Jafar in all three versions
   at another width) brings out only the objects the new sides add: never an enemy already defeated, collected or
   swept away by an event. Boss arenas and events (the Market at Dusk,
   the end of the Cave of Wonders, Sultan's Dungeon and Jafar's Palace, Jafar) keep the original camera; their sides
-  show the level at full brightness, dimmed only beside Jafar's fire floor and during the fight with Jafar at the
-  end of Jafar's Palace (the sides fade dark while he holds Aladdin in the throne room and fade back in once he is
-  beaten, when the way on to the exit opens). Past a level's ends the sides show only
+  show the level at full brightness, dimmed only beside Jafar's fire floor and during the boss fights at the ends of
+  Sultan's Dungeon and Jafar's Palace (the sides fade dark as the fight begins and Aladdin is kept on the original
+  screen, and fade back in once the boss is beaten and the way on to the exit opens). Past a level's ends the sides show only
   its far background, at full brightness: no platforms, props or sprites, nothing that looks like a way on. In the Lava
   Cavern, which scrolls by itself, the screen's limits follow the wide picture's edges (in widescreen only, a small
   change to the original's rules): Aladdin can run on to 16 px from the picture's right edge, is only left behind

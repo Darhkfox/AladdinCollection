@@ -528,10 +528,11 @@
   golden idol, Jafar) instead of following Aladdin, so the extra width
   shows the arena; in widescreen the magic carpet comes as soon as the
   idol is beaten. On the SNES the arenas keep the original camera, and
-  their sides are shown at full brightness, except during the fight with
-  Jafar at the end of Jafar's Palace: there the sides fade dark while
-  the fight holds Aladdin and fade back in once Jafar is beaten, to show
-  the way on to the exit. In the SNES Lava Cavern,
+  their sides are shown at full brightness, except during the boss
+  fights at the ends of Sultan's Dungeon and Jafar's Palace: there the
+  sides fade dark while the fight keeps Aladdin on the original screen
+  and fade back in once the boss is beaten, to show the way on to the
+  exit. In the SNES Lava Cavern,
   which scrolls by itself, the screen's limits follow the wide picture's
   edges, so Aladdin can use the extra width (widescreen only).
 
