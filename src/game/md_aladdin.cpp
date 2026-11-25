@@ -59,7 +59,8 @@ constexpr uint32_t PC_FRAME_WAIT = 0x1B249E;  // the frame wait (VBlank), the ga
 // iteration hasn't reached its frame wait yet (in_play); [1] the developer flags the cheats set (bit 0 cheat mode,
 // bit 1 map view), to clear them when they are switched off, and in bits 2-23 the boss framing (boss_frame: bit 2 a
 // fight framed, 3-13 its arena's block column sum, 14-23 the easing remainder, signed; 0 in older states: none), bit 24
-// the Cave's carpet due, its idol just beaten (CARPET_DUE, carpet_due);
+// the Cave's carpet due, its idol just beaten (CARPET_DUE, carpet_due), bits 25-31 a boss fight's sides dimmed (boss_dim:
+// 25-28 how far, 29-31 the arena + 1);
 // [2] a level's fade-in is running (1; shown as play: the picture is already the level's, so it starts wide and slid
 // instead of jumping when play begins), or its fade-out after play was left (FADE_OUT | the frame (+1) it was left in:
 // in_gameplay); [3..6] boss tunes held back (boss_tune_held); [7] palette line 2 loads held
@@ -618,6 +619,7 @@ struct Wide {
     int cam = 0;                            // the camera the slide in force was worked out for
     Boss boss;                              // this frame's boss framing (boss_frame; kept in module_state)
     int ease = 0;                           // and what is left of its last change (slide_total's e)
+    int dim = 0, dim_lo = 0, dim_hi = 0;    // the fight's sides dimmed: how far (0..15), outside map x [lo, hi) (boss_dim)
     uint16_t t0[ScrollProbe::kWords];
     RideView* ride = nullptr;               // the Rug Ride's (ride_frame, ride_line)
     Screen screen = Screen::None;           // another screen drawn wide this frame (screen_frame)
@@ -684,11 +686,15 @@ void update_view(Wide& w, bool advance) {
     VDP& v = md.vdp;
     boss_frame(w, advance);
     v.view_shift = 0;
+    v.edge_dim = 0;
     v.view_shift_b_on = false;
     w.shift_a_on = false;
     w.active = v.ext != 0 && wide_view(md);
     if (w.active && rug_ride(md)) v.view_shift = -v.ext;   // (every plane and line alike: the 4:3 picture as it is)
-    else if (w.active) apply_slide(w, line_camera(md, 0, md.ram8(SWAP_PLANES) != 0), 0);
+    else if (w.active) {
+        apply_slide(w, line_camera(md, 0, md.ram8(SWAP_PLANES) != 0), 0);
+        v.edge_dim = w.dim;
+    }
     ride_frame(w);
     screen_frame(w);
 }
@@ -966,13 +972,47 @@ void line2_moments(MegaDrive& md) {
 // starts BOSS TUNE (boss_type), the game's own mark of a boss fight - and its tune is not held back (its block has come
 // into the 4:3 window, or it spawned there: when the 4:3 game starts the fight). Its arena: the boss's map block and
 // those of the kinds that share its colours within a plane window of it - the golden idol's pedestal ($F5, block
-// 129,29: the fight's left end) and the other one ($F6, 143,32), between which the idol flies; Jafar alone; at the
-// Rooftops' end the boss's block. The arena's centre (map x 8 x (first + last block column)) is framed as the 4:3
-// camera would centre it: camera 8 x (first + last) - 176 (the idol: 2000, the middle of the 4:3 camera's 1821-2178 in
-// the fight; Jafar: 640, his hall 252-947). A fight starting or ending changes the slide's target at once; the
+// 129,29: the fight's left end) and the other one ($F6, 143,32), between which the idol flies; Jafar alone (then his
+// snake); at the Rooftops' end the boss's block. The arena's centre (map x 8 x (first + last block column)) is framed as
+// the 4:3 camera would centre it: camera 8 x (first + last) - 176 (the idol: 2000, the middle of the 4:3 camera's
+// 1821-2178 in the fight; Jafar: 640, his hall 252-947). A fight starting or ending changes the slide's target at once; the
 // difference is kept and eased out (at most 3 px a frame), so the view doesn't lurch. module_state[MS_DEV] bits 2-23.
 constexpr uint32_t BF_ON = 1u << 2, BF_MASK = 0x00FFFFFCu;
+constexpr uint32_t JAFAR_SNAKE = 0xFFF11D;   // set as Jafar turns into the snake (object SNAKE in his slot)
+constexpr uint8_t SNAKE = 0x11;
 constexpr int BF_SUM = 3, BF_EASE = 14;
+
+// The fights' sides dimmed (docs/re_md_wide.md section 5, Boss fights: the sides dimmed). The arena's walls keep Aladdin
+// between map x [lo, hi) (the walls' inner faces: his body at either wall stays bright), so while a fight is on
+// (boss_arena, the framing's own test) with him inside its box, the widened view's columns beyond those x are darkened
+// - planes and sprites alike, the HUD spared (VDP::edge_dim) - from the arena's edges outward. The darkening goes up a
+// 30th of the brightness a frame to half (15 frames), and back down the same way once the fight is over (the boss
+// beaten: the idol's tenth hit, the Rooftops' boss or the snake gone) or Aladdin is out of the box (fallen into the
+// Cave's river). The box also keeps the fight on with the camera below the arena's height (boss_arena). Measured with
+// walks to both walls at 4:3: Aladdin's x (object 0's +2) stops at 2047 / 2305 beside the idol's pedestals (the near
+// one's foot at 2035), 477 / 1138 between the pillars of Jafar's hall (faces 479 / 1166), 2126 (the cliff) / 2432 at
+// the Rooftops' end on top, 1999 (a wall he can't jump) / 2431 below; his body spans x .. x + 32 in the map.
+struct BossDim { int level, x0, x1, y0, y1, lo, hi; };   // Aladdin's box (x0..x1, y0..y1); dimmed outside [lo, hi)
+constexpr BossDim kBossDims[] = {
+    {L_CAVE, 2040, 2312, 560, 820, 2031, 2340},             // the golden idol, between its pedestals
+    {L_JAFAR_PALACE, 470, 1145, 760, 1080, 479, 1166},      // Jafar, then the snake, between the hall's pillars
+    {L_ROOFTOPS, 2120, 2440, 380, 630, 2126, 2466},         // the Rooftops' end on top (boss $18): the cliff to the end
+    {L_ROOFTOPS, 1992, 2440, 640, 800, 1997, 2466},         // and below (boss $28): the wall to the end
+};
+constexpr int DIM_MAX = 15;
+constexpr int DIM_SHIFT = 25, DIM_ARENA = 29;   // module_state[MS_DEV] bits 25-28: the darkening; 29-31: its arena + 1
+constexpr uint32_t DIM_MASK = 0xFE000000u;
+
+// The arena (kBossDims) Aladdin is in, or -1
+int arena_box(const MegaDrive& md) {
+    if (!md.ram8(ALADDIN)) return -1;
+    const int lv = md.ram8(LEVEL), x = (int16_t)md.ram16(ALADDIN + 2), y = (int16_t)md.ram16(ALADDIN + 4);
+    for (int i = 0; i < (int)(sizeof(kBossDims) / sizeof(kBossDims[0])); i++) {
+        const BossDim& a = kBossDims[i];
+        if (a.level == lv && x >= a.x0 && x <= a.x1 && y >= a.y0 && y <= a.y1) return i;
+    }
+    return -1;
+}
 
 bool boss_held(const MegaDrive& md, int slot) {
     for (int k = 0; k < MS_BOSS_N; k++) {
@@ -987,9 +1027,13 @@ Boss boss_arena(const MegaDrive& md, int& sum) {
     Boss b;
     for (int i = 1; i < 32 && !b.on; i++) {
         const uint32_t o = OBJECTS + i * OBJ_SIZE;
-        const uint8_t type = md.ram8(o + 0x34);
+        uint8_t type = md.ram8(o + 0x34);
         int col, row;
-        if (!md.ram8(o) || !boss_type(type) || boss_held(md, i) || !object_block(md, o, col, row)) continue;
+        // Jafar's snake: his tenth hit puts it in his slot from a template ($1AC5A4, $FFF11D set), its block and map type
+        // cleared; it fights on in his hall, so the fight goes on there (his block, 51,47) until its kill clears the slot
+        if (md.ram8(o) == SNAKE && md.ram8(JAFAR_SNAKE) && md.ram8(LEVEL) == L_JAFAR_PALACE)
+            type = 0x4D, col = 51, row = 47;
+        else if (!md.ram8(o) || !boss_type(type) || boss_held(md, i) || !object_block(md, o, col, row)) continue;
         // (the idol's pedestal lives on after its tenth hit: the fight is over then, and the view follows the carpet)
         if (type == 0xF5 && md.ram8(IDOL_BEATEN)) continue;
         int lo = col, hi = col, top = row, bottom = row;
@@ -1013,14 +1057,34 @@ Boss boss_arena(const MegaDrive& md, int& sum) {
             }
         }
         // only with the camera at the arena's height (within half a screen): the boss stays alive with Aladdin fallen
-        // into the Cave's river 300 px below, where nothing of the fight is in view
+        // into the Cave's river 300 px below, where nothing of the fight is in view; or with Aladdin between its walls
+        // (kBossDims: at the Rooftops' end, below the step, the camera is 200 px under the boss on the cliff)
         const int camy = (int16_t)md.ram16(CAM_Y);
-        if (camy + 240 <= 16 * top - 112 || camy + 16 >= 16 * bottom + 16 + 112) continue;
+        if (arena_box(md) < 0 && (camy + 240 <= 16 * top - 112 || camy + 16 >= 16 * bottom + 16 + 112)) continue;
         sum = std::min(lo + hi, 0x7FF);
         b.on = true;
         b.centre = 8 * sum - 176;
     }
     return b;
+}
+
+// Once a frame (advance) the darkening moves a step toward its target; this frame's (Wide::dim / dim_lo / dim_hi).
+void boss_dim(Wide& w, bool advance) {
+    MegaDrive& md = *w.md;
+    uint32_t& st = md.module_state[MS_DEV];
+    int dim = (int)((st >> DIM_SHIFT) & 15), arena = (int)(st >> DIM_ARENA) - 1;
+    if (advance && md.vdp.ext > 0) {
+        const int now = w.boss.on ? arena_box(md) : -1;
+        if (now >= 0 && now != arena) dim = 0;   // (another arena: from nothing)
+        if (now >= 0) arena = now;
+        dim = std::clamp(dim + (now >= 0 ? 1 : -1), 0, DIM_MAX);
+        if (dim == 0) arena = -1;
+        st = (st & ~DIM_MASK) | (uint32_t)dim << DIM_SHIFT | (uint32_t)(arena + 1) << DIM_ARENA;
+    }
+    const bool on = dim > 0 && arena >= 0 && arena < (int)(sizeof(kBossDims) / sizeof(kBossDims[0]));
+    w.dim = on ? dim : 0;
+    w.dim_lo = on ? kBossDims[arena].lo : 0;
+    w.dim_hi = on ? kBossDims[arena].hi : 0;
 }
 
 // Once a frame (advance) the framing is worked out again and a change of target is kept in the remainder, which eases
@@ -1048,6 +1112,7 @@ void boss_frame(Wide& w, bool advance) {
     }
     w.boss = b;
     w.ease = e;
+    boss_dim(w, advance);
 }
 
 // The spawn caves' reach (CAVE_REACH): kl / kr block columns from the slide in force
@@ -1945,6 +2010,7 @@ void line_hook(void* host, int line, uint8_t* plane_a, uint8_t* plane_b, uint8_t
     MegaDrive& md = *w.md;
     VDP& v = md.vdp;
     v.edge_mask_l = v.edge_mask_r = 0;
+    v.edge_dim_l = v.edge_dim_r = 0;
     if (w.screen != Screen::None) return screen_line(w, line, plane_a, plane_b, sprites);
     if (!w.active) return;
     // (The Rug Ride doesn't stream: its planes are 512-px loops of the lava cave the VDP wraps, its "map" nominal.)
@@ -1962,6 +2028,11 @@ void line_hook(void* host, int line, uint8_t* plane_a, uint8_t* plane_b, uint8_t
     const int right = md.ram16(MAP_W) * 16 - VIEW_RIGHT_GAP;
     v.edge_mask_l = std::clamp(VIEW_LEFT - mx0 + E, 0, E);
     v.edge_mask_r = std::clamp(TW - (right - mx0 + E), 0, E);
+    // A boss fight's sides: dimmed beyond the arena's walls (boss_dim; the VDP spares the HUD)
+    if (v.edge_dim > 0) {
+        v.edge_dim_l = std::clamp(w.dim_lo - mx0 + E, 0, TW);
+        v.edge_dim_r = std::clamp(TW - (w.dim_hi - mx0 + E), 0, TW);
+    }
 }
 
 // ---- sound (docs/re_md_game.md section 4) ---------------------------------------------------------------
@@ -2090,7 +2161,10 @@ public:
         md.add_pc_hook(PC_DEATH, leave);
         md.add_pc_hook(PC_PIT, leave);
         // (a level's start or a restart: no boss framing carried over)
-        auto fade = [](MegaDrive& m) { m.module_state[MS_FADE] = 1; m.module_state[MS_DEV] &= ~(BF_MASK | CARPET_DUE); };
+        auto fade = [](MegaDrive& m) {
+            m.module_state[MS_FADE] = 1;
+            m.module_state[MS_DEV] &= ~(BF_MASK | CARPET_DUE | DIM_MASK);
+        };
         md.add_pc_hook(PC_FADE_IN, fade);
         md.add_pc_hook(PC_RESPAWN_FADE, fade);
         const bool wide = cfg.ext > 0;
@@ -2110,7 +2184,10 @@ public:
                 line2_moments(m);
                 if (!carpet_due(m, *wide_)) band_refresh(m, *wide_);
             });
-            md.add_pc_hook(PC_LEVEL_LOAD, [](MegaDrive& m) { m.module_state[MS_PAL2] = 0; m.module_state[MS_DEV] &= ~(BF_MASK | CARPET_DUE); });
+            md.add_pc_hook(PC_LEVEL_LOAD, [](MegaDrive& m) {
+                m.module_state[MS_PAL2] = 0;
+                m.module_state[MS_DEV] &= ~(BF_MASK | CARPET_DUE | DIM_MASK);
+            });
             md.add_pc_hook(PC_IDOL_BEATEN, [this](MegaDrive& m) { if (wide_rom()) m.module_state[MS_DEV] |= CARPET_DUE; });
             md.add_pc_hook(CAVE_REACH, [this](MegaDrive& m) { reach_hook(m, *wide_); });
             md.add_pc_hook(PC_COL_CALL, [this](MegaDrive& m) { if (wide_rom()) spawn_call(m, PC_COL_RET); });
@@ -2135,6 +2212,7 @@ public:
         md.vdp.sprite_xoff = wide ? sprite_xoff_hook : nullptr;
         md.vdp.sprite_is_hud = wide ? sprite_is_hud_hook : nullptr;
         md.vdp.edge_mask_l = md.vdp.edge_mask_r = 0;
+        md.vdp.edge_dim_l = md.vdp.edge_dim_r = md.vdp.edge_dim = 0;
         sprite_x10(md, cfg.ext);   // (per frame: post_frame; here for the first frame after a loaded state)
         md.vdp.hook_host = wide_.get();
         md.vdp.hook_flags = cfg.hud_anchor ? 1 : 0;

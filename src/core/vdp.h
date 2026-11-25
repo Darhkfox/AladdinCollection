@@ -60,6 +60,18 @@ public:
     // background and the sprites apart (e.g. dim only the scenery). Readers mask the colour with 0x7FF.
     bool mark_sprites = false;
     static constexpr uint16_t kSpritePixel = 0x800;
+    // Output columns dimmed at the left/right edge (what a boss arena's walls keep out of reach in widescreen), HUD
+    // sprites spared: those pixels carry `edge_dim` (0..15) in bits 12-15 (kDimShift), and the front end darkens them
+    // by that many 30ths (dimmed(): 15 is half brightness). Readers mask the colour with 0x7FF.
+    int  edge_dim_l = 0, edge_dim_r = 0;
+    int  edge_dim = 0;
+    static constexpr int kDimShift = 12;
+    static uint32_t dimmed(uint32_t argb, int n) {
+        if (n <= 0) return argb;
+        const uint32_t k = 30 - (uint32_t)(n > 15 ? 15 : n);
+        return (argb & 0xFF000000u) | (((argb >> 16) & 0xFF) * k / 30) << 16 | (((argb >> 8) & 0xFF) * k / 30) << 8 |
+               (argb & 0xFF) * k / 30;
+    }
     // Widescreen view shift: planes and sprites are sampled `view_shift` pixels further right
     // (negative = left) than the game's own camera, the window plane stays in place. Lets a module
     // keep the widened view inside the level without touching the game's camera.
