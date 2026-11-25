@@ -737,7 +737,14 @@ void Ppu::applyRemap(int l, int x0, int x1) {
 }
 
 void Ppu::mirrorOutside(int x0, int x1) {
-  const int lo = std::max(wideShowLo, x0), hi = std::min(wideShowHi, x1), w = hi - lo;
+  const int lo = std::max(wideShowLo, x0), hi = std::min(wideShowHi, x1);
+  // (the mirror's span: the shown one, or the part of it the hook gives)
+  int mlo = std::max(lo, wideMirrorLo), mhi = std::min(hi, wideMirrorHi);
+  if (mhi <= mlo) {
+    mlo = lo;
+    mhi = hi;
+  }
+  const int w = mhi - mlo;
   for (int l = 0; l < 5; l++) {
     if (wideShowKeep & (1 << l)) continue;
     Px* o = layer_[l] + kMaxExt;
@@ -747,8 +754,8 @@ void Ppu::mirrorOutside(int x0, int x1) {
         o[x].pri = 0;
         return;
       }
-      const int t = floorMod(x - lo, 2 * w);   // (reflected back and forth: a span narrower than the outside)
-      o[x] = o[lo + (t < w ? t : 2 * w - 1 - t)];
+      const int t = floorMod(x - mlo, 2 * w);   // (reflected back and forth: a span narrower than the outside)
+      o[x] = o[mlo + (t < w ? t : 2 * w - 1 - t)];
     };
     for (int x = x0; x < lo; x++) put(x);
     for (int x = hi; x < x1; x++) put(x);
@@ -786,6 +793,8 @@ void Ppu::renderLine(int line) {
   wideShowHi = 256 + kMaxExt;
   wideShowKeep = 0;
   wideMirror = 0;
+  wideMirrorLo = -kMaxExt;
+  wideMirrorHi = 256 + kMaxExt;
   wideDimLo = -kMaxExt;
   wideDimHi = 256 + kMaxExt;
   wideDimSpare = 0;

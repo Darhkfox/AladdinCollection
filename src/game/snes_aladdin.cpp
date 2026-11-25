@@ -655,9 +655,12 @@ public:
                 obj_hi_ = 256;
             }
         }
-        // The level's extent on this line (BG1's page row): past it the level is mirrored and dimmed (or black).
-        // Everywhere else the margins show the level as the game stores it at full brightness, also where the game's
-        // camera can't go now (a zone's limits, an arena, pages it can't enter at its height): it is the level.
+        // The level's extent on this line (BG1's page row). Past it the margins show scenery beside the level: the
+        // background (BG2) going on, at full brightness, without the level's own layer (BG1: the walls, platforms
+        // and props) or the sprites - nothing there is the level, so nothing there looks like a place to go (black
+        // with Past Level Ends: Black). Everywhere else the margins show the level as the game stores it at full
+        // brightness, also where the game's camera can't go now (a zone's limits, an arena, pages it can't enter at
+        // its height): it is the level.
         int lo = -kMaxExt, hi = 256 + kMaxExt;
         if (line_[0].decode) {
             const int wy = line_[0].wy;
@@ -665,13 +668,31 @@ public:
             row_run(s, line_[0].wx, wy, slo, shi);
             lo = slo - line_[0].wx;
             hi = shi - line_[0].wx;
+            // BG2 there: mirrored about the level's edges on this line as before (only what the game shows of it
+            // comes into view; the pages beside Inside the Lamp 3's tower are drawn as its bottom page). Where a strip
+            // of the level at the edge hides BG2 on every line of its page (edge_cover), about the strip's inner edge:
+            // the tower stands between two gold pillars 32 px wide with nothing drawn on BG2 behind them, so the
+            // background seen between them goes on past them, the same on every line of the tower and of the corridor
+            // above it, and the joins stay behind the pillars. Where the background is drawn shifted (bgHofsAdj: the
+            // view gliding or stopped while the game's camera isn't), its blank strip comes out from behind a pillar:
+            // the mirror leaves that part out too.
+            const int r = floor_shr(wy, 8);
+            const int nl = lo > -el_ ? edge_cover(p, s, slo >> 8, r, false) : 0;
+            const int nr = hi < 256 + er_ ? edge_cover(p, s, (shi - 1) >> 8, r, true) : 0;
+            const int adj = p.bgHofsAdj[1];   // (< 0: the background drawn further right)
+            const int ml = lo + (nl ? 8 * nl + std::max(0, -adj) : 0);
+            const int mh = hi - (nr ? 8 * nr + std::max(0, adj) : 0);
+            if (mh - ml >= 64) {
+                p.wideMirrorLo = ml;
+                p.wideMirrorHi = mh;
+            }
         }
+        p.wideShowLo = lo;
+        p.wideShowHi = hi;
+        p.wideMirror = 0x02;
         if (row < kHudLines) {
             // the status bar's lines: its two parts at the picture's edges
-            p.wideShowLo = lo;
-            p.wideShowHi = hi;
-            p.wideShowKeep = 0x14;
-            p.wideMirror = 0x03;
+            p.wideShowKeep = 0x04;   // (the bar: BG3; sprites past the level's ends hidden on these lines too)
             if (cfg_.hud_anchor) {
                 PpuLayerRemap& rm = p.layerRemap[2];
                 rm.count = 2;
@@ -681,9 +702,6 @@ public:
                 p.hideWideBg[2] = true;
             }
         } else {
-            p.wideShowLo = lo;
-            p.wideShowHi = hi;
-            p.wideMirror = 0x03;
             // BG3 below the bar holds the game's centred texts (ACTION, PAUSE): at the picture's middle
             p.hideWideBg[2] = true;
             if (cfg_.hud_anchor && mid_ != 0) {
@@ -692,8 +710,6 @@ public:
                 rm.seg[0] = {(int16_t)mid_, (int16_t)(256 + mid_), 0, 0};
             }
         }
-        p.wideDimLo = std::min(0, p.wideShowLo);
-        p.wideDimHi = std::max(256, p.wideShowHi);
         // Lines where the game has painted on its screen what the level's data beside it doesn't hold (Jafar's fire
         // floor): the margins show the room as stored there, dimmed.
         if (row >= paint_row_) {
@@ -995,6 +1011,9 @@ private:
     bool arena_ = false;            // this frame: an arena holds the game's camera (arena)
     int paint_row_ = 0x10000;       // this frame: the first line the game has painted on its screen only (dimmed beside)
     LineLayer line_[2];
+    struct Cover { int px, py; bool right; int n; };
+    Cover cover_[16];                  // this frame: edge_cover's answers
+    int cover_n_ = 0;
     int near_x_[2] = {}, near_y_[2] = {};   // this frame: the layer structs' x / y at its first line
     // A background the game scrolls itself ($083F modes $0A-$14): the inputs of its scroll the module can't read off
     // the screen, taken when a frame's logic is done (band_next_) and used while that frame is shown (band_shown_).
@@ -1371,6 +1390,37 @@ private:
         hi = std::min(hi, (p + 1) * 256);
     }
 
+    // How many 8-px tile columns at a page's left (right) edge BG1 covers on every line of the page: from the edge in,
+    // columns whose tiles draw every pixel in all 32 tile rows (at most 8). Inside the Lamp 3's tower: its gold
+    // pillars, 4. (Cached for the frame.)
+    int edge_cover(const Ppu& p, const Snes& s, int px, int py, bool right) {
+        for (int i = 0; i < cover_n_; i++)
+            if (cover_[i].px == px && cover_[i].py == py && cover_[i].right == right) return cover_[i].n;
+        const int bpp = p.bgBpp(0);
+        int n = 0;
+        if ((bpp == 2 || bpp == 4 || bpp == 8) && !p.bgBigTiles(0)) {
+            for (; n < 8; n++) {
+                const int x = right ? px * 256 + 255 - n * 8 : px * 256 + n * 8;
+                bool full = true;
+                for (int ty = 0; ty < 32 && full; ty++) {
+                    const uint16_t e = tile_at(s, line_[0], x, py * 256 + ty * 8);
+                    const int adr = p.bgCharBase(0) + (e & 0x3FF) * bpp * 4;
+                    for (int y = 0; y < 8 && full; y++) {
+                        unsigned acc = 0;
+                        for (int k = 0; k < bpp / 2; k++) {
+                            const uint16_t w = p.vram[(adr + y + 8 * k) & 0x7FFF];
+                            acc |= w | (w >> 8);
+                        }
+                        full = (acc & 0xFF) == 0xFF;
+                    }
+                }
+                if (!full) break;
+            }
+        }
+        if (cover_n_ < (int)(sizeof cover_ / sizeof cover_[0])) cover_[cover_n_++] = {px, py, right, n};
+        return n;
+    }
+
     // The view's left edge (world x) for the camera within [lo, hi): centred on the camera, stopped at the edges
     // (where it may stop); a range narrower than the picture centred.
     int target_v(int cam, int lo, int hi, bool stop) const {
@@ -1401,6 +1451,7 @@ private:
         mid_ = 0;
         arena_ = false;
         paint_row_ = 0x10000;
+        cover_n_ = 0;
         band_on_ = false;
         hdma_line_ = -1;   // (the IRQ comes after the first lines)
         if (level_ && ext_ > 0 && snes_) {
