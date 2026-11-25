@@ -485,11 +485,14 @@ void App::draw_launcher() {
                          an > 0.5f ? (ar ? kInk : 0xFF10131A) : (ar ? kCream : 0xFFD8DDE8), Align::Center, bs);
         bx += bws[i] + bgap;
     }
+    const bool right = settings_.menu_confirm_right;   // (Controls > Menu Buttons: the right face button confirms)
 #ifdef __ANDROID__
     const char* hint = touch_active_ ? "Tap a game to play    Add ROMs to choose your ROM files"
+                       : right       ? "\xE2\x86\x90\xE2\x86\x92 Choose    (B) Play    Back Quit"
                                      : "\xE2\x86\x90\xE2\x86\x92 Choose    (A) Play    Back Quit";
 #else
-    const char* hint = "\xE2\x86\x90\xE2\x86\x92 Choose    Enter / (A) Play    F11 Fullscreen    Esc Quit";
+    const char* hint = right ? "\xE2\x86\x90\xE2\x86\x92 Choose    Enter / (B) Play    F11 Fullscreen    Esc Quit"
+                             : "\xE2\x86\x90\xE2\x86\x92 Choose    Enter / (A) Play    F11 Fullscreen    Esc Quit";
 #endif
     label(FontId::Small, W * 0.5f, H - video_.line_height(FontId::Small) * 1.6f, hint,
           with_alpha(ar ? 0xFFD8C49A : 0xFF6C7488, 1.0f - menu_.toast_cover()), Align::Center);

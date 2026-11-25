@@ -402,9 +402,12 @@ void Jukebox::draw(Video& v, float time, uint32_t accent) {
         v.draw_text(FontId::Small, bx + bw * 0.5f, y + mh + pad * 0.2f, two ? cd_labels[i] : session_->channel_name(i), 0xFF7C8598,
                     Align::Center);
     }
-    std::string help = sfx_ ? "\xE2\x86\x91\xE2\x86\x93 Select    Enter / (A) Play / Stop    PgUp/PgDn (LB/RB) Jump    Esc / (B) Back"
-                            : std::string("\xE2\x86\x91\xE2\x86\x93 Select    Enter / (A) Play / Stop    \xE2\x86\x90\xE2\x86\x92 Switch game    ") +
-                                  (versions_.size() > 1 ? "Tab / (Y) Version    " : "") + "Esc / (B) Back";
+    // (Controls > Menu Buttons: the right face button may be the one that confirms)
+    const char* play = js_.menu_confirm_right ? "Enter / (B) Play / Stop    " : "Enter / (A) Play / Stop    ";
+    const char* back = js_.menu_confirm_right ? "Esc / (A) Back" : "Esc / (B) Back";
+    std::string help = sfx_ ? std::string("\xE2\x86\x91\xE2\x86\x93 Select    ") + play + "PgUp/PgDn (LB/RB) Jump    " + back
+                            : std::string("\xE2\x86\x91\xE2\x86\x93 Select    ") + play + "\xE2\x86\x90\xE2\x86\x92 Switch game    " +
+                                  (versions_.size() > 1 ? "Tab / (Y) Version    " : "") + back;
     if (touch_ui) help = "Tap a track to play or stop it    Drag to scroll    Back to return";
     const float hfit = std::min(1.0f, (W - pad * 2) / std::max(1.0f, v.measure_text(FontId::Small, help)));
     v.draw_text(FontId::Small, W * 0.5f, H - v.line_height(FontId::Small) * 1.8f, help, with_alpha(0xFF6C7488, 1.0f - hint_fade_),
