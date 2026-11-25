@@ -422,7 +422,8 @@ identical (also from near a level's end: its `state` argument).
   the next frame, and the first version of the "gone" rule counted that as for good: at 106 and 140 none of them
   came where the 4:3 game has them, only a frame or two at the margin's edge (Sultan's Dungeon 3: 38 `$7D`s on a
   carry route over 2,400 frames, Inside the Lamp 2: 9 `$79`s). They
-  now come at the original's moment, as before that rule. One whose list column is still beyond those edges at its
+  then came at the original's moment, as before that rule - inside the picture (their ranges are now widened: "Late
+  in the picture" below). One whose list column is still beyond those edges at its
   delete is also marked for the retry below (`refused_pending`), so it is tried in the very frame the original's
   edge reaches its column: the edge-column retry runs only at the spawner's 32-px steps, and while the view is
   stopped at a level's start (the spawner's camera is the picture's middle, which doesn't move) there are none -
@@ -482,6 +483,49 @@ identical (also from near a level's end: its `state` argument).
   widescreen is switched off is let go at the original's moment as well.
   The deleted-objects record wasn't involved: it only limits the module's own spawns (a width change's, the
   retries), never the game's spawner, and the original never spawns a pillar twice.
+- **Late in the picture.** The user's report at 21:9 (CRT pixels, Remove Slowdown on, Jafar's Palace 3): "some
+  enemies appear late, especially Iago the parrot". A bot survey (below) lists every object first drawn more than 16
+  px inside the picture's side edges; at 4:3 the same test gives the original's own (an enemy that drops in, parts
+  and shots: Sultan's Dungeon 1's `$28` / `$60`, ...). In the margins there were four causes:
+  - **Iago** (`$38`; Sultan's Dungeon 1 and 2, Jafar's Palace 2 and 3) isn't in the level's list: a generator (`$97`,
+    `$84:9F9F`; a timer, then the camera's centre within a range, two free slots) creates him at the camera's centre
+    + `$90` (`$84:A05E` `LDA $1A44` / `STA $0C`, then `$81:AA81` with the offset at `$80:DBFF`), 16 px past the 4:3
+    screen's right edge - 92 px inside the picture at 106 - with what he carries (`$53`, `$83:D58C`, held at his
+    side). He flies left at 0.5 px a frame (`$83:BE38`, `JSL $81:A5A7`, speed `$80:BAC3`) until he is within 96 px of
+    Aladdin (`$81:AD68`), hovers, drops it and flies off. The hook at `$84:A05E` answers the camera's centre + the
+    picture's right side (left: - its left side), so he comes from the picture's edge; at 0.5 px a frame he would then
+    take 2 * ext frames (212 at 106) to reach the original's place, so while he is beyond it (centre + `$90` for the
+    camera now) he crosses the margin at 4 times his speed (an exec hook after his move, `$83:BE3C`), and from there
+    on flies, hovers and drops as the original - from the user's state, holding RIGHT, he reaches the original's place
+    27 frames after the original's spawn (at his own speed: about 42).
+  - **Self-ranged objects** (`kSelfRanges`): the Genie balloons of Inside the Lamp 2 (`$79`, +-`$D0`, `$83:F63C`) and
+    Sultan's Dungeon 3's moving platforms (`$7D`, +-`$E0`, `$84:9106`) deleted themselves in the margins, and only the
+    original's moment brought them (camera + `$120`: the balloon popped in 77 px inside the picture's right edge at 106,
+    the platforms 50). Their tests now take the picture's sides as the keep range's does, so the margins' spawn lives.
+    A platform's place is a function of the level's time (`$1A2C`, from its list y), so it is where the 4:3 game has it
+    from any spawn; a balloon rises from its spawn (`$83:F541`: at the camera's centre y + `$20`, a frame at a time,
+    `BRK` returning to `$83:F58B`) and is held there as the pillars are (`kTimedTypes`: its wait at `$83:F58B` skipped
+    until the original's moment) - it hangs in the margin and rises at the 4:3 run's frame and height.
+  - **Sprite-bank starvation.** More of a level's enemies are alive in the wider view, so a margin's column can find
+    the four sprite VRAM banks taken (Agrabah Market at 106: a guard `$20` refused while a pot thrower `$51`, 64 px past
+    the picture's left edge, held the fourth); the edge-column retry then brought him at camera + `$120`, 74 px inside
+    the picture. Now an object the allocator refuses at the margins' own columns (`starved_`, kept in states) is tried
+    once a frame while its place is at the picture's edge or beyond it (up to 8 px in, within the margins' spawn
+    columns), and while one waits, an object on the other side that the original no longer keeps (beyond its keep
+    range, `$80:CE73`) and 32 px or more past the picture's edge is let go as the original lets it go (the keep test
+    answers out; not a once-only object) - the guard came in the next frame, from beyond the picture's edge.
+  - **The original's moment inside the picture.** The edge-column retry and the once-only retry of an object deleted
+    beyond the original's edges spawn at camera + `$120` / - `$40`, inside the picture from ext 32 / 64 on: a guard
+    that walked out of the wide keep range on the left came back 64 px inside the picture's left edge when the view
+    went back. An ordinary object (not once only, not timed) whose place is more than 16 px inside the picture is now
+    left to the margins' own columns there (`in_view`), as the original leaves its respawns to its edges; once-only
+    objects (bosses, Jasmine, items) and the timed ones keep the original's moment.
+  Survey (`late_survey.py`, the play bot of `r2_popin.py`, 2,400 frames a level, Remove Slowdown on, objects created
+  within 48 px of another left out, the first 8 frames after a level's start or a life left out), objects first seen
+  more than 16 px inside the picture and outside the game's screen: 46: 4 -> 0, 106: 9 -> 0, 140: 12 -> 1 (the Market
+  at Dusk's boss at 140: Jasmine, out early, holds three banks when the arena's sweep has deleted him, and he comes when
+  they free). Inside the game's screen, at every width as at 4:3: 7-11 (the original's own). The guard drawn below the
+  floor in the user's shot is a beaten guard (`$2D`) falling off the screen, as at 4:3.
 - **The sweep.** An event can delete every object (`$81:9D82`: the Market at Dusk's arena at camera `$400`, `$80:A176`;
   other levels' events). The delete (`$83:96E2`) clears an object's spawned bits unless it is once only (bit 7, from
   its list entry: kept at `$81`). Objects out in the margin ahead of the original went too, and a once-only one never
