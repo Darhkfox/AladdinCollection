@@ -134,6 +134,14 @@ public:
     int lo = 0, hi = -1;
   };
   WideWin wideWin[2];
+  // Per line (wideOptOn, reset each line; the table is kept): offset-per-tile (BG modes 2 / 4 / 6) in the margins.
+  // The game's table (BG3's map) holds a vertical scroll for its screen's 8-px columns only, so a margin column took
+  // the layer's register: an arch the game waves column by column stood flat beside its screen. With wideOptOn[l]
+  // a margin column of layer l (col = floor((x + (hofs & 7)) / 8), as on the screen) takes wideOptV[l][col +
+  // kWideOptOff] as its vertical scroll instead (clamped to the table).
+  static constexpr int kWideOptOff = 48, kWideOptN = 128;
+  bool wideOptOn[2] = {};
+  int16_t wideOptV[2][kWideOptN] = {};
   // Per-sprite X relative to the 4:3 screen, set by the game layer for
   // sprites whose 9-bit OAM X is ambiguous in a wide view (it repeats every
   // 512 px: at 21:9, objects exist further out than that); used when set.

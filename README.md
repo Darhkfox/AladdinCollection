@@ -196,9 +196,12 @@ achievements of its own: *A Whole New World* (defeat Jafar in all three versions
   at another width) brings out only the objects the new sides add: never an enemy already defeated, collected or
   swept away by an event. Boss arenas and events (the Market at Dusk,
   the end of the Cave of Wonders, Sultan's Dungeon and Jafar's Palace, Jafar) keep the original camera; their sides
-  show the level at full brightness, dimmed only beside Jafar's fire floor and during the boss fights at the ends of
-  Sultan's Dungeon and Jafar's Palace (the sides fade dark as the fight begins and Aladdin is kept on the original
-  screen, and fade back in once the boss is beaten and the way on to the exit opens). Past a level's ends the sides show only
+  show the level at full brightness, dimmed only during the boss fights at the ends of Sultan's Dungeon and Jafar's
+  Palace (the sides fade dark as the fight begins and Aladdin is kept on the original screen, and fade back in once
+  the boss is beaten and the way on to the exit opens). The final fight with Jafar is framed on its arena, centred,
+  with the cobra in full view; once the cobra sets the floor on fire, the burning floor and the spiked arch over it
+  run on across both sides, with the game's own animated tiles and the arch's wave travelling through them, and the
+  fireballs fly on out into the sides. Past a level's ends the sides show only
   its far background, at full brightness: no platforms, props or sprites, nothing that looks like a way on. In the Lava
   Cavern, which scrolls by itself, the screen's limits follow the wide picture's edges (in widescreen only, a small
   change to the original's rules): Aladdin can run on to 16 px from the picture's right edge, is only left behind
@@ -364,8 +367,9 @@ gradlew assembleDebug
 - SNES: the attract demos play at 4:3 and without Remove Slowdown or cheats: they replay recorded input (lag frames
   included), which only stays on its path with the original code. Invincibility and infinite health don't prevent
   pits, crushes or being left behind by the scrolling. Infinite Gems keeps the counter at 99, so every gem completes
-  a hundred (an extra heart, then an extra life). Jafar's fire floor stays in the 4:3 area (the game paints it
-  only there): beside it the room's floor is shown dimmed. The carpet rides keep Aladdin within the 4:3 area, and
+  a hundred (an extra heart, then an extra life). Beside Jafar's arena the burning floor and the spiked arch are
+  the game's own tiles repeated (the game paints them only on its screen), the arch's wave on the left side worked
+  out ahead from the game's own motion; the room's right side, past its end, is the room mirrored. The carpet rides keep Aladdin within the 4:3 area, and
   the game's screen-wide boxes (the "ABU NO!" box after the lamp) stay 4:3 with the sides dark outside them.
   Narrowing the picture while Aladdin presses against the Lava Cavern's wall leaves him past the new wall (even
   beside the picture) until the scrolling catches up with him, rather than pushing him. In the levels with a half-speed

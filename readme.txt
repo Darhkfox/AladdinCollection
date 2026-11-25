@@ -532,7 +532,10 @@
   fights at the ends of Sultan's Dungeon and Jafar's Palace: there the
   sides fade dark while the fight keeps Aladdin on the original screen
   and fade back in once the boss is beaten, to show the way on to the
-  exit. In the SNES Lava Cavern,
+  exit. The SNES fight with Jafar is centred on its arena, with the cobra
+  in full view; when the cobra sets the floor on fire, the flames and the
+  spiked arch over them run on into both sides, moving as the game moves
+  them. In the SNES Lava Cavern,
   which scrolls by itself, the screen's limits follow the wide picture's
   edges, so Aladdin can use the extra width (widescreen only).
 

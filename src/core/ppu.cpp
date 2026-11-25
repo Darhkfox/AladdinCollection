@@ -453,6 +453,11 @@ void Ppu::renderBg(int l, int row, int x0, int x1, Px* outBase) {
           if (ev & bit) vofs = ev & 0x3ff;
         }
       }
+    } else if (opt && margin && wideOptOn[l]) {
+      // (a margin column: the hook's continuation of the table)
+      const int v = sx + (hofs & 7);
+      const int col = v >= 0 ? v >> 3 : -((-v + 7) >> 3);
+      vofs = wideOptV[l][std::clamp(col + kWideOptOff, 0, kWideOptN - 1)] & 0x3ff;
     }
     int px = (sx + hofs) & 0x3ff;
     int py = (ly + vofs) & 0x3ff;
@@ -836,6 +841,7 @@ void Ppu::renderLine(int line) {
   wideDimAmt = 16;
   winShift = 0;
   wideWin[0].on = wideWin[1].on = false;
+  wideOptOn[0] = wideOptOn[1] = false;
   if (hooks) hooks->beginLine(*this, row);
   wideShowLo = std::min(0, wideShowLo);   // (the margins only: the game's own 256 px are always drawn)
   wideShowHi = std::max(256, wideShowHi);

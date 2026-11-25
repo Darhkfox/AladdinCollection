@@ -170,6 +170,20 @@ public:
     // the same frame.
     static constexpr int kJafarLevel = 0x11;
     static constexpr int kFireRoom = 0x4000, kFireArch = 0x4800, kFireRow = 21;
+    // The arch waves: its object (type $88, script $84:8E6A, DB $80) moves a 24-bit y ($0E-$10) by a velocity ($1D-$1F)
+    // that an acceleration ($20) turns round at the centre ($40): up (resumed at $84:8E8E, the velocity less the
+    // acceleration each frame) until y < centre, then down ($84:8EAA, plus) until y >= centre, each half starting with a
+    // velocity and acceleration from tables ($80:C200 / C173 / C0E6, $80:C28D by index $80:D7BE / $80:D7C1 + the wave's
+    // strength $1B1B, read at each up-swing's start); with $1B1A clear it holds y at $100 ($84:8E7B) and inserts
+    // nothing. Each step it shifts its table of 32 column scrolls ($7E:DFC0, newest first) one column on and inserts
+    // ((y - $100) & $1FF) | $4000 at the front; the NMI copies it to BG3's map, mode 2's offset-per-tile for BG2: the
+    // arch's screen column c (1-32) is scrolled by entry c - 1, column 0 by the register (y - $100). The wave travels
+    // right a column per step.
+    static constexpr int kArchType = 0x88, kArchHist = 40;
+    static constexpr uint32_t kArchTable = 0x7EDFC0, kArchOn = 0x1B1A, kArchStrength = 0x1B1B;
+    static constexpr uint16_t kArchHold = 0x8E7B, kArchUp = 0x8E8E, kArchDown = 0x8EAA;
+    static constexpr uint32_t kArchStartUp = 0x80D7BE, kArchStartDown = 0x80D7C1;
+    static constexpr uint32_t kArchVelLo = 0x80C200, kArchVelMid = 0x80C173, kArchVelHi = 0x80C0E6, kArchAcc = 0x80C28D;
     // Jafar's Palace 3's end (level $10; its event task $80:A5AC): the camera stops at $10A0 until Aladdin reaches x
     // $1190 on the floor; then every object is deleted, the zone's right limit set to $11A0 ($1A42), the camera panned
     // there ($083D = 4) and held in x ($1A10 = 1; Jafar, type $98 from $84:A112, holds x and y); Jafar fights in the
@@ -236,6 +250,7 @@ public:
             return false;
         case kLevelWait:
             logic_done_ = true;
+            take_arch(s);
             return false;
         case kHdmaOn:   // (only watched: where this frame's band tables start on the screen, band_adj)
             hdma_line_ = s.vPos();
@@ -557,6 +572,10 @@ public:
             shaft_ = sh;
             int moved = jump ? 0 : std::abs(cam - last_cam_);
             if (slide_y_ && !jump) moved = std::max(moved, std::abs(camy - last_camy_));
+            // Jafar's room held: the camera never moves again in the fight, so the view eases to the arena by itself
+            // (a sixteenth of the way a frame, 1-3 px; the room's own pan as the fight starts closes most of it)
+            if (!jump && d_off_ != 0 && arena(s) && rd8(s, kLevel) == kJafarLevel)
+                moved = std::max(moved, std::min(3, (std::abs(d_off_) + 15) / 16));
             lim_valid_ = true;
             last_cam_ = cam;
             last_camy_ = camy;
@@ -635,8 +654,8 @@ public:
             ll.wy = wy + row + 1;
             ll.off = rd16(s, b + 0x42);
             ll.bank = rd8(s, b + 0x4C);
-            ll.lo = -0x8000;
-            ll.hi = 0x7FFF;
+            ll.lo = jafar_ ? jafar_lo_ : -0x8000;   // (Jafar's room: mirrored past its ends, below)
+            ll.hi = jafar_ ? jafar_hi_ : 0x7FFF;
             ll.rep = rep;
             if (l == 1 && bg2_ratio_ != 0x100 && bg2_ratio_ != 0) {
                 // A background at another speed than the level (parallax): where the view stops at a level edge
@@ -733,6 +752,19 @@ public:
                 }
             }
         }
+        // Jafar's room held (jafar_): the view is centred on the arena, so its right side lies past the room's end
+        // (x 768). The fight's sides are the room going on, every layer and the sprites (the cobra's coils, the
+        // fireballs, Jafar's magic) drawn there: past its ends the room's layers mirrored tile by tile from its data
+        // (LineLayer lo / hi), its painted rows and the arch repeated from the screen (fetchWideTile). (Black there
+        // with Past Level Ends: Black.)
+        if (jafar_ && p.edgeMirror) {
+            lo = -kMaxExt;
+            hi = 256 + kMaxExt;
+        }
+        if (fire_ && p.bgMode() == 2) {
+            if (!opt_built_) build_arch_opt(p);
+            p.wideOptOn[1] = true;
+        }
         p.wideShowLo = lo;
         p.wideShowHi = hi;
         p.wideMirror = 0x02;
@@ -756,12 +788,7 @@ public:
                 rm.seg[0] = {(int16_t)mid_, (int16_t)(256 + mid_), 0, 0};
             }
         }
-        // Lines where the game has painted on its screen what the level's data beside it doesn't hold (Jafar's fire
-        // floor): the margins show the room as stored there, dimmed.
-        if (row >= paint_row_) {
-            p.wideDimLo = 0;
-            p.wideDimHi = 256;
-        } else if (fight_dim_ > 0) {
+        if (fight_dim_ > 0) {
             // A boss fight holding Aladdin on the game's screen (boss_held): nothing beside it is his to reach until
             // it is won and the way on opens; dimmed (the bar spared), fading in and out (fight_dim_, in 32nds).
             p.wideDimLo = 0;
@@ -848,7 +875,13 @@ public:
     }
 
     int fetchWideTile(Ppu& p, int layer, int mapX, int mapY, int screenX, uint16_t* entry) override {
-        (void)p; (void)mapX; (void)mapY;
+        (void)mapX;
+        // Jafar's fire: the arch (BG2, an object's picture) and the room's painted rows (BG1, map rows 21-31, by the
+        // map row the PPU reads, so the shake's wrap shows what the game's screen shows) repeated from the screen
+        if (fire_ && ((layer == 1 && obj_bg2_) || (layer == 0 && (mapY & 31) >= kFireRow))) {
+            *entry = painted_entry(p, layer, mapY, screenX);
+            return kWideEntry;
+        }
         if (layer == 1 && obj_bg2_ && level_) return screenX >= obj_lo_ && screenX < obj_hi_ ? kWideVram : kWideBlank;
         if (layer > 1 || !level_ || !snes_ || !line_[layer].decode) return kWideVram;
         const LineLayer& ll = line_[layer];
@@ -881,7 +914,7 @@ public:
     // of the frame in progress too: its OAM DMA comes after the load) and how long ago the level loop's top ran.
     std::vector<uint8_t> save_ext() const {
         std::vector<uint8_t> v;
-        v.push_back(8);   // version
+        v.push_back(9);   // version
         v.push_back((uint8_t)((level_ ? 1 : 0) | (lim_valid_ ? 2 : 0) | (stop_ ? 4 : 0) | (respawn_ ? 16 : 0) |
                               (armed_ ? 32 : 0)));
         const uint32_t since = snes_ ? snes_->frameCount() - loop_frame_ : 255;
@@ -921,6 +954,20 @@ public:
         }
         v.insert(v.end(), waiting_, waiting_ + 32);   // (version 6) timed objects waiting for the original's moment
         v.push_back((uint8_t)fight_dim_);             // (version 8) a boss fight's dim, fading
+        // (version 9) Jafar's arch: its wave's table, the entries moved past it and its motion (arch_)
+        const Arch& a = arch_;
+        v.push_back((uint8_t)((a.valid ? 1 : 0)));
+        v.push_back((uint8_t)a.known);
+        for (uint16_t e : a.t) {
+            v.push_back((uint8_t)e);
+            v.push_back((uint8_t)(e >> 8));
+        }
+        for (uint32_t x : {a.y, a.vel, (uint32_t)a.pc, (uint32_t)a.centre}) {
+            v.push_back((uint8_t)x);
+            v.push_back((uint8_t)(x >> 8));
+            v.push_back((uint8_t)(x >> 16));
+        }
+        for (uint8_t x : {a.acc, a.idx, a.on, a.strength}) v.push_back(x);
         return v;
     }
     void load_ext(const uint8_t* d, size_t n) {
@@ -943,15 +990,17 @@ public:
         retry_frame_ = 0xFFFFFFFFu;
         pending_again_ = 0;
         wall_valid_ = behind_valid_ = false;
+        arch_.valid = false;   // (a state without it: the arch's wave known from the next logic frame on)
         // (a state without it: a boss fight's dim as it stands, no fade)
         fight_dim_ = snes_ && boss_held(*snes_) ? kFadeFrames : 0;
         // (a state without it: a level being played if one is on screen)
         armed_ = snes_ && playing_level(*snes_) && in_level(*snes_);
         const size_t need1 = 2 + 5 * 2 + 128 * 3, need2 = 3 + 7 * 2 + 2 * 128 * 3, need3 = need2 + 1 + 7 * 2;
         const size_t need5 = need3 + 2 + 3 * 32 + 5, need6 = need5 + 32, need8 = need6 + 1;
-        if (n < 2 || d[0] < 1 || d[0] > 8 || (d[0] == 1 && n < need1) || (d[0] == 2 && n < need2) ||
+        const size_t need9 = need8 + 2 + 2 * (32 + kArchHist) + 4 * 3 + 4;
+        if (n < 2 || d[0] < 1 || d[0] > 9 || (d[0] == 1 && n < need1) || (d[0] == 2 && n < need2) ||
             (d[0] >= 3 && n < need3) || (d[0] >= 5 && n < need5) || (d[0] >= 6 && n < need6) ||
-            (d[0] >= 8 && n < need8))
+            (d[0] >= 8 && n < need8) || (d[0] >= 9 && n < need9))
             return;
         level_ = (d[1] & 1) != 0;
         if (d[0] >= 4) armed_ = (d[1] & 32) != 0;
@@ -1012,6 +1061,30 @@ public:
         }
         if (d[0] >= 6) std::memcpy(waiting_, d + o, 32);
         if (d[0] >= 8) fight_dim_ = std::min<int>(d[o + 32], kFadeFrames);
+        if (d[0] >= 9) {
+            size_t q = o + 33;
+            Arch& a = arch_;
+            a.valid = (d[q] & 1) != 0;
+            a.known = std::clamp<int>(d[q + 1], 0, 32 + kArchHist);
+            q += 2;
+            for (uint16_t& e : a.t) {
+                e = (uint16_t)(d[q] | (d[q + 1] << 8));
+                q += 2;
+            }
+            uint32_t w[4];
+            for (uint32_t& x : w) {
+                x = d[q] | (d[q + 1] << 8) | (d[q + 2] << 16);
+                q += 3;
+            }
+            a.y = w[0];
+            a.vel = w[1];
+            a.pc = (uint16_t)w[2];
+            a.centre = (uint16_t)w[3];
+            a.acc = d[q];
+            a.idx = d[q + 1];
+            a.on = d[q + 2];
+            a.strength = d[q + 3];
+        }
     }
 
 private:
@@ -1066,7 +1139,23 @@ private:
     bool obj_bg2_ = false;   // this line: BG2 holds an object's picture (obj_lo_ / obj_hi_: its own copy on screen)
     int obj_lo_ = 0, obj_hi_ = 0;
     bool arena_ = false;            // this frame: an arena holds the game's camera (arena)
-    int paint_row_ = 0x10000;       // this frame: the first line the game has painted on its screen only (dimmed beside)
+    int paint_row_ = 0x10000;       // this frame: the first line the game has painted on its screen only
+    bool jafar_ = false;            // this frame: Jafar's room held (level $11's arena): the fight's sides
+    bool fire_ = false;             // ... with the cobra's fire floor and arch painted on the game's screen
+    int jafar_lo_ = 0, jafar_hi_ = 0;   // this frame: the room's extent (its layers mirrored past it)
+    int8_t period_[2][32] = {};     // this frame: a painted map row's repeat in tile columns (0: not worked out yet)
+    bool opt_built_ = false;        // this frame: the arch's margin columns' scrolls (Ppu::wideOptV) are set
+    // The arch's wave as the game's logic left it (taken at its frame wait, kLevelWait, where its step is done): the
+    // column table ($7E:DFC0) with the entries that have moved on past it, and the object's motion (arch_steps).
+    struct Arch {
+        bool valid = false;
+        int known = 0;                     // entries of t known: the game's 32, then the ones moved past them
+        uint16_t t[32 + kArchHist] = {};   // newest first
+        uint32_t y = 0, vel = 0;           // 24 bits each
+        uint16_t pc = 0, centre = 0;
+        uint8_t acc = 0, idx = 0, on = 0, strength = 0;
+    };
+    Arch arch_;
     int fight_dim_ = 0;             // the sides' dim while a boss fight holds Aladdin (boss_held), in 32nds: 0-16
     LineLayer line_[2];
     struct Cover { int px, py; bool right; int n; };
@@ -1278,6 +1367,15 @@ private:
             hi = cam + 256;
             return;
         }
+        if (arena(s) && rd8(s, kLevel) == kJafarLevel) {
+            // Jafar's room: the fight is the game's screen (Aladdin held on it, Jafar and then the cobra at its
+            // right, the cobra's head and coils swaying past its edge), at the room's right end: centred, its right
+            // side past the room's end (its sides: beginLine). An open span, so that the view's target is the camera's
+            // and the span doesn't change as the room's pan moves it (the offset then closes with the pan).
+            lo = -0x4000;
+            hi = 0x4000;
+            return;
+        }
         if (arena(s)) {
             const int vw = 256 + 2 * ext_;
             if (hi - lo >= vw) {
@@ -1453,6 +1551,145 @@ private:
         return std::max(row, 0);
     }
 
+    // The arch's object and column table at the end of a logic frame (its step done). The table shifts one column on
+    // with each step: the entry that moves past its end is kept (the margin right of the game's screen shows it).
+    void take_arch(const Snes& s) {
+        Arch& a = arch_;
+        if (ext_ == 0 || rd8(s, kLevel) != kJafarLevel || !active(s)) {
+            a.valid = false;
+            return;
+        }
+        uint32_t b = 0;
+        for (int i = 0; i < 35 && !b; i++) {
+            const uint32_t o = 0x092B + i * 0x50;
+            const uint16_t pc = rd16(s, o + 3);
+            if (rd8(s, o) && rd8(s, o + 6) == kArchType && rd8(s, o + 5) == 0x84 &&
+                (pc == kArchHold || pc == kArchUp || pc == kArchDown))
+                b = o;
+        }
+        if (!b) {
+            a.valid = false;
+            return;
+        }
+        uint16_t t[32];
+        for (int i = 0; i < 32; i++) t[i] = rd16(s, kArchTable + 2 * i);
+        if (a.valid && std::equal(t + 1, t + 32, a.t) && !std::equal(t, t + 32, a.t)) {
+            std::memmove(a.t + 1, a.t, sizeof(a.t) - sizeof(a.t[0]));   // (one step: the last entry moves on)
+            a.known = std::min(a.known + 1, 32 + kArchHist);
+        } else if (!a.valid || !std::equal(t, t + 32, a.t)) {
+            a.known = 32;
+        }
+        std::memcpy(a.t, t, sizeof(t));
+        a.valid = true;
+        a.y = rd8(s, b + 0x0E) | (rd8(s, b + 0x0F) << 8) | (rd8(s, b + 0x10) << 16);
+        a.vel = rd8(s, b + 0x1D) | (rd8(s, b + 0x1E) << 8) | (rd8(s, b + 0x1F) << 16);
+        a.acc = rd8(s, b + 0x20);
+        a.pc = rd16(s, b + 3);
+        a.centre = rd16(s, b + 0x40);
+        a.idx = rd8(s, b + 0x42);
+        a.on = rd8(s, kArchOn);
+        a.strength = rd8(s, kArchStrength);
+    }
+    // The entries the arch's next steps will insert, in order (fewer once it holds): its script run ahead from
+    // arch_ - the velocity less (up) or plus (down) the acceleration, y plus the velocity, the entry, the turn at the
+    // centre with the next half's velocity and acceleration from the tables.
+    int arch_steps(uint16_t* out, int n) const {
+        const Snes& s = *snes_;
+        const Arch& a = arch_;
+        uint32_t y = a.y, v = a.vel, acc = a.acc;
+        int idx = a.idx;
+        auto start = [&](uint32_t table) {
+            const int k = (uint8_t)rom16(s, table + idx);
+            v = (uint8_t)rom16(s, kArchVelLo + k) | ((uint8_t)rom16(s, kArchVelMid + k) << 8) |
+                ((uint8_t)rom16(s, kArchVelHi + k) << 16);
+            acc = (uint8_t)rom16(s, kArchAcc + k);
+        };
+        int phase = a.pc == kArchUp ? 1 : a.pc == kArchDown ? 2 : 0;
+        if (phase == 0) {   // (holding: an up-swing starts once the wave is on, a step with no entry)
+            if (!a.on) return 0;
+            idx = a.strength;
+            start(kArchStartUp);
+            phase = 1;
+        }
+        int k = 0;
+        while (k < n) {
+            v = (phase == 1 ? v - acc : v + acc) & 0xFFFFFF;
+            y = (y + v) & 0xFFFFFF;
+            const int y16 = (int)((y >> 8) & 0xFFFF);
+            out[k++] = (uint16_t)(((y16 - 0x100) & 0x1FF) | 0x4000);
+            if (phase == 1 && y16 < a.centre) {
+                phase = 2;
+                start(kArchStartDown);
+            } else if (phase == 2 && y16 >= a.centre) {
+                if (!a.on) break;
+                idx = a.strength;
+                phase = 1;
+                start(kArchStartUp);
+            }
+        }
+        return k;
+    }
+    // The arch's scrolls for the margin columns (Ppu::wideOptV for BG2), on the frame's first line in mode 2: the
+    // game's screen has column 0 at the register and columns 1-32 at its table (BG3's map, as the PPU reads it). Left
+    // of it come the entries the next steps insert (column -k the k-th: the wave travels in from there), right of it
+    // the ones moved past the table's end. The table on the screen is the one the NMI copied, arch_ the one the last
+    // logic frame left: one or two steps ahead in a frame the logic ran ahead of the picture (d).
+    void build_arch_opt(Ppu& p) {
+        opt_built_ = true;
+        const int reg = p.bgVofs(1) & 0x3FF, b3h = p.bgHofs(2), b3v = p.bgVofs(2);
+        uint16_t sc[32];
+        int16_t* o = p.wideOptV[1] + Ppu::kWideOptOff;
+        o[0] = (int16_t)reg;
+        for (int c = 1; c <= 32; c++) {
+            sc[c - 1] = p.tileEntry(2, ((c - 1) * 8 + (b3h & ~7)) >> 3, (b3v >> 3) + 1);
+            o[c] = (int16_t)((sc[c - 1] & 0x4000) ? (sc[c - 1] & 0x3FF) : reg);
+        }
+        int d = -1;
+        for (int k = 0; k <= 4 && d < 0 && arch_.valid; k++)
+            if (std::equal(sc, sc + 32 - k, arch_.t + k)) d = k;
+        // right: entries 32 on (column 33 on)
+        int16_t last = o[32];
+        for (int c = 33; c + Ppu::kWideOptOff < Ppu::kWideOptN; c++) {
+            const int j = c - 1 + (d < 0 ? 0 : d);
+            if (d >= 0 && j < arch_.known) last = (int16_t)(arch_.t[j] & 0x3FF);
+            o[c] = last;
+        }
+        // left: the entries to come
+        constexpr int kLeft = Ppu::kWideOptOff;
+        uint16_t f[kLeft];
+        int n = 0;
+        if (d >= 0) {
+            for (int k = d - 1; k >= 0 && n < kLeft; k--) f[n++] = arch_.t[k];
+            n += arch_steps(f + n, kLeft - n);
+        }
+        last = o[0];
+        for (int k = 1; k <= kLeft; k++) {
+            if (k <= n) last = (int16_t)(f[k - 1] & 0x3FF);
+            o[-k] = last;
+        }
+    }
+    // A painted map row's entry for a margin column (screenX): the row repeated from the game's screen, by the row's
+    // own repeat (the smallest period its columns 8-31 have; the whole screen if none), so the fire floor and the
+    // arch's spikes go on as the game draws them, at their height, animated with them (the fire's tiles are animated
+    // in VRAM, every 8 frames).
+    uint16_t painted_entry(const Ppu& p, int layer, int mapY, int screenX) {
+        const int hofs = p.bgHofs(layer) & 0x3FF, base = hofs >> 3, row = mapY & 31;
+        int8_t& per = period_[layer][row];
+        if (per == 0) {
+            uint16_t e[32];
+            for (int i = 0; i < 32; i++) e[i] = p.tileEntry(layer, base + i, row);
+            per = 32;
+            for (int q = 1; q <= 16 && per == 32; q++) {
+                bool ok = true;
+                for (int i = 8; i + q < 32 && ok; i++) ok = e[i] == e[i + q];
+                if (ok) per = (int8_t)q;
+            }
+        }
+        const int v = screenX + (hofs & 7), c = floor_shr(v, 3);
+        const int b0 = per == 32 ? 0 : 8;
+        return p.tileEntry(layer, base + b0 + (((c - b0) % per) + per) % per, row);
+    }
+
     // One line's extent: the pages of its row the camera may enter, around the game's screen.
     static void row_run(const Snes& s, int camx, int wy, int& lo, int& hi) {
         lo = 0;
@@ -1527,6 +1764,8 @@ private:
         mid_ = 0;
         arena_ = false;
         paint_row_ = 0x10000;
+        jafar_ = fire_ = opt_built_ = false;
+        std::memset(period_, 0, sizeof(period_));
         cover_n_ = 0;
         band_on_ = false;
         hdma_line_ = -1;   // (the IRQ comes after the first lines)
@@ -1546,6 +1785,9 @@ private:
             mid_ = (er_ - el_) / 2;
             arena_ = arena(s);
             paint_row_ = painted_row(s, p);
+            jafar_ = arena_ && rd8(s, kLevel) == kJafarLevel;
+            fire_ = jafar_ && paint_row_ < 0x10000;
+            if (jafar_) level_extent(s, jafar_lo_, jafar_hi_);
             // the band routine's inputs for the frame on screen (the one its logic finished for this camera)
             if (band_next_.valid && band_next_.cam == cam) band_shown_ = band_next_;
             band_on_ = band_mode(rd16(s, kBgMode));
