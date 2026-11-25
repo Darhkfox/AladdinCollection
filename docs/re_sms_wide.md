@@ -405,6 +405,25 @@ story screens are now drawn wide where their picture allows it (`story_screen`, 
   (module_state[6] bits 29-31, cleared at `$092D`): it is drawn as itself, and a stage's mode doesn't count as a
   stage meanwhile (`shows_stage`). The lamp's chamber into scene $A (`$351E`, return `$3536` with mode $13) is a
   stage's end like the others: the stage stays wide through its fade (it dropped to 4:3 at once).
+* **A wait before the fade**: two screens set the next mode and then wait before they call `$0913` (the ROM's every
+  write of `$C200`, checked): the title's GAME START / PASSWORD (`$4BC9`: mode $13 or $F, scene and `$C120` 0, then
+  `ld b,$14; call $0B4D`, 20 frames of the title, the choice blinking) and a password taken (`$7494`: the stage and its
+  mode, then 30 frames of the password screen). The title was taken for scene 0 meanwhile, and `scene_cell` read the
+  title's map and metatile pointers (`$C48F` / `$C49D`, both 0): a block of junk tiles in the right side (at 21:9 CRT
+  x 330-404, rows 0-7, and a piece near the bottom; QA round 3 n1, "garbage sprites": they were background cells, no
+  extra sprite was drawn). The password screen was taken for the stage: reported gameplay, its sides drawn from the
+  stage's map for 30 frames. PC hooks right after the mode's write (`$4BCA`, `$7497`) now set the fading screen's kind
+  as `$0913` does (title; password: pillarboxed), so both stay themselves until their fade is black. And a scene's
+  sides come from ROM only while (`$C48F`) is the scenes' map table (`$8048`, set by `$4E92`): before a scene's picture
+  is built they are entry 0 (in the black between a stage or the title and the scene).
+  Measured from the title (the user's state, 21:9 CRT, app): 19 frames of junk before, none after; headless the same,
+  and the password screen 30 frames of the stage's map at its right edge before, pillarboxed throughout after. The other
+  changes - scene to scene, scene to stage, stage to scene, the lamp's chamber, TRY AGAIN, game over, the ending to the
+  title - set the mode right before `$0913` (QA's whole-game replays at 21:9 CRT: the sides change with the 4:3
+  picture standing still only where a character walks in a side, as before).
+  Parked sprites: the title, password, game over and menus draw no extra sprites (`StorySprites::upload` draws them
+  on a widened scene or the ending only, and a character's only once it has been on the 256 px since it was put
+  there on the screen shown), so a non-gameplay screen's parked pieces stay hidden as in the original.
 * What doesn't change: Jafar's snake (scene $20) grows out of the 4:3 picture's right edge, as the game only writes
   the part on the original screen into the table. Characters entering from a side appear at the 4:3 edge.
 
@@ -444,6 +463,7 @@ scene 3 at 102 differs in 76 of 954 (the characters in the sides).
 | slowdown | `r2_lag.py` (QA, round 2), every stage at 0 / 22 / 74 / 102, 3000 frames | section 3, "CPU time": near 4:3 everywhere |
 | left behind, fade-outs | stage 1 standing still and walking back, stage 8's wall; every auto-scrolling stage's exit, a death to TRY AGAIN | sections 2 and 5 |
 | story screens | every scene, the intro, title and ending at 74 and 102 (tool), the app at 21:9 CRT (before / after); `sms_rewind.py 74 102 --scenes .. --ending` | section 5a; rewind identical |
+| screen changes | GAME START and PASSWORD from the title, a password taken, game over (continue) at 21:9 CRT (tool, app); QA's whole-game replays (`r3_play_e74`, `r3_play_e74b`), frames where the sides change under a still 4:3 picture | section 5a "A wait before the fade": none but characters walking in a side |
 | screens | `sms_wide_shots.py`, `sms_run_sheet.py` (whole stages 0 1 5 7 at 74 / 102), `sms_app_test.py` (16:9 and 21:9 CRT, 21:9 square) | reviewed: stages, ends, HUD, scenes |
 | high frame rate | `hfr_test.py sms` (attract mode, stages 0 1 5 7) | RAM and picture identical with and without; in-betweens between the frames, the sides with the 256 px (section 7a) |
 
