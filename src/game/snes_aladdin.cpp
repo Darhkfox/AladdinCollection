@@ -108,6 +108,7 @@ constexpr int kLavaLevel = 0x06;
 // the same tests, 32 px into the left margin (tools/qa round 2, N5); there too the objects' lifetime follows the
 // picture's edges.
 constexpr int kRideLevel = 0x12;
+constexpr int kTowerLevel = 0x0A;   // Inside the Lamp 3: its one-screen-wide tower between gold pillars (span: a shaft)
 // Objects on a timer from their spawn, by type, and the return address of that first wait (saved PC and bank, object
 // +$03 / +$05): the Lava Cavern's lava pillar ($5B, $83:DF14: spawned as its cap lying in the lava, animation 2, it
 // waits a time from its list entry - COP with the table $83:D3F8 by its list parameter, object +$07; with the
@@ -670,12 +671,10 @@ public:
             hi = shi - line_[0].wx;
             // BG2 there: mirrored about the level's edges on this line as before (only what the game shows of it
             // comes into view; the pages beside Inside the Lamp 3's tower are drawn as its bottom page). Where a strip
-            // of the level at the edge hides BG2 on every line of its page (edge_cover), about the strip's inner edge:
-            // the tower stands between two gold pillars 32 px wide with nothing drawn on BG2 behind them, so the
-            // background seen between them goes on past them, the same on every line of the tower and of the corridor
-            // above it, and the joins stay behind the pillars. Where the background is drawn shifted (bgHofsAdj: the
-            // view gliding or stopped while the game's camera isn't), its blank strip comes out from behind a pillar:
-            // the mirror leaves that part out too.
+            // of the level at the edge hides BG2 on every line of its page (edge_cover), about the strip's inner edge,
+            // so a blank part of BG2 behind the strip stays out of the reflection. Where the background is drawn
+            // shifted (bgHofsAdj: the view gliding or stopped while the game's camera isn't), its blank strip comes out
+            // from behind the edge strip: the mirror leaves that part out too.
             const int r = floor_shr(wy, 8);
             const int nl = lo > -el_ ? edge_cover(p, s, slo >> 8, r, false) : 0;
             const int nr = hi < 256 + er_ ? edge_cover(p, s, (shi - 1) >> 8, r, true) : 0;
@@ -685,6 +684,23 @@ public:
             if (mh - ml >= 64) {
                 p.wideMirrorLo = ml;
                 p.wideMirrorHi = mh;
+            }
+            // Inside the Lamp 3's tower (and the corridor's left end above it, the same left pillar): a shaft inside
+            // solid gold wall. Past its gold pillars (page column 0's edges, BG1 strips edge_cover finds: 3 tile
+            // columns, the fourth the pillar's dark inner edge) the sides show the pillar's outer tile column on BG1
+            // reflected back and forth (flat gold, the pillar's bands running on at their height, no seam), the line's
+            // own pixels, so it scrolls with the pillar; nothing else there but the bar. The corridor's lines keep
+            // their level on the right: the rule is per line, so the corridor comes down onto the wall as the view
+            // glides. (Black with Past Level Ends: Black: the wall is part of the mirror.)
+            if (rd8(s, kLevel) == kTowerLevel) {
+                if (nl >= 3 && (slo >> 8) == 0) {
+                    p.wideWall = 0x01;
+                    p.wideWallL = lo;
+                }
+                if (nr >= 3 && ((shi - 1) >> 8) == 0) {
+                    p.wideWall = 0x01;
+                    p.wideWallR = hi;
+                }
             }
         }
         p.wideShowLo = lo;

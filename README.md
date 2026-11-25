@@ -370,10 +370,11 @@ gradlew assembleDebug
   background, up to about 70 px of that background is shown mirrored at a level's start at 21:9 (the level itself
   is real to the edge). In Agrabah Rooftops the far hills behind the palace can show a seam in the left side area:
   the game never scrolls that far into them, so their picture doesn't join up there. Inside the Lamp 3's tower is
-  one screen wide and holds nothing beside it: the view is centred on it, its gold pillars stand at the edges, and
-  both sides show the sky, columns and clouds behind it going on (its own background mirrored past the pillars) at
-  full brightness, without the genie statues, platforms or sprites (black with *Past Level Ends: Black*); between
-  the tower and the corridor at its top the view glides over as the screen scrolls. The STAGE CLEAR panel keeps its
+  one screen wide and holds nothing beside it: the view is centred on it, and its gold pillars go on into both sides
+  as a solid gold wall (made from the pillars' own plain outer edge, their bands running on at the same height and
+  scrolling with them), so the tower reads as a shaft in the wall, without statues, platforms or sprites beside it
+  (black with *Past Level Ends: Black*); between the tower and the corridor at its top the view glides over as the
+  screen scrolls, the corridor coming down onto the wall. The STAGE CLEAR panel keeps its
   4:3 frame on a purple background that fills the width; the
   bonus wheel and the story scenes between stages are on black and so look the same as before. The staff roll stays 4:3. The
   level select starts with new-game stats (3 lives, 3 hearts, 10 apples).

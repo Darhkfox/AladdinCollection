@@ -111,6 +111,13 @@ public:
   // ...reflected back and forth within [wideMirrorLo, wideMirrorHi) of that span (default: all of it; a strip of
   // the level at its edge that hides a layer behind it left out)
   int wideMirrorLo = -kMaxExt, wideMirrorHi = 256 + kMaxExt;
+  // ...except the layers of wideWall (bit 0-3): on a side with a wall edge (wideWallL / wideWallR, screen x; kNoWall:
+  // none) the layer's strip [edge, edge + wideWallW) inside it is reflected back and forth outward from the edge over
+  // the whole side, and no other layer is drawn there (but wideShowKeep's): a wall the level's own edge goes on as.
+  // An in-between picture's edge moves with the layer.
+  static constexpr int kNoWall = -0x8000;
+  uint8_t wideWall = 0;
+  int wideWallL = kNoWall, wideWallR = kNoWall, wideWallW = 8;
   bool edgeMirror = true;    // setting: wideMirror is used (off: black past the span, as without it)
   // Pixels outside [wideDimLo, wideDimHi) are drawn at half brightness on this line (beyond where the game's camera
   // can go: a boss arena centred in a wider picture), except where the top layer is one of wideDimSpare's (a status
@@ -300,7 +307,7 @@ private:
   void renderObj(int row, int x0, int x1);
   void computeWindows(int x0, int x1);
   void applyRemap(int l, int x0, int x1);
-  void mirrorOutside(int x0, int x1);
+  void mirrorOutside(int x0, int x1, bool sub);
   uint16_t mapEntry(int l, int tx, int ty) const;
   uint16_t mapEntryAt(int l, uint16_t base, int tx, int ty) const;
   uint16_t directColor(uint8_t idx, uint8_t pal) const;

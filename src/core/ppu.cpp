@@ -736,7 +736,7 @@ void Ppu::applyRemap(int l, int x0, int x1) {
   for (int x = x0; x < x1; x++) src[x] = dst[x];
 }
 
-void Ppu::mirrorOutside(int x0, int x1) {
+void Ppu::mirrorOutside(int x0, int x1, bool sub) {
   const int lo = std::max(wideShowLo, x0), hi = std::min(wideShowHi, x1);
   // (the mirror's span: the shown one, or the part of it the hook gives)
   int mlo = std::max(lo, wideMirrorLo), mhi = std::min(hi, wideMirrorHi);
@@ -745,6 +745,8 @@ void Ppu::mirrorOutside(int x0, int x1) {
     mhi = hi;
   }
   const int w = mhi - mlo;
+  const bool wallL = wideWall && wideWallL != kNoWall, wallR = wideWall && wideWallR != kNoWall;
+  const int ww = std::clamp(wideWallW, 1, 64);
   for (int l = 0; l < 5; l++) {
     if (wideShowKeep & (1 << l)) continue;
     Px* o = layer_[l] + kMaxExt;
@@ -757,8 +759,38 @@ void Ppu::mirrorOutside(int x0, int x1) {
       const int t = floorMod(x - mlo, 2 * w);   // (reflected back and forth: a span narrower than the outside)
       o[x] = o[mlo + (t < w ? t : 2 * w - 1 - t)];
     };
-    for (int x = x0; x < lo; x++) put(x);
-    for (int x = hi; x < x1; x++) put(x);
+    if (l < 4 && (wideWall & (1 << l))) {
+      // the wall, from the layer's edge where this line draws it (an in-between picture's: moved with the layer)
+      const int sh = sub ? subHofs_[l] : 0;
+      if (wallL) {
+        const int a = std::clamp(wideWallL - sh, x0, x1 - ww);
+        for (int x = x0; x < a; x++) {
+          const int t = floorMod(a - 1 - x, 2 * ww);
+          o[x] = o[a + (t < ww ? t : 2 * ww - 1 - t)];
+        }
+      } else {
+        for (int x = x0; x < lo; x++) put(x);
+      }
+      if (wallR) {
+        const int b = std::clamp(wideWallR - sh, x0 + ww, x1);
+        for (int x = b; x < x1; x++) {
+          const int t = floorMod(x - b, 2 * ww);
+          o[x] = o[b - 1 - (t < ww ? t : 2 * ww - 1 - t)];
+        }
+      } else {
+        for (int x = hi; x < x1; x++) put(x);
+      }
+      continue;
+    }
+    // (beside a wall nothing else)
+    for (int x = x0; x < lo; x++) {
+      if (wallL) o[x].pri = 0;
+      else put(x);
+    }
+    for (int x = hi; x < x1; x++) {
+      if (wallR) o[x].pri = 0;
+      else put(x);
+    }
   }
 }
 
@@ -795,6 +827,9 @@ void Ppu::renderLine(int line) {
   wideMirror = 0;
   wideMirrorLo = -kMaxExt;
   wideMirrorHi = 256 + kMaxExt;
+  wideWall = 0;
+  wideWallL = wideWallR = kNoWall;
+  wideWallW = 8;
   wideDimLo = -kMaxExt;
   wideDimHi = 256 + kMaxExt;
   wideDimSpare = 0;
@@ -868,7 +903,7 @@ void Ppu::renderLine(int line) {
   }
   const bool mirror = edgeMirror && wideMirror && (wideShowLo > x0 || wideShowHi < x1) &&
                       std::min(wideShowHi, x1) > std::max(wideShowLo, x0);
-  if (mirror) mirrorOutside(x0, x1);
+  if (mirror) mirrorOutside(x0, x1, false);
   computeWindows(x0, x1);
   composeLine(fb, x0, x1, eL, eR, mirror);
   if (subs > 1) {
@@ -1094,7 +1129,7 @@ void Ppu::renderSubLine(int row, int k, int subs, int x0, int x1, int eL, int eR
     for (int x = x0; x < x1; x++) o[x].pri = 0;
   }
   sub_ = false;
-  if (mirror) mirrorOutside(x0, x1);
+  if (mirror) mirrorOutside(x0, x1, true);
   composeLine(out, x0, x1, eL, eR, mirror);
 }
 
