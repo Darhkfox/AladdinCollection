@@ -982,7 +982,7 @@ const WalkStep kWalk4[] = {
     {0x8CF6, 1, 0}, {0x8D21, 1, 0}, {0x8D21, 1, 0}, {0x8D21, 1, 0}, {0x8D21, 1, 0}, {0x8D21, 1, 0}, {0x8D21, 1, 0},
     {0x8D21, 1, 0}, {0x8D21, 1, 0}, {0x8D50, 1, 0}, {0x8D50, 1, 0}, {0x8D50, 1, 0}, {0x8D50, 1, 0},
 };
-const WalkStep kWalk6[] = {
+const WalkStep kWalk5[] = {
     {0x8E0C, -1, 0}, {0x8E0C, -1, 0}, {0x8E0C, -1, 0}, {0x8E0C, -1, 0}, {0x8E0C, -1, 0}, {0x8E0C, -1, 0},
     {0x8E0C, -1, 0}, {0x8E0C, -1, 0}, {0x8E37, -1, 0}, {0x8E37, -1, 0}, {0x8E37, -1, 0}, {0x8E37, -1, 0},
     {0x8E37, -1, 0}, {0x8E37, -1, 0}, {0x8E37, -1, 0}, {0x8E37, -1, 0}, {0x8E66, -1, 0}, {0x8E66, -1, 0},
@@ -992,7 +992,7 @@ const WalkStep kWalk6[] = {
     {0x8EC2, -1, 0}, {0x8EC2, -1, 0}, {0x8EC2, -1, 0}, {0x8EC2, -1, 0}, {0x8EF1, -1, 0}, {0x8EF1, -1, 0},
     {0x8EF1, -1, 0}, {0x8EF1, -1, 0}, {0x8EF1, -1, 0}, {0x8EF1, -1, 0}, {0x8EF1, -1, 0}, {0x8EF1, -1, 0},
 };
-const WalkStep kWalk7[] = {
+const WalkStep kWalk6[] = {
     {0x8D21, 1, 0}, {0x8D21, 1, 0}, {0x8D50, 1, 0}, {0x8D50, 1, 0}, {0x8D50, 1, 0}, {0x8D50, 1, 0}, {0x8D50, 1, 0},
     {0x8D50, 1, 0}, {0x8D50, 1, 0}, {0x8D50, 1, 0}, {0x8D81, 1, 0}, {0x8D81, 1, 0}, {0x8D81, 1, 0}, {0x8D81, 1, 0},
     {0x8D81, 1, 0}, {0x8D81, 1, 0}, {0x8D81, 1, 0}, {0x8D81, 1, 0}, {0x8DAC, 1, 0}, {0x8DAC, 1, 0}, {0x8DAC, 1, 0},
@@ -1001,7 +1001,7 @@ const WalkStep kWalk7[] = {
     {0x8CF6, 1, 0}, {0x8CF6, 1, 0}, {0x8CF6, 1, 0}, {0x8CF6, 1, 0}, {0x8CF6, 1, 0}, {0x8CF6, 1, 0}, {0x8CF6, 1, 0},
     {0x8D21, 1, 0}, {0x8D21, 1, 0}, {0x8D21, 1, 0}, {0x8D21, 1, 0}, {0x8D21, 1, 0}, {0x8D21, 1, 0},
 };
-const WalkStep kWalk8[] = {
+const WalkStep kWalk7[] = {
     {0x8EF1, -1, 0}, {0x8EF1, -1, 0}, {0x8E0C, -1, 0}, {0x8E0C, -1, 0}, {0x8E0C, -1, 0}, {0x8E0C, -1, 0},
     {0x8E0C, -1, 0}, {0x8E0C, -1, 0}, {0x8E0C, -1, 0}, {0x8E0C, -1, 0}, {0x8E37, -1, 0}, {0x8E37, -1, 0},
     {0x8E37, -1, 0}, {0x8E37, -1, 0}, {0x8E37, -1, 0}, {0x8E37, -1, 0}, {0x8E37, -1, 0}, {0x8E37, -1, 0},
@@ -1011,14 +1011,14 @@ const WalkStep kWalk8[] = {
     {0x8EC2, -1, 0}, {0x8EC2, -1, 0}, {0x8EC2, -1, 0}, {0x8EC2, -1, 0}, {0x8EC2, -1, 0}, {0x8EC2, -1, 0},
     {0x8EF1, -1, 0}, {0x8EF1, -1, 0}, {0x8EF1, -1, 0}, {0x8EF1, -1, 0}, {0x8EF1, -1, 0}, {0x8EF1, -1, 0},
 };
-const WalkStep kWalk10[] = {
+const WalkStep kWalk9[] = {
     {0xB934, 0, 0}, {0xB934, 1, 0},
 };
-const WalkStep kWalk11[] = {
+const WalkStep kWalk10[] = {
     {0x9E0C, 1, 0}, {0x9E0C, 1, 0}, {0x9DD1, 1, 0}, {0x9DD1, 1, 0}, {0x9DD1, 1, 0}, {0x9DD1, 1, 0}, {0x9E0C, 1, 0},
     {0x9E0C, 1, 0},
 };
-const WalkStep kWalk12[] = {
+const WalkStep kWalk11[] = {
     {0x843A, -1, 0}, {0x843A, -1, 0}, {0x843A, -1, 0}, {0x843A, -1, 0}, {0x843A, -1, 0}, {0x843A, -1, 0},
     {0x846D, -1, 0}, {0x846D, -1, 0}, {0x846D, -1, 0}, {0x846D, -1, 0}, {0x846D, -1, 0}, {0x846D, -1, 0},
     {0x846D, -1, 0}, {0x846D, -1, 0}, {0x84A0, -1, 0}, {0x84A0, -1, 0}, {0x84A0, -1, 0}, {0x84A0, -1, 0},
@@ -1028,7 +1028,7 @@ const WalkStep kWalk12[] = {
     {0x8508, -1, 0}, {0x8508, -1, 0}, {0x853B, -1, 0}, {0x853B, -1, 0}, {0x853B, -1, 0}, {0x853B, -1, 0},
     {0x853B, -1, 0}, {0x853B, -1, 0}, {0x853B, -1, 0}, {0x853B, -1, 0}, {0x843A, -1, 0}, {0x843A, -1, 0},
 };
-const WalkStep kWalk13[] = {
+const WalkStep kWalk12[] = {
     {0x911D, -2, 0}, {0x911D, -2, 0}, {0x911D, -2, 0}, {0x911D, -2, 0}, {0x9038, -2, 0}, {0x9038, -2, 0},
     {0x9038, -2, 0}, {0x9038, -2, 0}, {0x9063, -2, 0}, {0x9063, -2, 0}, {0x9063, -2, 0}, {0x9063, -2, 0},
     {0x9092, -2, 0}, {0x9092, -2, 0}, {0x9092, -2, 0}, {0x9092, -2, 0}, {0x90C3, -2, 0}, {0x90C3, -2, 0},
@@ -1040,15 +1040,14 @@ const SceneWalk kSceneWalks[] = {
     {0x01, 0, WALK_IN, 365, 389, -8, 137, 0x0E, 17, 1, 48, kWalk2},   // the market: Aladdin comes back for Jasmine
     {0x01, 3, WALK_OUT, 348, 421, 353, 121, 0x1D, 7, 0, 20, kWalk3},   // the market: Abu runs off
     {0x06, 1, WALK_IN, 66, 113, -31, 72, 0x0F, 17, 18, 48, kWalk4},   // the palace: Jasmine walks in
-    {0x0B, 2, WALK_SHOWN, 1, 8, 0, 0, 0x00, 0, 0, 0, nullptr},   // the escape: the carpet swoops in
-    {0x10, 1, WALK_IN, 346, 377, 255, 72, 0x0F, 17, 18, 48, kWalk6},   // the throne room: Jasmine walks in (her walk in scene $11)
-    {0x10, 1, WALK_OUT, 592, 720, 326, 72, 0x0F, 17, 18, 48, kWalk7},   // the throne room: Jasmine walks off
-    {0x11, 1, WALK_IN, 808, 839, 255, 40, 0x0F, 17, 18, 48, kWalk8},   // night: Jasmine walks in on the balcony
+    {0x10, 1, WALK_IN, 346, 377, 255, 72, 0x0F, 17, 18, 48, kWalk5},   // the throne room: Jasmine walks in (her walk in scene $11)
+    {0x10, 1, WALK_OUT, 592, 720, 326, 72, 0x0F, 17, 18, 48, kWalk6},   // the throne room: Jasmine walks off
+    {0x11, 1, WALK_IN, 808, 839, 255, 40, 0x0F, 17, 18, 48, kWalk7},   // night: Jasmine walks in on the balcony
     {0x11, 2, WALK_SHOWN, 0, 392, 0, 0, 0x00, 0, 0, 0, nullptr},   // night: Rajah lies on the balcony
-    {0x11, 2, WALK_OUT, 798, 1038, 287, 72, 0x1D, 9, 0, 2, kWalk10},   // night: Rajah pads off
-    {0x18, 1, WALK_OUT, 384, 540, 258, 48, 0x0F, 17, 18, 8, kWalk11},   // the throne room: Jasmine walks off
-    {0x1A, 0, WALK_IN, 98, 141, 267, 136, 0x0D, 17, 1, 48, kWalk12},   // the throne room: Aladdin walks in
-    {0x20, 1, WALK_IN, 114, 129, 254, 74, 0x0F, 17, 18, 24, kWalk13},   // Jafar's room: Abu runs in (his run off later)
+    {0x11, 2, WALK_OUT, 798, 1038, 287, 72, 0x1D, 9, 0, 2, kWalk9},   // night: Rajah pads off
+    {0x18, 1, WALK_OUT, 384, 540, 258, 48, 0x0F, 17, 18, 8, kWalk10},   // the throne room: Jasmine walks off
+    {0x1A, 0, WALK_IN, 98, 141, 267, 136, 0x0D, 17, 1, 48, kWalk11},   // the throne room: Aladdin walks in
+    {0x20, 1, WALK_IN, 114, 129, 254, 74, 0x0F, 17, 18, 24, kWalk12},   // Jafar's room: Abu runs in (his run off later)
     {0x23, 4, WALK_SHOWN, 0, 850, 0, 0, 0x00, 0, 0, 0, nullptr},   // the balcony: Iago on the tower
 };
 

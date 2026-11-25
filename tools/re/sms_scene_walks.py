@@ -30,7 +30,6 @@ SPECS = [
     (0x01, 0, 'IN', 365, 429, 'the market: Aladdin comes back for Jasmine'),
     (0x01, 3, 'OUT', 348, 300, 'the market: Abu runs off'),
     (0x06, 1, 'IN', 66, 176, 'the palace: Jasmine walks in'),
-    (0x0B, 2, 'SHOWN', 1, 8, 'the escape: the carpet swoops in'),
     (0x10, 1, 'IN', 346, (0x11, 1, 808, 886), 'the throne room: Jasmine walks in (her walk in scene $11)'),
     (0x10, 1, 'OUT', 592, 520, 'the throne room: Jasmine walks off'),
     (0x11, 1, 'IN', 808, 886, 'night: Jasmine walks in on the balcony'),

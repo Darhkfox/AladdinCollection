@@ -470,7 +470,6 @@ story screens are now drawn wide where their picture allows it (`story_screen`, 
   | 1 the market | Aladdin | in from the left (put at -8) | 365 | 48, 1 px |
   | 1 | Abu | out to the right (removed at 354) | 348 | 20, 1 px |
   | 6 the palace | Jasmine | in from the left (waits at -32) | 66 | 48, 1 px |
-  | $B the escape | the carpet | shown from tick 1 (its swoop from -52) | 1-8 | |
   | $10 the throne room | Jasmine | in from the right (put at 264) | 346 | her walk in $11, 48, 1 px |
   | $10 | Jasmine | out to the right (removed at 327) | 592 | 48, 1 px |
   | $11 night | Jasmine | in from the right (put at 256) | 808 | 48, 1 px |
@@ -481,7 +480,8 @@ story screens are now drawn wide where their picture allows it (`story_screen`, 
   | $20 Jafar's room | Abu | in from the right (waits at 256 running on the spot) | 114 | his run off at 402, 24, 2 px |
   | $23 the balcony | Iago | shown on the tower's corner at 256 | 0-850 | |
   Not walked: the pole vault in 3 (Aladdin and Jasmine wait at -30 / -26 in the sky beyond the roof the picture
-  repeats, and leap in), the bird of $1D (it comes in from the top, on the 256 px), Jafar's snake in $20 (drawn into
+  repeats, and leap in), the carpet in $B (it swoops in from -52 at 5 px a tick from tick 1, while the scene still
+  fades in: drawn from there it popped up in the side), the bird of $1D (it comes in from the top, on the 256 px), Jafar's snake in $20 (drawn into
   the table), scene 0's guard at the scene's end (he reaches 270 as the scene ends; the fade freezes everything), and
   the characters walking off as a scene ends (2, $1B, $22: the scene's last ticks).
   Checked: every walk's hand-over, every frame from 6 before t0 to 8 after at 74 and 102 (no doubled or missing
