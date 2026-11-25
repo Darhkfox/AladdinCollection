@@ -761,7 +761,7 @@ void App::switch_soundtrack() {
     }
     playing_soundtrack_ = p ? p->name : "";
     rewind_.clear();   // (the rewind buffer's states ran on the other ROM)
-    menu_.toast(p ? "âª  Soundtrack: " + soundtrack_label(*p) : std::string("âª  Original music"), 3.0f);
+    menu_.toast(p ? "♪  Soundtrack: " + soundtrack_label(*p) : std::string("♪  Original music"), 3.0f);
 }
 
 void App::reset_game() {
