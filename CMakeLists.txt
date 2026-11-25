@@ -116,6 +116,7 @@ add_executable(app_tests
     src/app/achievements.cpp
     src/app/png.cpp
     src/app/sys_win.cpp
+    src/app/settings.cpp
 )
 target_link_libraries(app_tests PRIVATE emucore shell32 winhttp)
 set_target_properties(app_tests PROPERTIES

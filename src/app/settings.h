@@ -66,6 +66,9 @@ struct Settings {
     uint32_t    pad_buttons[kSystemCount][2][kMaxActions];
     int         pad_index[2] = {-1, -1};    // -1 = first connected pad (player 1) / second (player 2)
     bool        stick_as_dpad = true;
+    bool        menu_confirm_right = false;   // menus: the pad's right face button confirms, the bottom one goes back
+                                              // (Nintendo's layout); else bottom confirms (Xbox's)
+    bool        other_controllers = true;     // Windows: read DirectInput (non-Xbox) controllers
     int         hotkey_keys[HK_COUNT];      // a key and a pad button for each Hotkey (0 = none)
     uint32_t    hotkey_pads[HK_COUNT];
 

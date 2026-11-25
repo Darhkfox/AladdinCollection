@@ -17,6 +17,7 @@
 #include <string>
 #include <vector>
 #include "input.h"
+#include "pad_filter.h"
 
 #pragma comment(lib, "xinput.lib")
 #pragma comment(lib, "dinput8.lib")
@@ -124,10 +125,12 @@ struct Input::Impl {
     ULONGLONG xi_next_try[4] = {};
 
     IDirectInput8W* di = nullptr;
-    struct DIPad { IDirectInputDevice8W* dev = nullptr; GUID inst = {}; bool seen = false; };
+    // filter: what a held button and a device sending random presses count as (pad_filter.h)
+    struct DIPad { IDirectInputDevice8W* dev = nullptr; GUID inst = {}; bool seen = false; PadFilter filter; };
     DIPad dpads[kDInputSlots];
     std::vector<DWORD> xinput_ids;
     bool enum_pending = false;
+    bool dinput_on = true;
     ULONGLONG enum_again_at = 0;    // second enumeration after a device change (late arrivals)
 
     void set_key(int vk, bool down) {
@@ -171,6 +174,7 @@ struct Input::Impl {
         dev->EnumObjects(enum_axis, dev, DIDFT_AXIS);
         dev->Acquire();
         DIPad& d = dpads[slot];
+        d = DIPad();
         d.dev = dev; d.inst = inst->guidInstance; d.seen = true;
         PadState& p = pads[kFirstDInputSlot + slot];
         p = PadState();
@@ -206,6 +210,7 @@ struct Input::Impl {
         }
         if (FAILED(hr)) {   // unplugged or unavailable: report disconnected until re-enumerated
             p.connected = false; p.buttons = p.pressed = 0; p.raw_buttons = p.raw_pressed = 0; p.lx = p.ly = 0;
+            d.filter.read_failed();
             return;
         }
         p.connected = true;
@@ -225,6 +230,15 @@ struct Input::Impl {
             if (pov >= 22500 && pov <= 31500) b |= PAD_LEFT;
         }
         b |= stick(js.lX / 1000.0f, js.lY / 1000.0f, 0.15f, p.lx, p.ly);
+        // Left out while it sends random presses (or Other Controllers is off); what a device holds when it is opened
+        // or comes back is not a press (pad_filter.h).
+        if (!d.filter.read(raw, GetTickCount64(), dinput_on)) {
+            p.buttons = p.pressed = 0; p.raw_buttons = p.raw_pressed = 0; p.lx = p.ly = 0;
+            p.ignored = true;
+            return;
+        }
+        p.ignored = false;
+        if (d.filter.take_settle()) { prev = b; prev_raw = raw; }
         p.buttons = b;
         p.pressed = b & ~prev;
         p.raw_buttons = raw;
@@ -242,6 +256,7 @@ struct Input::Impl {
             p = PadState();
             return;
         }
+        const bool fresh = !xi_connected[i];   // (just connected: what it holds is not a press, as in poll_dinput)
         if (!xi_connected[i]) {
             xi_connected[i] = true;
             XINPUT_CAPABILITIES caps = {};
@@ -265,7 +280,7 @@ struct Input::Impl {
         if (g.bRightTrigger > 64) b |= PAD_RT;
         b |= stick(g.sThumbLX / 32767.0f, -g.sThumbLY / 32767.0f,
                    XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE / 32767.0f, p.lx, p.ly);
-        uint32_t prev = p.buttons;
+        uint32_t prev = fresh ? b : p.buttons;
         p.connected = true;
         p.is_xinput = true;
         p.buttons = b;
@@ -311,6 +326,8 @@ void Input::poll() {
     for (int i = 0; i < 4; i++) I.poll_xinput(i, now);
     for (int i = 0; i < kDInputSlots; i++) I.poll_dinput(i);
 }
+
+void Input::set_dinput_enabled(bool on) { impl->dinput_on = on; }
 
 void Input::on_device_change() {
     Impl& I = *impl;

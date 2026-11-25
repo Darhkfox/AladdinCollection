@@ -30,6 +30,7 @@ void App::apply_ui_style() {
 
 void App::apply_settings() {
     video_.set_vsync(settings_.vsync);
+    input_.set_dinput_enabled(settings_.other_controllers);
     apply_ui_style();
     apply_slang();
     if (session_) session_->apply_settings(settings_);
@@ -99,12 +100,14 @@ UiInput App::poll_ui(float dt) {
         if (p.buttons & (PAD_DOWN | PAD_LS_DOWN)) dir[1] = true;
         if (p.buttons & (PAD_LEFT | PAD_LS_LEFT)) dir[2] = true;
         if (p.buttons & (PAD_RIGHT | PAD_LS_RIGHT)) dir[3] = true;
-        if (p.pressed & PAD_A) u.confirm = true;
-        if (p.pressed & PAD_B) u.back = true;
+        // (Menu Buttons: the bottom face button confirms and the right one goes back, or the other way round)
+        if (p.pressed & (settings_.menu_confirm_right ? PAD_B : PAD_A)) u.confirm = true;
+        if (p.pressed & (settings_.menu_confirm_right ? PAD_A : PAD_B)) u.back = true;
         if (p.pressed & PAD_GUIDE) u.menu = true;   // (the Menu pad button: hotkey_pressed below)
         if (p.pressed & PAD_LB) u.page_left = true;
         if (p.pressed & PAD_RB) u.page_right = true;
         u.pad_pressed |= p.pressed;
+        if (p.pressed) last_input_pad_ = true;
     }
     bool* outs[4] = {&u.up, &u.down, &u.left, &u.right};
     for (int i = 0; i < 4; i++) {
@@ -124,10 +127,20 @@ UiInput App::poll_ui(float dt) {
     if (input_.key_pressed(VK_PRIOR)) u.page_left = true;
     if (input_.key_pressed(VK_NEXT)) u.page_right = true;
     u.key_pressed = input_.last_key_pressed();
+    if (u.key_pressed) last_input_pad_ = false;
 #ifdef __ANDROID__
     if (touch_.take_tap(u.tap_x, u.tap_y)) u.tap = true;
     u.drag = touch_.take_drag();
     if (touch_.take_pressed(TouchControls::BtnMenu)) u.menu = true;
+#else
+    // The mouse, on the launcher (its menus and the Music Player too): clicks come as taps, the right button goes back
+    if (mode_ == Mode::Launcher) {
+        if (mouse_in_.click) { u.tap = u.mouse = true; u.tap_x = mouse_in_.x; u.tap_y = mouse_in_.y; }
+        u.wheel = mouse_in_.wheel;
+        if (mouse_in_.right && (menu_.active() || jukebox_.active())) u.back = true;
+    }
+    mouse_in_ = MouseInput();
+    if (u.key_pressed || u.pad_pressed || mode_ != Mode::Launcher) mouse_shown_ = false;
 #endif
     return u;
 }
@@ -261,8 +274,19 @@ void App::frame(double dt) {
     loop_frame_++;
     update_tick();   // (the day's update check: started once, its answer taken when it comes)
     input_.poll();
+    // A controller left out for sending random presses (input.h): said once each time it happens.
+    for (int i = 0; i < Input::kMaxPads; i++) {
+        const PadState& ps = input_.pad(i);
+        const bool noisy = ps.connected && ps.ignored && settings_.other_controllers;
+        if (noisy && !pad_noisy_[i])
+            menu_.toast("Ignoring " + ps.name + ": it sends random button presses (a Switch Pro Controller? reconnect it, "
+                        "or use it through Steam)", 7.0f);
+        pad_noisy_[i] = noisy;
+    }
     UiInput ui = poll_ui((float)dt);
-    menu_.footer = "\xE2\x86\x91\xE2\x86\x93 Select    \xE2\x86\x90\xE2\x86\x92 Change    Enter / (A) Confirm    Esc / (B) Back";
+    menu_.footer = settings_.menu_confirm_right   // (Menu Buttons)
+                       ? "\xE2\x86\x91\xE2\x86\x93 Select    \xE2\x86\x90\xE2\x86\x92 Change    Enter / (B) Confirm    Esc / (A) Back"
+                       : "\xE2\x86\x91\xE2\x86\x93 Select    \xE2\x86\x90\xE2\x86\x92 Change    Enter / (A) Confirm    Esc / (B) Back";
 
     // Global hotkeys
     if (input_.key_pressed(VK_F11)) { settings_.fullscreen = !is_fullscreen_; set_fullscreen(settings_.fullscreen); }
@@ -492,6 +516,9 @@ bool App::load_script(const std::wstring& path) {
                                                                       // (the game's n-th pack, 0 none), reset_game
         else if (c == "award") script_.push_back({fr, 0, 11, a});     // an achievement id (tests of the pop-up / pages)
         else if (c == "welcome") script_.push_back({fr, 0, 12, ""});  // the first start's achievements page
+        else if (c == "click") script_.push_back({fr, 0, 14, a});     // the mouse: a left click at "x,y" (0..1 of the picture)
+        else if (c == "rclick") script_.push_back({fr, 0, 15, ""});   // ... a right click
+        else if (c == "wheel") script_.push_back({fr, 0, 16, a});     // ... wheel notches (+ = down)
     }
     std::stable_sort(script_.begin(), script_.end(), [](const ScriptStep& x, const ScriptStep& y) { return x.frame < y.frame; });
     return true;
@@ -539,6 +566,19 @@ void App::run_script() {
             break;
         }
         case 12: ach_welcome(); break;
+#ifndef __ANDROID__
+        case 14: {
+            float fx = 0, fy = 0;
+            if (sscanf(s.arg.c_str(), "%f,%f", &fx, &fy) != 2) break;
+            mouse_in_.click = true;
+            mouse_in_.x = fx * video_.width();
+            mouse_in_.y = fy * video_.height();
+            if (mode_ == Mode::Launcher) mouse_shown_ = true;
+            break;
+        }
+        case 15: mouse_in_.right = true; break;
+        case 16: mouse_in_.wheel += (float)atof(s.arg.c_str()); break;
+#endif
         case 10: {
             // live video setting changes, as the Options menu makes them (trailer before/after shots)
             size_t eq = s.arg.find('=');

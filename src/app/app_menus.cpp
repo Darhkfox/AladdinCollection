@@ -468,11 +468,14 @@ MenuPage App::controls_page(System sys, int player) {
     std::vector<std::string> pads = {player == 0 ? "Auto (first free pad)" : "Auto (next free pad)"};
     for (int i = 0; i < Input::kMaxPads; i++) {
         const PadState& ps = input_.pad(i);
-        pads.push_back("Slot " + std::to_string(i + 1) + (ps.connected ? " - " + ps.name : std::string(" (empty)")));
+        pads.push_back("Slot " + std::to_string(i + 1) +
+                       (ps.connected ? " - " + ps.name + (ps.ignored ? " (ignored)" : "") : std::string(" (empty)")));
     }
+    if (last_input_pad_) p.sel = (int)p.items.size();   // (opened with a controller: start on its rows)
     p.items.push_back(MenuItem::choice("Device", pads, [this, player]() { return settings_.pad_index[player] + 1; },
                                        [this, player](int v) { settings_.pad_index[player] = v - 1; },
-                                       "Auto takes the first connected pad. Slots 1-4 are Xbox-style pads, 5-8 other controllers."));
+                                       "Auto takes the first connected pad the other player isn't using. Slots 1-4 are Xbox-style "
+                                       "pads, 5-8 other controllers."));
     for (int a = 0; a < n; a++) {
         MenuItem it;
         it.kind = MenuItem::Bind;
@@ -508,9 +511,21 @@ MenuPage App::controls_page(System sys, int player) {
             it.hint = "Press Enter / (A), then the new pad button. Esc cancels.";
             p.items.push_back(it);
         }
-    if (player == 0)
+    if (player == 0) {
         p.items.push_back(MenuItem::toggle("Left Stick Moves", [this]() { return settings_.stick_as_dpad; },
                                            [this](bool v) { settings_.stick_as_dpad = v; }));
+        // (for every console: the menus are the collection's)
+        p.items.push_back(MenuItem::choice("Menu Buttons", {"Bottom confirms (Xbox)", "Right confirms (Nintendo)"},
+                                           [this]() { return settings_.menu_confirm_right ? 1 : 0; },
+                                           [this](int v) { settings_.menu_confirm_right = v == 1; },
+                                           "In the menus: which face button chooses; the other one goes back."));
+#ifdef _WIN32
+        p.items.push_back(MenuItem::toggle("Other Controllers", [this]() { return settings_.other_controllers; },
+                                           [this](bool v) { settings_.other_controllers = v; input_.set_dinput_enabled(v); },
+                                           "Controllers that aren't Xbox-style (DirectInput: e.g. a Switch Pro or PlayStation pad "
+                                           "without Steam). Switch off if one sends presses you didn't make."));
+#endif
+    }
     p.items.push_back(MenuItem::action("Reset to Defaults", [this, sys, player]() {
         Settings d;
         settings_.reset_keys(sys, player);

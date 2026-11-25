@@ -177,7 +177,26 @@ private:
     std::string picking_image_;          // the launcher picture being picked (a game id or "background")
     void pick_image(const std::string& name);   // Android's picture picker; copied to files/covers/<name>.png
     void poll_image();
+#else
+    // The mouse (Windows), on the launcher, its menus and the Music Player: a click acts as a tap (a card is chosen, a
+    // second click plays it), the wheel scrolls lists, the right button goes back. In fullscreen the pointer shows
+    // once the mouse moves on the launcher, until a key or a controller's button is pressed or a game starts.
+    struct MouseInput { bool click = false, right = false; float x = 0, y = 0, wheel = 0; };
+    MouseInput mouse_in_;                // from the window's events since the last frame (taken by poll_ui)
+    bool mouse_shown_ = false;
+    bool cursor_shown_ = true;           // what the pointer was last set to (the platform code follows cursor_visible())
+    bool cursor_visible() const { return !is_fullscreen_ || (mode_ == Mode::Launcher && mouse_shown_); }
+    void update_cursor();                // (per frame: shows / hides the pointer when cursor_visible() changes)
 #endif
+    // The Team RedTail logo at the launcher's top left, its Patreon page under it: a link (a click, or a tap)
+    Rect launcher_link_ = {};            // where the last draw put it (empty: not shown)
+    int logo_image_ = 0;                 // (Video::create_image)
+    bool over_launcher_link(float x, float y) const;
+    void open_patreon();                 // the page in the browser (never in --autotest runs)
+    void draw_logo(float title_left);    // launcher: in the room left of the title (title_left: its left edge)
+    // Controllers
+    bool pad_noisy_[Input::kMaxPads] = {};   // controllers already reported as ignored for random presses
+    bool last_input_pad_ = false;        // the latest menu input came from a controller (Controls opens on its rows)
     uint64_t rom_sig_ = 0;
     double rom_poll_ = 0;
     int  state_slot_ = 1;
@@ -244,7 +263,8 @@ private:
 
     // --autotest <dir> <script>: hidden window, scripted key presses, screenshots of the output.
     // action: 0 up, 1 down, 2 shot, 3 quit, 4 realtime, 5 mark, 6 record, 7 stop recording, 8 load state,
-    // 9 replay pad input (trailer gameplay found by tools/trailer/bot.py), 10 set a video setting, 11 award an achievement
+    // 9 replay pad input (trailer gameplay found by tools/trailer/bot.py), 10 set a video setting, 11 award an achievement,
+    // 12 the welcome page, 13 record audio, 14 a mouse click, 15 a right click, 16 the mouse wheel
     struct ScriptStep { int frame; int vk; int action; std::string arg; };
     bool autotest_ = false;
     double test_refresh_ = 0;            // autotest "set refresh=120": the display rate to assume (Windows)

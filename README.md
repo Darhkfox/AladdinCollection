@@ -48,6 +48,11 @@ Bluetooth / USB controller.
 **Launcher**
 - One card per console with a live attract-mode preview, plus Options, Achievements, the Music Player and
   Credits, over Agrabah by night.
+- The Team RedTail logo at the top left, with the [Patreon page](https://www.patreon.com/c/TeamRedTail) under it:
+  click (or tap) it to open the page.
+- **The mouse** (PC): click a game to choose it and again to play it; click the buttons, the rows of the menus (on
+  a setting's value, the left half steps back and the right half on) and the Music Player's tracks; the wheel
+  scrolls lists; right-click, or click outside a menu, to go back.
 - **Menu Style** (Options > Launcher & Menus): *Arabian Nights* (the default: deep indigo panels in gold
   arabesque frames with eight-pointed stars, gold titles, and the night sky with a glowing moon, glints among the
   stars and gold dust rising from the palace) or *Classic* (the original dark panels). It styles the launcher,
@@ -346,7 +351,23 @@ Notes on the packs tested:
 
 Every key and button can be changed under *Options → Controls*, separately for each console; so can the keys and
 pad buttons for fast forward, rewind, the menu, quick save, quick load and screenshot. Picking a key or button
-that is already in use swaps the two.
+that is already in use swaps the two. Pressing a key on a gamepad row (or a pad button on a keyboard row) says so
+instead of waiting. Also under *Controls*:
+
+- *Menu Buttons*: in the menus the bottom face button confirms and the right one goes back (Xbox's layout, the
+  default), or the other way round (Nintendo's).
+- *Other Controllers* (PC): read controllers that aren't Xbox-style (DirectInput: a Switch Pro or PlayStation pad
+  without Steam). On by default; switch it off if one sends presses you didn't make.
+
+A button held while a controller connects (or reconnects) doesn't count as a press until it is let go. A
+controller that sends random presses by itself (a Switch Pro Controller left in its full report mode by Steam or
+another program is a known case) is ignored, with a message saying which, until it has been quiet for a few
+seconds: reconnect it, or play it through Steam. On Android, controllers without an SDL mapping (some PlayStation
+and 8BitDo pads) are read as plain joysticks in the PlayStation button order.
+
+The mouse works on the launcher, its menus and the Music Player (see *Launcher* above). In fullscreen the pointer
+appears when the mouse moves on the launcher and hides again at a key or button press or when a game starts. In a
+game the mouse does nothing.
 
 ## Files
 
@@ -483,7 +504,8 @@ gradlew assembleDebug
 
 - PC port by Darhkfox — [YouTube](https://www.youtube.com/adhgaming) ·
   [Reddit u/Darhkwing](https://www.reddit.com/user/Darhkwing) · [GitHub](https://github.com/Darhkfox) ·
-  [X](https://x.com/ADH_Gaming) · [Patreon](https://www.patreon.com/c/TeamRedTail).
+  [X](https://x.com/ADH_Gaming) · [Patreon](https://www.patreon.com/c/TeamRedTail). The Team RedTail logo at the
+  launcher's top left opens the Patreon page too.
 - The port's own code is released under the MIT licence (`LICENSE`). The emulation cores are written from
   scratch. UI text uses the system font (Segoe UI through DirectWrite on Windows, Android's own font on Android).
 - The MSU-1 chip (`src/core/msu1.cpp`) and the MSU-1 pack handling (finding a pack's tracks, applying its patch) are

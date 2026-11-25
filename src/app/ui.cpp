@@ -146,10 +146,16 @@ void Menu::update(const UiInput& in) {
                 uint32_t b = in.pad_pressed & (~in.pad_pressed + 1);     // lowest set bit
                 if (it.on_bind) it.on_bind(0, b);
                 capture_ = false;
+            } else if (in.key_pressed) {
+                toast("That row is for a controller button - press one (Esc cancels)");
             }
         } else if (in.key_pressed) {
             if (in.key_pressed != 0x1B && it.on_bind) it.on_bind(in.key_pressed, 0);
             capture_ = false;
+        } else if (in.pad_pressed) {
+            // (a keyboard row: a controller's button cancels, rather than being ignored until a key is pressed)
+            capture_ = false;
+            toast("That row is for a keyboard key - your controller's buttons are under Gamepad, further down");
         }
         return;
     }
@@ -198,6 +204,10 @@ void Menu::update(const UiInput& in) {
 bool Menu::touch(MenuPage& p, const UiInput& in) {
     if (in.drag != 0 && row_ > 0) {
         p.scroll -= in.drag / row_;
+        p.free_scroll = true;
+    }
+    if (in.wheel != 0) {   // (the mouse wheel: three rows a notch)
+        p.scroll += in.wheel * 3;
         p.free_scroll = true;
     }
     if (!in.tap) return false;
