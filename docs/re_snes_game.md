@@ -188,6 +188,22 @@ Mode*.
   song to play ahead). The NMI keeps sending the queue.
   Loudness: about 8 dB below Super Star Wars on the same core (`audio_gain` 1.8; `tools/re/snes_sound.py survey`).
 
+### MSU-1 soundtrack packs (`core/msu1.cpp`, `session_snes.cpp`; `tools/re/snes_msu.py`)
+
+*Aladdin (USA) (MSU1) (Audio Orchestral)* ships a pre-patched ROM (CRC `88E2EA66`, same size) and no patch: against the
+verified ROM it changes `$00:B49C` (the NMI's command send: `JSL $27:EC8B` - command `$F4` writes the play mode kept at
+`$7E:01C0` to `$2007`, `$F3` stops the track) and `$00:B544` (the song upload's destination: `JSL $27:E940` - when the
+chip answers `S-` at `$2002`, the song's data pointer picks a track (`$2004`, volume `$FF`, play mode 1 once or 3
+repeating) and a song bound for `$0D20` is uploaded to `$0D02`, 30 bytes low, which the driver plays silent), the
+header's checksum, and adds 905 bytes at `$27:E940-$27:ECCC` in `$FF` fill. Songs `$10-$36` map to tracks 2-41
+(`snes_msu.py jukebox`). The attract demos run the same with it: every demo frame's state as with the original ROM, at
+4:3, 21:9 and with Remove Slowdown (`snes_msu.py attract`).
+
+The misplaced upload is only silent on a driver that has played nothing else: after real songs, the data at `$0D20`
+sounds at their volume. So a pack switched on or off in a level restarts the driver as at power-on (the sound CPU reset
+to its IPL ROM, the game's own `$80:B4AA` upload with `$000A` cleared and `$0371` holding the NMI's sends), then asks for
+`$03B9` (the last song's upload index, which `$81:FA23` keeps) again (`replay_music`, at the level loop's top).
+
 ## Achievements
 
 RAM only (`achievement_frame`), checked while the screen and the level index change:

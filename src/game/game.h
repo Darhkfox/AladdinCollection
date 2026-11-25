@@ -187,6 +187,9 @@ public:
     // Called before the CPU executes an instruction at an address the module marked (Snes::markExec, in
     // configure). Return true if the hook moved the PC (the instruction at `pc` is then not executed).
     virtual bool exec_hook(Snes& s, uint32_t pc) { (void)s; (void)pc; return false; }
+    // The music asked for again the way the game asks for it, at the next point where the game can take it (a
+    // soundtrack pack switched on or off in a game: its patch, or the original's code, then plays it).
+    virtual void replay_music(Snes& s) { (void)s; }
 };
 class SmsModule : public ModuleFor<Sms> {
 public:

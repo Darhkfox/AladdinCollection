@@ -52,8 +52,12 @@ bool patches_safe(const Snes& s, const std::vector<RomPatch>& patches) {
                 }
                 if (!kept) changed.push_back((long)i);
             }
-    if (changed.empty()) return true;
     std::sort(changed.begin(), changed.end());
+    return rom_change_safe(s, changed);
+}
+
+bool rom_change_safe(const Snes& s, const std::vector<long>& changed) {
+    if (changed.empty()) return true;
     // Code at an offset is reached through any bank that maps it: compare 15-bit offsets within a 32 KB bank
     // plus the bank, for the PC; for return addresses on the stack only the 16-bit part is known (JSR), so any
     // bank is assumed (a false alarm only delays the switch by a frame).

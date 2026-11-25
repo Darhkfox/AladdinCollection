@@ -72,11 +72,18 @@ void MegaDrive::map_pages() {
             size_t off = ((size_t)p << 16) % rom.size();
             cpu.page_read[p] = &rom[off];
         }
+        if (mdplus_overlay_) cpu.page_read[0x03] = nullptr;   // ($3F7FE: read8 / read16)
     }
     for (int p = 0xE0; p < 0x100; p++) {
         cpu.page_read[p] = ram;
         cpu.page_write[p] = ram_watch ? nullptr : ram;
     }
+}
+
+void MegaDrive::set_mdplus_overlay(bool on) {
+    if (on == mdplus_overlay_) return;
+    mdplus_overlay_ = on;
+    map_pages();
 }
 
 void MegaDrive::enable_ram_watch(bool on) {
@@ -100,6 +107,7 @@ void MegaDrive::power_on() {
     io_ctrl[0] = io_ctrl[1] = io_ctrl[2] = 0;
     m68_clock = z80_clock = audio_clock = 0;
     frame_count = 0;
+    set_mdplus_overlay(false);
     cpu.reset();
 }
 
@@ -273,7 +281,7 @@ void MegaDrive::io_write(uint32_t a, uint8_t v) {
 // ---------------------------------------------------------------------------
 uint8_t MegaDrive::read8(uint32_t a) {
     a &= 0xFFFFFF;
-    if (a < 0x400000) return rom[a % rom.size()];
+    if (a < 0x400000) return mdplus_overlay_ && (a & ~1u) == 0x3F7FE ? 0 : rom[a % rom.size()];
     if (a >= 0xE00000) return ram[a & 0xFFFF];
     if (a >= 0xA00000 && a < 0xA10000) {
         uint32_t z = a & 0x7FFF;
@@ -299,7 +307,7 @@ uint8_t MegaDrive::read8(uint32_t a) {
 
 uint16_t MegaDrive::read16(uint32_t a) {
     a &= 0xFFFFFE;
-    if (a < 0x400000) return rom16(a);
+    if (a < 0x400000) return mdplus_overlay_ && a == 0x3F7FE ? 0 : rom16(a);
     if (a >= 0xE00000) return ram16(a);
     if (a >= 0xA00000 && a < 0xA10000) { uint8_t b = read8(a); return (uint16_t)((b << 8) | b); }
     if (a >= 0xA10000 && a < 0xA10020) { uint8_t b = io_read(a | 1); return (uint16_t)((b << 8) | b); }
@@ -359,7 +367,12 @@ void MegaDrive::write16(uint32_t a, uint16_t v) {
         if (ram_watch && on_ram_write) on_ram_write(*this, a, v, 2);
         return;
     }
-    if (a < 0x400000) { if (on_cart_write) on_cart_write(*this, a, v, 2); return; }
+    if (a < 0x400000) {
+        if (!on_cart_write) return;
+        if (a == 0x3F7FA) set_mdplus_overlay(v == 0xCD54);
+        on_cart_write(*this, a, v, 2);
+        return;
+    }
     if (a >= 0xA00000 && a < 0xA10000) { write8(a, (uint8_t)(v >> 8)); return; }
     if (a >= 0xA10000 && a < 0xA10020) { io_write(a | 1, (uint8_t)v); return; }
     if (a == 0xA11100) { z80_busreq = (v & 0x100) != 0; return; }

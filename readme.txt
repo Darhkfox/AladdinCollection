@@ -154,7 +154,9 @@
      Achievements ... Every achievement of the three games and what you've
                       earned. See ACHIEVEMENTS below.
      Music Player ... The soundtracks of all three games (Left / Right
-                      switches game).
+                      switches game; with a soundtrack pack for the game,
+                      Tab or Y switches between the original music and
+                      the pack's).
      Credits ........ Where to find me (YouTube, Reddit, GitHub, X,
                       Patreon) and what the collection is made with.
      Quit ........... Exit to the desktop.
@@ -350,9 +352,10 @@
                          original Model 1 consoles.      (default: ON)
      Sample Interpolation  SNES: Original (gaussian) or Crisper (cubic).
                                                  (default: Original)
-     Soundtracks ....... Shown when an MD+ soundtrack pack for the Mega
-                         Drive game is found in a "soundtracks" folder:
-                         Original or the pack, and Soundtrack Volume.
+     Soundtracks ....... Shown when a soundtrack pack is found (see
+                         SOUNDTRACK PACKS below): per game Original or the
+                         pack, and Soundtrack Volume. On Windows also Open
+                         Soundtracks Folder (MD+) and Open MSU-1 Folder.
 
   CONTROLS
      Keyboard keys and gamepad buttons for each of the console's buttons,
@@ -596,6 +599,65 @@
 
 
 --------------------------------------------------------------------------------
+  SOUNDTRACK PACKS (MD+ AND MSU-1)
+--------------------------------------------------------------------------------
+
+  CD-quality fan soundtracks made for flash carts and emulators can replace
+  the music of the Mega Drive game (MD+ packs) and the SNES game (MSU-1
+  packs). None are included: you supply them, as you do the ROMs. A pack's
+  patch is applied to the game in memory only (no file is ever changed);
+  the game's sound effects stay the console's own.
+
+  Mega Drive - MD+ packs (a .cue sheet, a .bps patch for the USA ROM, CRC
+  ED427EA9, and the music as .wav files):
+     Put the pack's folder, as downloaded, in the "soundtracks" folder next
+     to AladdinCollection.exe, e.g.
+        soundtracks\Aladdin CD - MD+\Aladdin (USA).cue
+        soundtracks\Aladdin CD - MD+\Aladdin (USA)[MDplus, ...].bps
+        soundtracks\Aladdin CD - MD+\01-NENAW_nl.wav ... 20-GAMEOVER.wav
+     (A pre-patched "Aladdin (USA).bin" in the folder isn't needed and
+     isn't used: the .bps is applied to your own ROM.) The pack's own
+     "MD+ SOUND ENABLED" start-up screen is skipped, so the game, the level
+     select and the attract demos start as without the pack. The pack
+     "Aladdin CD - MD+" (ArcadeTV) has the boss tune and the bonus jingle
+     the wrong way round; the collection puts them right.
+
+  SNES - MSU-1 packs (the tracks NAME-1.pcm, NAME-2.pcm, ... with either an
+  MSU-1 patch, .bps or .ips, for the USA ROM, CRC 124D8E4D, or a ROM
+  already patched for them, .sfc):
+     Put the pack's folder in the "msu" folder next to
+     AladdinCollection.exe, e.g.
+        msu\Aladdin (USA) (MSU1) (Audio Orchestral)\Aladdin_(USA)_(MSU1)-2.pcm
+           ... -41.pcm
+        msu\Aladdin (USA) (MSU1) (Audio Orchestral)\Aladdin_(USA)_(MSU1).sfc
+        (the .msu and .bml files may stay; they aren't needed)
+     A pre-patched ROM is only used if it is your ROM with MSU-1 code added
+     and nothing else changed: the same size, and every difference in the
+     header's checksum, in the ROM's free space or in a few short hooks.
+
+  Then choose the pack under Options > Audio > Soundtracks (Mega Drive /
+  SNES), and set its level with Soundtrack Volume. An MD+ pack starts with
+  the game (or Reset Game); an MSU-1 pack switches on or off at once, also
+  in a level (the game holds for about a second while the console's sound
+  driver restarts, then the song playing starts again in the new music).
+  Folders inside a downloaded folder are found too, and an MD+ pack can
+  also go in the msu folder or an MSU-1 pack in soundtracks.
+
+  On Android: Options > Audio > Add Soundtrack... and pick the pack's
+  folder (it is copied into the app), or copy MSU-1 packs over USB into
+  Android/data/com.darhkfox.aladdincollection/files/msu.
+
+  What works with a pack: the music changes as in the game (each level's
+  tune, the boss tunes - in widescreen held until the boss is in the 4:3
+  view, as the original's -, deaths, the level's end), pausing pauses it,
+  save states and rewind take it back to where it was, widescreen, cheats,
+  the level select, Remove Slowdown and achievements work as usual, and the
+  attract demos play exactly as recorded. The Music Player plays the pack's
+  tracks for each tune (and its tracks no tune uses), with Tab / Y between
+  the original music and the pack's.
+
+
+--------------------------------------------------------------------------------
   FILES
 --------------------------------------------------------------------------------
 
@@ -605,6 +667,7 @@
   saves\ ............. Save states.
   screenshots\ ....... F12 screenshots.
   soundtracks\ ....... MD+ soundtrack packs (Mega Drive), if you have any.
+  msu\ ............... MSU-1 soundtrack packs (SNES), if you have any.
   covers\ ............ Your launcher pictures: md, snes, sms, background
                        (.png or .jpg).
   shaders\ ........... Slang shader presets (Options > Video > Slang
@@ -627,6 +690,11 @@
      Patreon: https://www.patreon.com/c/TeamRedTail
 
   The port's own code is released under the MIT licence: see LICENSE.
+  The MSU-1 chip and the MSU-1 pack handling are ported from my Super
+  Mario All-Stars PC port (same author, same MIT licence). MD+ is the
+  CD-audio standard of the MegaSD and the Mega EverDrive Pro; MSU-1 is
+  byuu's (higan) / the SD2SNES's. Soundtrack packs and their music belong
+  to their makers.
 
   Slang shaders run through librashader by Ronny Chan (chyyran), Mozilla
   Public License 2.0 (librashader-LICENSE.md). The bundled presets are

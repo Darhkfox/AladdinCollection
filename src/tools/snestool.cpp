@@ -50,7 +50,15 @@ struct Tool {
     uint64_t trace_count = 0;
     std::vector<uint32_t> trace;         // ring of recent PCs
     size_t trace_pos = 0;
+    float msu_gain = 1.0f;                // an attached MSU-1 pack's level in the audio (snt_msu_open)
 };
+
+// An attached MSU-1 chip keeps the game's time (as in the app, its music is taken with each frame's samples).
+void msu_advance(Tool* t) {
+    if (!t->snes.msu) return;
+    std::vector<int32_t> m(t->snes.apu.samples.size(), 0);
+    t->snes.msu->mix(m.data(), m.size() / 2, Snes::kSampleRate, 0.0f);
+}
 
 std::vector<uint8_t> ModuleExt::saveExt() const { return t->module ? t->module->save_ext() : std::vector<uint8_t>(); }
 void ModuleExt::loadExt(const uint8_t* data, size_t size) { if (t->module) t->module->load_ext(data, size); }
@@ -223,6 +231,7 @@ API void snt_run_frames(void* h, int n) {
         if (t->module) t->module->pre_frame(t->snes, t->cfg);
         t->snes.runFrame();
         if (t->module) { t->info = FrameInfo(); t->module->post_frame(t->snes, t->cfg, t->info); }
+        msu_advance(t);
         t->snes.apu.samples.clear();
     }
 }
@@ -455,6 +464,11 @@ API int snt_run_frames_audio(void* h, int n, int16_t* out, int max_frames) {
         t->snes.runFrame();
         if (t->module) { t->info = FrameInfo(); t->module->post_frame(t->snes, t->cfg, t->info); }
         std::vector<int16_t>& s = t->snes.apu.samples;
+        if (t->snes.msu) {   // (an MSU-1 pack's music mixed in as the app does, at msu_gain)
+            std::vector<int32_t> m(s.begin(), s.end());
+            t->snes.msu->mix(m.data(), m.size() / 2, Snes::kSampleRate, t->msu_gain);
+            for (size_t k = 0; k < m.size(); k++) s[k] = (int16_t)std::clamp(m[k], -32768, 32767);
+        }
         int frames = (int)s.size() / 2;
         int take = std::min(frames, max_frames - got);
         if (take > 0 && out) memcpy(out + got * 2, s.data(), (size_t)take * 4);
@@ -570,3 +584,30 @@ API int snt_module_ach(void* h, int* out, int max) {
     ctx.unlocked.clear(); ctx.marked.clear(); ctx.counted.clear(); ctx.progress.clear();
     return n;
 }
+
+// ---- MSU-1: a pack's chip attached (`base`: its tracks' path without "-N.pcm", UTF-8; empty detaches); its state as
+// the app saves it ("m<track>,<sample>,<flags>,<volume>,...", see core/msu1.h); the level of its music in the audio
+API void snt_msu_open(void* h, const char* base_utf8, float gain) {
+    Tool* t = (Tool*)h;
+    t->msu_gain = gain;
+    if (!base_utf8 || !*base_utf8) { t->snes.msu.reset(); return; }
+    std::wstring w;
+    const unsigned char* p = (const unsigned char*)base_utf8;
+    while (*p) {   // (UTF-8 to UTF-16)
+        uint32_t c = *p++;
+        int more = c >= 0xF0 ? 3 : c >= 0xE0 ? 2 : c >= 0xC0 ? 1 : 0;
+        c &= more == 3 ? 0x07 : more == 2 ? 0x0F : more == 1 ? 0x1F : 0x7F;
+        while (more-- > 0 && (*p & 0xC0) == 0x80) c = (c << 6) | (*p++ & 0x3F);
+        if (c >= 0x10000) { c -= 0x10000; w += (wchar_t)(0xD800 + (c >> 10)); w += (wchar_t)(0xDC00 + (c & 0x3FF)); }
+        else w += (wchar_t)c;
+    }
+    t->snes.msu.reset(new Msu1);
+    t->snes.msu->open(w);
+}
+API int snt_msu_state(void* h, char* out, int max) {
+    Tool* t = (Tool*)h;
+    const std::string s = t->snes.msu ? t->snes.msu->state() : std::string();
+    if (out && max > 0) snprintf(out, (size_t)max, "%s", s.c_str());
+    return (int)s.size();
+}
+API void snt_msu_set_state(void* h, const char* s) { Tool* t = (Tool*)h; if (t->snes.msu) t->snes.msu->setState(s ? s : ""); }

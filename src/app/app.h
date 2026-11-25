@@ -44,8 +44,8 @@ struct GameSlot {
 
 class Jukebox {
 public:
-    // `packs`: the MD+ soundtracks found; the Music Player offers this game's as versions of the music, starting
-    // with the one the game is set to play (Settings::soundtrack).
+    // `packs`: the soundtrack packs found (MD+, MSU-1); the Music Player offers this game's as versions of the music,
+    // starting with the one the game is set to play (Settings::soundtrack). `rom` must outlive the player.
     bool open(GameModule* module, const std::vector<uint8_t>& rom, const Settings& s, bool sfx,
               const std::vector<SoundtrackPack>& packs);
     void close();
@@ -85,8 +85,8 @@ private:
     Rect version_rect_ = {};                   // ... and the version switch
     float row_ = 0, list_y0_ = 0;
     bool free_scroll_ = false;           // touch: the list was dragged, so it doesn't follow the selection
-    // Versions of the music: [0] the game's own (its sound driver), then each MD+ soundtrack for the game, with the
-    // CD track it plays for each tune (music ID -> track, looping).
+    // Versions of the music: [0] the game's own (its sound driver), then each soundtrack pack for the game, with the
+    // track it plays for each tune (music ID -> track, looping).
     struct Version {
         SoundtrackPack pack;
         std::map<int, std::pair<int, bool>> tracks;
@@ -96,6 +96,10 @@ private:
     std::vector<SoundEntry> tunes_;      // the game's own list (list_ adds the version's `more`)
     int ver_ = 0;
     bool cd_ = false;                    // the playing entry is a soundtrack track (not the sound driver)
+    bool cd_heard_ = false;              // ... and an MSU-1 track it asked for has started
+    const std::vector<uint8_t>* rom_ = nullptr;   // the game's own ROM
+    Settings js_;                        // the settings the player's session runs with
+    int session_rom_ = 0;                // the version whose ROM the session runs (0: the game's own)
     double cd_len_ = 0;                  // its length (s)
     float cd_level_[2] = {};             // its loudness in the last audio mixed (left, right)
     void start(int i);                   // plays list_[i] in the current version
@@ -256,11 +260,12 @@ private:
     FILE* rec_pcm_ = nullptr;
     HANDLE rec_pipe_ = nullptr, rec_proc_ = nullptr;
     int rec_w_ = 0, rec_h_ = 0, rec_frames_ = 0;
+    bool rec_audio_only_ = false;   // autotest "recaudio": the sound only (<name>.pcm, 48 kHz stereo s16)
     uint64_t rec_samples_ = 0;
     std::wstring rec_name_;
     bool start_ffmpeg(int w, int h);
 #endif
-    void start_recording(const std::string& name);
+    void start_recording(const std::string& name, bool audio_only = false);
     void record_frame();
     std::vector<uint32_t> pad_stream_;          // "pads": p1 | p2 << 16 per emulated frame
     size_t pad_pos_ = 0;
@@ -323,6 +328,7 @@ private:
     void scan_soundtracks();
     const SoundtrackPack* soundtrack_for(int game);   // the pack the settings choose for a game, if it's there
     void reset_game();                    // Reset Game: power-on, or a fresh start when the soundtrack changed
+    void switch_soundtrack();             // the game's soundtrack setting changed in a game
     void back_to_launcher();
     void run_game_frames(int count, bool audio);
     void draw_game_view(int slot, Session& s, Rect area, float alpha, float dim, int sub = 0);   // sub: in-between

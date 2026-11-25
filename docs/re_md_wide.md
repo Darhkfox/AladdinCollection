@@ -193,6 +193,9 @@ it there (§7).
   after the start) and held in `module_state` [3..6] (slot, block column / row: save states and rewind keep it) until
   the block lies in the 4:3 window; then, right after the gameplay loop's streaming (`$1A8CE8`), the module queues the
   same commands (stop all; BOSS TUNE if the music option `$FFF57F` is on) - in the iteration the 4:3 game would have.
+  With an MD+ soundtrack's patch (its own code at the start of a sequence) the 68000 runs the first handler's stop-all
+  and start (`$1B6C64`, to its rts) from there instead, marked in the entry (bit 30) until it returns, so the pack
+  plays the tune (`re_md_game.md` 4.1; `md_mdplus.py boss`: started at the same camera as the FM tune).
   Boss objects are never evicted for room (a respawn runs the handler again). `md_boss_tune.py cave`: the camera
   coming down right of the arena starts no tune at 4:3 or now at 21:9 (it did at camera 2169, 229 before); in from the
   left at the arena's height the tune is queued at camera 1716 at 4:3 and 1716 / 1724 at 16:9 / 21:9 (one map-view
