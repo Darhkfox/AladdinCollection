@@ -83,6 +83,10 @@ public:
     void patch_rom8(uint32_t a, uint8_t v);
     void restore_rom();
     uint8_t rom_orig8(uint32_t a) const { return rom_orig[a % rom_orig.size()]; }
+    // n bytes of the original ROM from offset a (null past its end): tile data a module draws from
+    const uint8_t* rom_orig_ptr(uint32_t a, uint32_t n) const {
+        return (uint64_t)a + n <= rom_orig.size() ? rom_orig.data() + a : nullptr;
+    }
 
     // Save states
     std::vector<uint8_t> save_state();

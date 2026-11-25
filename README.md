@@ -260,7 +260,8 @@ achievements of its own: *A Whole New World* (defeat Jafar in all three versions
   showing black, with the parallax bands holding still with the level; Jafar's room carries its pillars on past
   its ends (dimmed); the stone counter moves to the right edge. The story scenes are wide too: each carries its
   own picture on into the sides (31 of the 36; the framed pictures, text and characters stay where the game puts
-  them, and characters who walk off go on into the sides), the Genie's intro and the title fill the width with
+  them, characters who walk off go on into the sides, and those the game brings in from off its screen walk in
+  from the wide picture's edge with their own steps), the Genie's intro and the title fill the width with
   their background, and the ending's starfield and sea run the whole width. Menus, password, game over and the
   five scenes whose picture can't be carried on stay in their original shape, and so do the attract demos, which
   play exactly as recorded at every width.
@@ -461,9 +462,12 @@ gradlew assembleDebug
   with the original code. Five story scenes stay 4:3 with black bars, as their picture is cut off by its edges
   and can't be carried on: night by the sea (a rock at the right edge), the two falls through the collapsing cave
   (rock walls), the palace garden at night (a roof's slope) and the Genie's cave (lit from the middle). In the
-  wide scenes a character coming in from a side appears at the 4:3 picture's edge as in the original (the game
-  keeps them waiting just off its screen, where the wider view would show them standing), Jafar's snake grows out
-  of the 4:3 picture's right edge, and a character who walks off and stops nearby stays visible in the side.
+  wide scenes a character the game walks in from off its screen is drawn walking in from the wide picture's edge
+  with the game's own frames and speed, reaching the 4:3 edge just when the game brings it there (the scenes'
+  timing is the original's; one the game moves in right as a scene starts is already partway across the side as
+  it fades in), and one the game removes once it has walked off walks on out of the picture. Characters who leap
+  or swoop in (the pole vault, the carpet in the escape) still appear as they come, Jafar's snake grows out of the
+  4:3 picture's right edge, and a character who walks off and stops nearby stays visible in the side.
 - SNES: the attract demos play at 4:3 and without Remove Slowdown or cheats: they replay recorded input (lag frames
   included), which only stays on its path with the original code. Invincibility and infinite health don't prevent
   pits, crushes or being left behind by the scrolling. Infinite Gems keeps the counter at 99, so every gem completes

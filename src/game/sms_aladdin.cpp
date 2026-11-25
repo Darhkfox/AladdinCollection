@@ -774,9 +774,12 @@ constexpr uint16_t SCENE_BLANK = 0x11BF, ENDING_BLANK = 0x0100;
 constexpr uint16_t SCENE_MAPS = 0x8048;   // ($C48F) while a scene is shown: its map pointers' table ($4E92)
 constexpr uint16_t SAT_Y = 0xC300;
 // a band of a scene's cell rows [r0, r1): the left side repeats source columns [la, lb) (the one next to the picture's
-// edge is lb - 1), the right side [ra, rb) (ra next to the edge); a rule without bands: the scene stays 4:3
+// edge is lb - 1), the right side [ra, rb) (ra next to the edge); an empty range: the scene's blank background (tile
+// $100, as its picture has it beyond what it draws); a rule without bands: the scene stays 4:3. col0: rows whose
+// hidden column 0 (blanked on the hardware, shown in a widened scene) takes the left side's rule, not the table's cell.
 struct SceneBand { uint8_t r0, r1, la, lb, ra, rb; };
-struct SceneRule { uint8_t n; SceneBand band[3]; };
+struct SceneRule { uint8_t n; SceneBand band[3]; uint32_t col0; };
+constexpr uint16_t SCENE_VOID = 0x0100;
 constexpr SceneBand WHOLE = {0, 20, 0, 32, 0, 32};   // the picture repeated: its edges meet
 const SceneRule kSceneRules[SCENES] = {
     {1, {WHOLE}},   // 0 the market: Aladdin takes the bread
@@ -789,7 +792,11 @@ const SceneRule kSceneRules[SCENES] = {
     {1, {WHOLE}},   // 7 the dungeon
     {0, {}},        // 8 night by the sea: a rock cut by the right edge
     {1, {WHOLE}},   // 9 the treasure room
-    {2, {{0, 16, 8, 16, 4, 32}, {16, 20, 27, 30, 4, 32}}},   // $A the lamp's cave: the claw at the left edge isn't repeated
+    // $A the lamp's cave: the claw at the left edge isn't repeated; the floor (rows 16-19, cols 2-25, its boulders on
+    // row 15) ends at the claw with the cave's dark beyond it, and at the right in water (cols 26-29) with a rock at
+    // the edge: the left side is the cave's dark below the stalactites (the hidden column too, a black block in the
+    // table), the right side the water
+    {2, {{0, 15, 8, 16, 4, 32}, {15, 20, 0, 0, 26, 30}}, 0x1F << 15},
     {1, {WHOLE}},   // $B the escape: the lava's drips
     {0, {}},        // $C, $D the fall: rock walls cut by the edges
     {0, {}},
@@ -857,9 +864,30 @@ int scene_cell(const Sms& s, int sc, int col, int row) {
     return bank_rd16(s, mt_bank, (uint16_t)(s.ram16(METATILES) + mt * 8 + (row & 1) * 4 + (col & 1) * 2)) & 0x1FFF;
 }
 
+// The rows of a scene's picture the scene has drawn over with another (Jafar's spell in the throne room, $10: the
+// table goes dark but for the pillars' outlines in the spell's colours): most of a row's 32 cells differ from the
+// picture's own. Their sides repeat the table's cells instead (bit per row 0-19; at the frame's start).
+uint32_t scene_replaced_rows(const Sms& s) {
+    if (story_wide(s) != STORY_SCENE || s.ram16(MAP) != SCENE_MAPS) return 0;
+    const int sc = s.ram8(SCENE);
+    uint32_t rows = 0;
+    for (int row = 0; row < SCENE_ROWS; row++) {
+        int differ = 0;
+        for (int col = 0; col < 32; col++)
+            differ += (s.vdp.name_entry(col, row) & 0x1FFF) != scene_cell(s, sc, col, row);
+        if (differ > 24) rows |= 1u << row;
+    }
+    return rows;
+}
+
 // The background beyond the 256-px table on a story screen: the entry, or -1 for the table's own (wrapped)
-int story_bg_entry(const Sms& s, int vcol, int vrow) {
-    if (vcol >= 0 && vcol < 32) return -1;   // (the table: also the column the hardware blanks)
+int story_bg_entry(const Sms& s, int vcol, int vrow, uint32_t replaced) {
+    if (vcol > 0 && vcol < 32) return -1;   // (the table)
+    if (vcol == 0) {   // (the column the hardware blanks: the table's, or the left side's where the rule says)
+        const SceneRule* r = story_wide(s) == STORY_SCENE ? scene_rule(s.ram8(SCENE)) : nullptr;
+        if (!r || vrow % 28 >= SCENE_ROWS || !(r->col0 >> (vrow % 28) & 1) || s.ram16(MAP) != SCENE_MAPS) return -1;
+        vcol = -1;
+    }
     switch (story_wide(s)) {
     case STORY_TITLE:
         return 0;
@@ -878,9 +906,10 @@ int story_bg_entry(const Sms& s, int vcol, int vrow) {
         for (int i = 0; i < r.n; i++) {
             const SceneBand& b = r.band[i];
             if (vrow < b.r0 || vrow >= b.r1) continue;
-            int col;
-            if (vcol < 0) col = b.lb - 1 - ((-1 - vcol) % (b.lb - b.la));
-            else col = b.ra + ((vcol - 32) % (b.rb - b.ra));
+            const int la = vcol < 0 ? b.la : b.ra, lb = vcol < 0 ? b.lb : b.rb;
+            if (la == lb) return SCENE_VOID;
+            const int col = vcol < 0 ? lb - 1 - ((-1 - vcol) % (lb - la)) : la + ((vcol - 32) % (lb - la));
+            if (replaced >> vrow & 1) return s.vdp.name_entry(col, vrow) & 0x1FFF;
             return scene_cell(s, sc, col, vrow);
         }
         return SCENE_BLANK;
@@ -890,12 +919,148 @@ int story_bg_entry(const Sms& s, int vcol, int vrow) {
     }
 }
 
+// ---- walks at the sides (docs/re_sms_wide.md section 5a, "Walks") ---------------------------------------------------
+// The scenes move their characters by a clock of their own, -($CF79): $6100 counts it on every pass of the scene's
+// logic, none while text is written (so a button pressed to hurry the text changes no tick of it). A character the
+// script keeps waiting off the 256 px for its cue, or puts just beyond an edge to walk in, used to come in at the 4:3
+// picture's edge; one the script removes once it has walked off vanished in the side. From the scene as the game
+// plays it (tools/re/sms_scene_walks.py) each such walk has a tick t0 and the steps of its walk cycle (the pose - the
+// piece list its writer draws - and the move per tick): before t0 the module draws the character walking in on that
+// cycle played backwards from where the game has it at t0 (WALK_IN: the game's own frames and speed, ending where
+// and when the game takes over); from t0 on it draws one removed going on with the cycle of the ticks before
+// (WALK_OUT); WALK_SHOWN draws a character standing within reach of a side as the game keeps it there, t0 to t1.
+// Aladdin's and the second figure's tiles are streamed from ROM to VRAM while the game shows a pose (17 from the
+// pose's record, 8 bytes before its piece list: bank, -, address), so their poses are drawn from ROM; the list's
+// characters use tiles the scene keeps in VRAM. Nothing of the game's changes: drawing only.
+enum WalkKind : uint8_t { WALK_IN, WALK_OUT, WALK_SHOWN };
+struct WalkStep { uint16_t ptr; int8_t dx, dy; };   // the pose at a tick, the move to the next (IN) / into it (OUT)
+struct SceneWalk {
+    uint8_t scene, ch;          // the character: 0 Aladdin ($2379), 1 the second figure ($3C13), 2 + k the list's ($5099)
+    WalkKind kind;
+    uint16_t t0, t1;            // IN: drawn before t0, counted shown from t0 to t1; OUT: drawn from t0 to t1; SHOWN
+    int16_t x, y;               // IN: the character at t0; OUT: at t0 - 1, where the game last drew it
+    uint8_t bank, n, base;      // its writer's pieces: bank, count, first pattern of the streamed tiles (0: VRAM's)
+    uint8_t len;                // the cycle: IN from t0 on, OUT the ticks t0 - len .. t0 - 1
+    const WalkStep* cycle;
+};
+// (generated by tools/re/sms_scene_walks.py)
+const WalkStep kWalk0[] = {
+    {0x8427, 1, 0}, {0x8427, 1, 0}, {0x8427, 1, 0}, {0x8427, 1, 0}, {0x8427, 1, 0}, {0x8427, 1, 0}, {0x8458, 1, 0},
+    {0x8458, 1, 0}, {0x8458, 1, 0}, {0x8458, 1, 0}, {0x8458, 1, 0}, {0x8458, 1, 0}, {0x8458, 1, 0}, {0x8458, 1, 0},
+    {0x848D, 1, 0}, {0x848D, 1, 0}, {0x848D, 1, 0}, {0x848D, 1, 0}, {0x848D, 1, 0}, {0x848D, 1, 0}, {0x848D, 1, 0},
+    {0x848D, 1, 0}, {0x84BC, 1, 0}, {0x84BC, 1, 0}, {0x84BC, 1, 0}, {0x84BC, 1, 0}, {0x84BC, 1, 0}, {0x84BC, 1, 0},
+    {0x84BC, 1, 0}, {0x84BC, 1, 0}, {0x84ED, 1, 0}, {0x84ED, 1, 0}, {0x84ED, 1, 0}, {0x84ED, 1, 0}, {0x84ED, 1, 0},
+    {0x84ED, 1, 0}, {0x84ED, 1, 0}, {0x84ED, 1, 0}, {0x83F8, 1, 0}, {0x83F8, 1, 0}, {0x83F8, 1, 0}, {0x83F8, 1, 0},
+    {0x83F8, 1, 0}, {0x83F8, 1, 0}, {0x83F8, 1, 0}, {0x83F8, 1, 0}, {0x8427, 1, 0}, {0x8427, 1, 0},
+};
+const WalkStep kWalk1[] = {
+    {0x84C6, 2, 0}, {0x84C6, 2, 0}, {0x84C6, 2, 0}, {0x84C6, 2, 0}, {0x8501, 2, 0}, {0x8501, 2, 0}, {0x8501, 2, 0},
+    {0x8501, 2, 0}, {0x83DA, 2, 0}, {0x83DA, 2, 0}, {0x83DA, 2, 0}, {0x83DA, 2, 0}, {0x8415, 2, 0}, {0x8415, 2, 0},
+    {0x8415, 2, 0}, {0x8415, 2, 0}, {0x8450, 2, 0}, {0x8450, 2, 0}, {0x8450, 2, 0}, {0x8450, 2, 0}, {0x848B, 2, 0},
+    {0x848B, 2, 0}, {0x848B, 2, 0}, {0x848B, 2, 0},
+};
+const WalkStep kWalk2[] = {
+    {0x84ED, 1, 0}, {0x84ED, 1, 0}, {0x84ED, 1, 0}, {0x83F8, 1, 0}, {0x83F8, 1, 0}, {0x83F8, 1, 0}, {0x83F8, 1, 0},
+    {0x83F8, 1, 0}, {0x83F8, 1, 0}, {0x83F8, 1, 0}, {0x83F8, 1, 0}, {0x8427, 1, 0}, {0x8427, 1, 0}, {0x8427, 1, 0},
+    {0x8427, 1, 0}, {0x8427, 1, 0}, {0x8427, 1, 0}, {0x8427, 1, 0}, {0x8427, 1, 0}, {0x8458, 1, 0}, {0x8458, 1, 0},
+    {0x8458, 1, 0}, {0x8458, 1, 0}, {0x8458, 1, 0}, {0x8458, 1, 0}, {0x8458, 1, 0}, {0x8458, 1, 0}, {0x848D, 1, 0},
+    {0x848D, 1, 0}, {0x848D, 1, 0}, {0x848D, 1, 0}, {0x848D, 1, 0}, {0x848D, 1, 0}, {0x848D, 1, 0}, {0x848D, 1, 0},
+    {0x84BC, 1, 0}, {0x84BC, 1, 0}, {0x84BC, 1, 0}, {0x84BC, 1, 0}, {0x84BC, 1, 0}, {0x84BC, 1, 0}, {0x84BC, 1, 0},
+    {0x84BC, 1, 0}, {0x84ED, 1, 0}, {0x84ED, 1, 0}, {0x84ED, 1, 0}, {0x84ED, 1, 0}, {0x84ED, 1, 0},
+};
+const WalkStep kWalk3[] = {
+    {0xA759, 1, 0}, {0xA759, 1, 0}, {0xA720, 1, 0}, {0xA720, 1, 0}, {0xA720, 1, 0}, {0xA720, 1, 0}, {0xA720, 1, 0},
+    {0xA733, 1, 0}, {0xA733, 1, 0}, {0xA733, 1, 0}, {0xA733, 1, 0}, {0xA733, 1, 0}, {0xA746, 1, 0}, {0xA746, 1, 0},
+    {0xA746, 1, 0}, {0xA746, 1, 0}, {0xA746, 1, 0}, {0xA759, 1, 0}, {0xA759, 1, 0}, {0xA759, 1, 0},
+};
+const WalkStep kWalk4[] = {
+    {0x8D50, 1, 0}, {0x8D50, 1, 0}, {0x8D50, 1, 0}, {0x8D50, 1, 0}, {0x8D81, 1, 0}, {0x8D81, 1, 0}, {0x8D81, 1, 0},
+    {0x8D81, 1, 0}, {0x8D81, 1, 0}, {0x8D81, 1, 0}, {0x8D81, 1, 0}, {0x8D81, 1, 0}, {0x8DAC, 1, 0}, {0x8DAC, 1, 0},
+    {0x8DAC, 1, 0}, {0x8DAC, 1, 0}, {0x8DAC, 1, 0}, {0x8DAC, 1, 0}, {0x8DAC, 1, 0}, {0x8DAC, 1, 0}, {0x8DDB, 1, 0},
+    {0x8DDB, 1, 0}, {0x8DDB, 1, 0}, {0x8DDB, 1, 0}, {0x8DDB, 1, 0}, {0x8DDB, 1, 0}, {0x8DDB, 1, 0}, {0x8DDB, 1, 0},
+    {0x8CF6, 1, 0}, {0x8CF6, 1, 0}, {0x8CF6, 1, 0}, {0x8CF6, 1, 0}, {0x8CF6, 1, 0}, {0x8CF6, 1, 0}, {0x8CF6, 1, 0},
+    {0x8CF6, 1, 0}, {0x8D21, 1, 0}, {0x8D21, 1, 0}, {0x8D21, 1, 0}, {0x8D21, 1, 0}, {0x8D21, 1, 0}, {0x8D21, 1, 0},
+    {0x8D21, 1, 0}, {0x8D21, 1, 0}, {0x8D50, 1, 0}, {0x8D50, 1, 0}, {0x8D50, 1, 0}, {0x8D50, 1, 0},
+};
+const WalkStep kWalk5[] = {
+    {0x8E0C, -1, 0}, {0x8E0C, -1, 0}, {0x8E0C, -1, 0}, {0x8E0C, -1, 0}, {0x8E0C, -1, 0}, {0x8E0C, -1, 0},
+    {0x8E0C, -1, 0}, {0x8E0C, -1, 0}, {0x8E37, -1, 0}, {0x8E37, -1, 0}, {0x8E37, -1, 0}, {0x8E37, -1, 0},
+    {0x8E37, -1, 0}, {0x8E37, -1, 0}, {0x8E37, -1, 0}, {0x8E37, -1, 0}, {0x8E66, -1, 0}, {0x8E66, -1, 0},
+    {0x8E66, -1, 0}, {0x8E66, -1, 0}, {0x8E66, -1, 0}, {0x8E66, -1, 0}, {0x8E66, -1, 0}, {0x8E66, -1, 0},
+    {0x8E97, -1, 0}, {0x8E97, -1, 0}, {0x8E97, -1, 0}, {0x8E97, -1, 0}, {0x8E97, -1, 0}, {0x8E97, -1, 0},
+    {0x8E97, -1, 0}, {0x8E97, -1, 0}, {0x8EC2, -1, 0}, {0x8EC2, -1, 0}, {0x8EC2, -1, 0}, {0x8EC2, -1, 0},
+    {0x8EC2, -1, 0}, {0x8EC2, -1, 0}, {0x8EC2, -1, 0}, {0x8EC2, -1, 0}, {0x8EF1, -1, 0}, {0x8EF1, -1, 0},
+    {0x8EF1, -1, 0}, {0x8EF1, -1, 0}, {0x8EF1, -1, 0}, {0x8EF1, -1, 0}, {0x8EF1, -1, 0}, {0x8EF1, -1, 0},
+};
+const WalkStep kWalk6[] = {
+    {0x8D21, 1, 0}, {0x8D21, 1, 0}, {0x8D50, 1, 0}, {0x8D50, 1, 0}, {0x8D50, 1, 0}, {0x8D50, 1, 0}, {0x8D50, 1, 0},
+    {0x8D50, 1, 0}, {0x8D50, 1, 0}, {0x8D50, 1, 0}, {0x8D81, 1, 0}, {0x8D81, 1, 0}, {0x8D81, 1, 0}, {0x8D81, 1, 0},
+    {0x8D81, 1, 0}, {0x8D81, 1, 0}, {0x8D81, 1, 0}, {0x8D81, 1, 0}, {0x8DAC, 1, 0}, {0x8DAC, 1, 0}, {0x8DAC, 1, 0},
+    {0x8DAC, 1, 0}, {0x8DAC, 1, 0}, {0x8DAC, 1, 0}, {0x8DAC, 1, 0}, {0x8DAC, 1, 0}, {0x8DDB, 1, 0}, {0x8DDB, 1, 0},
+    {0x8DDB, 1, 0}, {0x8DDB, 1, 0}, {0x8DDB, 1, 0}, {0x8DDB, 1, 0}, {0x8DDB, 1, 0}, {0x8DDB, 1, 0}, {0x8CF6, 1, 0},
+    {0x8CF6, 1, 0}, {0x8CF6, 1, 0}, {0x8CF6, 1, 0}, {0x8CF6, 1, 0}, {0x8CF6, 1, 0}, {0x8CF6, 1, 0}, {0x8CF6, 1, 0},
+    {0x8D21, 1, 0}, {0x8D21, 1, 0}, {0x8D21, 1, 0}, {0x8D21, 1, 0}, {0x8D21, 1, 0}, {0x8D21, 1, 0},
+};
+const WalkStep kWalk7[] = {
+    {0x8EF1, -1, 0}, {0x8EF1, -1, 0}, {0x8E0C, -1, 0}, {0x8E0C, -1, 0}, {0x8E0C, -1, 0}, {0x8E0C, -1, 0},
+    {0x8E0C, -1, 0}, {0x8E0C, -1, 0}, {0x8E0C, -1, 0}, {0x8E0C, -1, 0}, {0x8E37, -1, 0}, {0x8E37, -1, 0},
+    {0x8E37, -1, 0}, {0x8E37, -1, 0}, {0x8E37, -1, 0}, {0x8E37, -1, 0}, {0x8E37, -1, 0}, {0x8E37, -1, 0},
+    {0x8E66, -1, 0}, {0x8E66, -1, 0}, {0x8E66, -1, 0}, {0x8E66, -1, 0}, {0x8E66, -1, 0}, {0x8E66, -1, 0},
+    {0x8E66, -1, 0}, {0x8E66, -1, 0}, {0x8E97, -1, 0}, {0x8E97, -1, 0}, {0x8E97, -1, 0}, {0x8E97, -1, 0},
+    {0x8E97, -1, 0}, {0x8E97, -1, 0}, {0x8E97, -1, 0}, {0x8E97, -1, 0}, {0x8EC2, -1, 0}, {0x8EC2, -1, 0},
+    {0x8EC2, -1, 0}, {0x8EC2, -1, 0}, {0x8EC2, -1, 0}, {0x8EC2, -1, 0}, {0x8EC2, -1, 0}, {0x8EC2, -1, 0},
+    {0x8EF1, -1, 0}, {0x8EF1, -1, 0}, {0x8EF1, -1, 0}, {0x8EF1, -1, 0}, {0x8EF1, -1, 0}, {0x8EF1, -1, 0},
+};
+const WalkStep kWalk9[] = {
+    {0xB934, 0, 0}, {0xB934, 1, 0},
+};
+const WalkStep kWalk10[] = {
+    {0x9E0C, 1, 0}, {0x9E0C, 1, 0}, {0x9DD1, 1, 0}, {0x9DD1, 1, 0}, {0x9DD1, 1, 0}, {0x9DD1, 1, 0}, {0x9E0C, 1, 0},
+    {0x9E0C, 1, 0},
+};
+const WalkStep kWalk11[] = {
+    {0x843A, -1, 0}, {0x843A, -1, 0}, {0x843A, -1, 0}, {0x843A, -1, 0}, {0x843A, -1, 0}, {0x843A, -1, 0},
+    {0x846D, -1, 0}, {0x846D, -1, 0}, {0x846D, -1, 0}, {0x846D, -1, 0}, {0x846D, -1, 0}, {0x846D, -1, 0},
+    {0x846D, -1, 0}, {0x846D, -1, 0}, {0x84A0, -1, 0}, {0x84A0, -1, 0}, {0x84A0, -1, 0}, {0x84A0, -1, 0},
+    {0x84A0, -1, 0}, {0x84A0, -1, 0}, {0x84A0, -1, 0}, {0x84A0, -1, 0}, {0x84D7, -1, 0}, {0x84D7, -1, 0},
+    {0x84D7, -1, 0}, {0x84D7, -1, 0}, {0x84D7, -1, 0}, {0x84D7, -1, 0}, {0x84D7, -1, 0}, {0x84D7, -1, 0},
+    {0x8508, -1, 0}, {0x8508, -1, 0}, {0x8508, -1, 0}, {0x8508, -1, 0}, {0x8508, -1, 0}, {0x8508, -1, 0},
+    {0x8508, -1, 0}, {0x8508, -1, 0}, {0x853B, -1, 0}, {0x853B, -1, 0}, {0x853B, -1, 0}, {0x853B, -1, 0},
+    {0x853B, -1, 0}, {0x853B, -1, 0}, {0x853B, -1, 0}, {0x853B, -1, 0}, {0x843A, -1, 0}, {0x843A, -1, 0},
+};
+const WalkStep kWalk12[] = {
+    {0x911D, -2, 0}, {0x911D, -2, 0}, {0x911D, -2, 0}, {0x911D, -2, 0}, {0x9038, -2, 0}, {0x9038, -2, 0},
+    {0x9038, -2, 0}, {0x9038, -2, 0}, {0x9063, -2, 0}, {0x9063, -2, 0}, {0x9063, -2, 0}, {0x9063, -2, 0},
+    {0x9092, -2, 0}, {0x9092, -2, 0}, {0x9092, -2, 0}, {0x9092, -2, 0}, {0x90C3, -2, 0}, {0x90C3, -2, 0},
+    {0x90C3, -2, 0}, {0x90C3, -2, 0}, {0x90EE, -2, 0}, {0x90EE, -2, 0}, {0x90EE, -2, 0}, {0x90EE, -2, 0},
+};
+const SceneWalk kSceneWalks[] = {
+    {0x00, 0, WALK_IN, 58, 90, -16, 137, 0x0E, 17, 1, 48, kWalk0},   // the market: Aladdin walks in to the bread stall
+    {0x00, 1, WALK_IN, 494, 525, -46, 89, 0x0F, 17, 18, 24, kWalk1},   // the market: the guard runs in after him
+    {0x01, 0, WALK_IN, 365, 389, -8, 137, 0x0E, 17, 1, 48, kWalk2},   // the market: Aladdin comes back for Jasmine
+    {0x01, 3, WALK_OUT, 348, 421, 353, 121, 0x1D, 7, 0, 20, kWalk3},   // the market: Abu runs off
+    {0x06, 1, WALK_IN, 66, 113, -31, 72, 0x0F, 17, 18, 48, kWalk4},   // the palace: Jasmine walks in
+    {0x10, 1, WALK_IN, 346, 377, 255, 72, 0x0F, 17, 18, 48, kWalk5},   // the throne room: Jasmine walks in (her walk in scene $11)
+    {0x10, 1, WALK_OUT, 592, 720, 326, 72, 0x0F, 17, 18, 48, kWalk6},   // the throne room: Jasmine walks off
+    {0x11, 1, WALK_IN, 808, 839, 255, 40, 0x0F, 17, 18, 48, kWalk7},   // night: Jasmine walks in on the balcony
+    {0x11, 2, WALK_SHOWN, 0, 392, 0, 0, 0x00, 0, 0, 0, nullptr},   // night: Rajah lies on the balcony
+    {0x11, 2, WALK_OUT, 798, 1038, 287, 72, 0x1D, 9, 0, 2, kWalk9},   // night: Rajah pads off
+    {0x18, 1, WALK_OUT, 384, 540, 258, 48, 0x0F, 17, 18, 8, kWalk10},   // the throne room: Jasmine walks off
+    {0x1A, 0, WALK_IN, 98, 141, 267, 136, 0x0D, 17, 1, 48, kWalk11},   // the throne room: Aladdin walks in
+    {0x20, 1, WALK_IN, 114, 129, 254, 74, 0x0F, 17, 18, 24, kWalk12},   // Jafar's room: Abu runs in (his run off later)
+    {0x23, 4, WALK_SHOWN, 0, 850, 0, 0, 0x00, 0, 0, 0, nullptr},   // the balcony: Iago on the tower
+};
+
+// The scene's clock (section "walks" above)
+int scene_tick(const Sms& m) { return (uint16_t)(0 - m.ram16(0xCF79)); }
+
 // The sprites of a widened story screen. The writers' pieces (hooks before their "off screen" test: hl = the piece's
 // 16-bit X, bc = its character's) are kept per slot of the sprite table buffer with the slot's contents as uploaded:
 // the scenes run their writers on some frames only (not while text is written), so a piece stays as it was while its
 // slot does. A scene keeps characters waiting off the screen for their cue (a guard at x -48 for 550 frames, Aladdin
-// at -16 for 1000): a character is drawn beyond the 256 px only once it has been on them (its X within 0..255) since
-// it was put where it is (a jump of more than 16 px) - one leaving walks on into the side, one waiting stays unseen.
+// at -16 for 1000): a character is drawn beyond the 256 px only once it has been on them (its X within 0..255, or one
+// of its pieces shown there) since it was put where it is (a jump of more than 16 px) - one leaving walks on into the
+// side, one waiting stays unseen - unless kSceneWalks has it walk in, walk on or stand there.
 struct StorySprites {
     static constexpr int16_t NONE = INT16_MIN;
     static constexpr int CHARS = 9;   // Aladdin's writer ($2390), the second figure ($3C13), the scene's list ($5099, 7)
@@ -907,32 +1072,77 @@ struct StorySprites {
     int16_t at[CHARS];      // each character's X when last drawn (NONE: not yet)
     uint8_t seen[CHARS];    // it has been on the 256 px since
     uint16_t shown = 0;     // the screen they belong to (kind << 8 | scene): another one starts them afresh
+    int32_t tick = -1;      // the scene's clock at the writers' last pass on this screen (-1: none yet)
     StorySprites() { clear(); }
     void clear() {
         for (int i = 0; i < 64; i++) { x[i] = NONE; who[i] = fresh[i] = valid[i] = 0; snap[i][0] = snap[i][1] = snap[i][2] = 0; }
         forget();
         shown = 0;
     }
-    void forget() { for (int c = 0; c < CHARS; c++) { at[c] = NONE; seen[c] = 0; } }
+    void forget() {
+        for (int c = 0; c < CHARS; c++) { at[c] = NONE; seen[c] = 0; }
+        tick = -1;
+    }
+    // the screen the pieces belong to (kind << 8 | scene; kept through a screen's fade-out)
+    static uint16_t screen_key(const Sms& m) { return (uint16_t)(story_screen(m) << 8 | m.ram8(SCENE)); }
+    static bool hidden_y(uint8_t y) { return y >= 0xBF && y < 0xE0; }   // (below the picture: the writers' $C0 - 1)
     void piece(const Sms& m, int slot, int c) {
         if (slot < 0 || slot >= 64 || c < 0 || c >= CHARS) return;
-        x[slot] = (int16_t)m.z80.hl;
+        const int px = (int16_t)m.z80.hl;
+        x[slot] = (int16_t)px;
         who[slot] = (uint8_t)c;
         fresh[slot] = 1;
+        // (a new screen starts here, not only at the next upload: its clock is the pass's, run after the scene's init
+        // has cleared it - a scene following another keeps the last one's number of ticks until then)
+        const uint16_t now = screen_key(m);
+        if (now != shown) { forget(); shown = now; }
+        tick = scene_tick(m);
         const int cx = (int16_t)m.z80.bc;
         if (at[c] == NONE || std::abs(cx - at[c]) > 16) seen[c] = 0;
-        if (cx >= 0 && cx < 256) seen[c] = 1;
+        // (the writer has put the piece's Y in the buffer already: a piece shown on the 256 px shows its character)
+        if ((cx >= 0 && cx < 256) || (px >= 0 && px < 256 && !hidden_y(m.ram8((uint16_t)(SAT_Y + slot))))) seen[c] = 1;
         at[c] = (int16_t)cx;
     }
     // the list's character whose X ($CF37 + 4k + 2) the writer at $50D4 adds ($CF33 points at it)
     static int list_char(const Sms& m) { return 2 + std::clamp((m.ram16(0xCF33) - 0xCF39) / 4, 0, 6); }
+    // A walk's character as the module draws it at tick t: its X, Y and pose (false: not drawn)
+    static bool walk_at(const SceneWalk& w, int t, int& gx, int& gy, uint16_t& ptr) {
+        const int L = w.len;
+        if (!L) return false;
+        int sx = 0, sy = 0;
+        if (w.kind == WALK_IN) {
+            if (t >= w.t0) return false;
+            const int k = w.t0 - t;   // (ticks before the game's own; the cycle played backwards from t0)
+            for (int i = 0; i < L; i++) { sx += w.cycle[i].dx; sy += w.cycle[i].dy; }
+            sx *= k / L;
+            sy *= k / L;
+            for (int j = 1; j <= k % L; j++) { sx += w.cycle[L - j].dx; sy += w.cycle[L - j].dy; }
+            gx = w.x - sx;
+            gy = w.y - sy;
+            ptr = w.cycle[(L - k % L) % L].ptr;
+            return true;
+        }
+        if (w.kind == WALK_OUT) {
+            if (t < w.t0 || t > w.t1) return false;
+            const int m = t - w.t0;   // (the cycle of the ticks before t0 going on)
+            for (int i = 0; i < L; i++) { sx += w.cycle[i].dx; sy += w.cycle[i].dy; }
+            sx *= (m + 1) / L;
+            sy *= (m + 1) / L;
+            for (int j = 0; j < (m + 1) % L; j++) { sx += w.cycle[j].dx; sy += w.cycle[j].dy; }
+            gx = w.x + sx;
+            gy = w.y + sy;
+            ptr = w.cycle[m % L].ptr;
+            return true;
+        }
+        return false;
+    }
     // At the VBlank's table upload ($02D9): which entries are parked pieces (hidden: module_state[0..3]), and the extra
-    // sprites (true X) for those in the view; on the ending also the stars again 256 px left and right.
+    // sprites (true X) for those in the view; the walks of kSceneWalks; on the ending the stars again 256 px left and right.
     void upload(Sms& m) {
         SmsVdp& v = m.vdp;
         v.extra_count = 0;
         const int kind = story_wide(m);
-        const uint16_t now = (uint16_t)(story_screen(m) << 8 | m.ram8(SCENE));   // (kept through a screen's fade-out)
+        const uint16_t now = screen_key(m);
         if (now != shown) { forget(); shown = now; }
         for (int slot = 0; slot < 64; slot++) {   // (follow the slots on every screen: a widened one may come next)
             const uint8_t cur[3] = {m.ram8((uint16_t)(SAT_Y + slot)), m.ram8((uint16_t)(SAT_XT + 2 * slot)),
@@ -948,17 +1158,70 @@ struct StorySprites {
         if (kind != STORY_SCENE && kind != STORY_ENDING) return;
         const bool rev = m.ram8(FRAMES) & 1;   // (the upload's order: reversed on odd frames)
         const int E = v.ext, shift = (v.reg[0] & 0x08) ? 8 : 0;
-        auto add = [&](int sx, uint8_t y, uint8_t pat) {
-            if (y >= 0xBF && y < 0xE0) return;   // (below the picture: the writers' hidden pieces, $C0 - 1)
+        auto add = [&](int sx, uint8_t y, uint8_t pat, const uint8_t* data) {
+            if (hidden_y(y)) return;
             if (sx <= -8 - E || sx >= 256 + E || v.extra_count >= SmsVdp::kMaxExtra) return;
-            v.extra[v.extra_count++] = {(int16_t)sx, y, pat};
+            v.extra[v.extra_count++] = {(int16_t)sx, y, pat, data};
         };
+        // the walks: characters drawn here (shown) or by the module (walking, their own pieces hidden)
+        uint8_t show[CHARS], walk[CHARS];
+        std::memcpy(show, seen, CHARS);
+        std::memset(walk, 0, CHARS);
+        const SceneWalk* walks[CHARS] = {};
+        const int t = std::max(tick, 0);
+        // Only on the scene's own picture: built ($4E92 has set ($C48F) to the scenes' maps, as the sides require) and
+        // its init run (the writers' first pass on this screen, `$626E` calls them after `$6010` has cleared the clock;
+        // the fade-in follows). Before that the screen is still another one's - the title waits 20 frames after GAME
+        // START with the scene's mode already set (a state saved there by an earlier version has no fade kind to tell
+        // it), a stage fades out, a scene that follows another has its number before its init - and nothing of the
+        // scene's may be drawn over it. (Not the display bit: the VBlank's upload turns the display off around its VRAM
+        // writes on some frames.)
+        const bool scene_up = m.ram16(MAP) == SCENE_MAPS && tick >= 0;
+        if (kind == STORY_SCENE && scene_up && !(v.reg[1] & 0x02)) {   // (8x8 sprites, as all scenes have them)
+            for (const SceneWalk& w : kSceneWalks) {
+                if (w.scene != m.ram8(SCENE) || w.ch >= CHARS) continue;
+                int gx, gy;
+                uint16_t ptr;
+                if (w.kind == WALK_SHOWN ? t >= w.t0 && t <= w.t1 : w.kind == WALK_IN && t >= w.t0 && t <= w.t1)
+                    show[w.ch] = 1;
+                else if (walk_at(w, t, gx, gy, ptr) && gx > -E - 80 && gx < 256 + E + 80) {   // (in reach of a side)
+                    walk[w.ch] = 1;
+                    walks[w.ch] = &w;
+                }
+            }
+        }
         for (int w = 0; w < 4; w++) m.module_state[w] = 0;
         for (int i = 0; i < 64; i++) {
             const int slot = rev ? 63 - i : i;
             if (!valid[slot] || x[slot] == NONE || (x[slot] >= 0 && x[slot] < 256)) continue;
             m.module_state[i >> 4] |= (uint32_t)PAGE_HIDDEN << ((i & 15) * 2);
-            if (seen[who[slot]]) add(x[slot] - shift, snap[slot][0], snap[slot][2]);
+            if (show[who[slot]] && !walk[who[slot]] && (kind != STORY_SCENE || scene_up))
+                add(x[slot] - shift, snap[slot][0], snap[slot][2], nullptr);
+        }
+        // a walking character: its writer's pieces for the pose, as the writer places them ($2390 / $3C31 / $5099)
+        for (int c = 0; c < CHARS; c++) {
+            if (!walk[c]) continue;
+            const SceneWalk& w = *walks[c];
+            int gx, gy;
+            uint16_t ptr;
+            walk_at(w, t, gx, gy, ptr);
+            const uint16_t rec = (uint16_t)(ptr - 8);   // (the pose's record: tile bank, -, tile address)
+            const uint32_t tiles = (uint32_t)bank_rd8(m, w.bank, rec) * 0x4000 + (bank_rd16(m, w.bank, (uint16_t)(rec + 2)) & 0x3FFF);
+            for (int i = 0; i < w.n; i++) {
+                int a = bank_rd8(m, w.bank, (uint16_t)(ptr + i));
+                if (a == 0xC0) continue;
+                a = (a + gy) & 0xFF;
+                if (a < 0xF8 && a >= 0xC0) a = 0xC0;
+                const int px = gx + (int8_t)bank_rd8(m, w.bank, (uint16_t)(ptr + w.n + 2 * i));
+                const uint8_t pat = bank_rd8(m, w.bank, (uint16_t)(ptr + w.n + 2 * i + 1));
+                const uint8_t* data = nullptr;
+                if (w.base) {
+                    if (pat < w.base || pat >= w.base + 17) continue;
+                    data = m.rom_orig_ptr(tiles + (uint32_t)(pat - w.base) * 32, 32);
+                    if (!data) continue;
+                }
+                add(px - shift, (uint8_t)(a - 1), pat, data);
+            }
         }
         if (kind == STORY_ENDING) {
             for (int slot = 20; slot <= 42; slot++) {
@@ -966,14 +1229,14 @@ struct StorySprites {
                 if (y == 0xD0) break;
                 const int sx = m.ram8((uint16_t)(SAT_XT + 2 * slot)) - shift;
                 const uint8_t pat = m.ram8((uint16_t)(SAT_XT + 2 * slot + 1));
-                add(sx - 256, y, pat);
-                add(sx + 256, y, pat);
+                add(sx - 256, y, pat, nullptr);
+                add(sx + 256, y, pat, nullptr);
             }
         }
     }
-    // save states: the slots' and characters' records (version 1)
-    static constexpr uint8_t TAG = 'S', VERSION = 1;
-    static constexpr size_t SIZE = 2 + 64 * 8 + CHARS * 3 + 2;
+    // save states: the slots' and characters' records and the clock (version 2; version 1 has no clock)
+    static constexpr uint8_t TAG = 'S', VERSION = 2;
+    static constexpr size_t SIZE1 = 2 + 64 * 8 + CHARS * 3 + 2, SIZE = SIZE1 + 4;
     void save(std::vector<uint8_t>& d) const {
         d.push_back(TAG);
         d.push_back(VERSION);
@@ -981,10 +1244,13 @@ struct StorySprites {
             d.insert(d.end(), {(uint8_t)x[i], (uint8_t)((uint16_t)x[i] >> 8), who[i], fresh[i], valid[i], snap[i][0], snap[i][1], snap[i][2]});
         for (int c = 0; c < CHARS; c++) d.insert(d.end(), {(uint8_t)at[c], (uint8_t)((uint16_t)at[c] >> 8), seen[c]});
         d.insert(d.end(), {(uint8_t)shown, (uint8_t)(shown >> 8)});
+        const uint32_t tk = (uint32_t)tick;
+        d.insert(d.end(), {(uint8_t)tk, (uint8_t)(tk >> 8), (uint8_t)(tk >> 16), (uint8_t)(tk >> 24)});
     }
-    bool load(const uint8_t* d, size_t n) {
+    // -> the bytes read (0: none)
+    size_t load(const uint8_t* d, size_t n) {
         clear();
-        if (n < SIZE || d[0] != TAG || d[1] != VERSION) return false;
+        if (n < SIZE1 || d[0] != TAG || (d[1] != 1 && d[1] != VERSION) || (d[1] == VERSION && n < SIZE)) return 0;
         for (int i = 0; i < 64; i++) {
             const uint8_t* e = d + 2 + 8 * i;
             x[i] = (int16_t)(e[0] | (e[1] << 8));
@@ -998,8 +1264,10 @@ struct StorySprites {
             at[c] = (int16_t)(e[0] | (e[1] << 8));
             seen[c] = e[2];
         }
-        shown = (uint16_t)(d[SIZE - 2] | (d[SIZE - 1] << 8));
-        return true;
+        shown = (uint16_t)(d[SIZE1 - 2] | (d[SIZE1 - 1] << 8));
+        if (d[1] == 1) return SIZE1;
+        tick = (int32_t)(d[SIZE1] | (d[SIZE1 + 1] << 8) | (d[SIZE1 + 2] << 16) | ((uint32_t)d[SIZE1 + 3] << 24));
+        return SIZE;
     }
 };
 
@@ -1179,7 +1447,10 @@ public:
         // the camera the VBlank shows next (the scroll registers are written from it right after line $C1) and the
         // one the frame being drawn uses
         s.on_vblank = [](Sms& m) { m.module_state[MS_CAM_NEXT] = m.ram16(CAM_X) | ((uint32_t)m.ram8(FRAMES) << 16); };
-        s.on_frame_start = [this](Sms& m) { apply_view(m); };
+        s.on_frame_start = [this](Sms& m) {
+            apply_view(m);
+            story_rows_ = shows_stage(m) ? 0 : scene_replaced_rows(m);   // (a scene's rows drawn over: section 5a)
+        };
         // sprite pieces: the player ($23C2), the large second figure ($3C63) and the objects ($0C99), each with
         // hl = the piece's 16-bit screen X just before the "off screen" test (`ld a,h`)
         s.add_pc_hook(0x23C2, [this](Sms& m) {
@@ -1317,6 +1588,13 @@ public:
             d.insert(d.end(), {(uint8_t)e.x, (uint8_t)(e.x >> 8), e.y, e.pattern});
         }
         story_.save(d);   // (after the stage's part: the story screens' sprite records)
+        // the extra sprites' own pattern data (a story scene's walk: tiles from ROM), as ROM offsets
+        const uint8_t* rom0 = sms_->rom_orig_ptr(0, 1);
+        d.push_back('D');
+        for (int i = 0; i < v.extra_count; i++) {
+            const uint32_t o = v.extra[i].data && rom0 ? (uint32_t)(v.extra[i].data - rom0) : 0xFFFFFFFFu;
+            d.insert(d.end(), {(uint8_t)o, (uint8_t)(o >> 8), (uint8_t)(o >> 16), (uint8_t)(o >> 24)});
+        }
         return d;
     }
 
@@ -1339,7 +1617,15 @@ public:
             v.extra[i] = {(int16_t)(e[0] | (e[1] << 8)), e[2], e[3]};
         }
         const size_t at = 67u + 4u * d[66];
-        story_.load(d + at, n - at);   // (none in older states: cleared)
+        const size_t used = story_.load(d + at, n - at);   // (none in older states: cleared)
+        const size_t da = at + used;
+        if (used && n >= da + 1 + 4u * v.extra_count && d[da] == 'D') {
+            for (int i = 0; i < v.extra_count; i++) {
+                const uint8_t* e = d + da + 1 + 4 * i;
+                const uint32_t o = e[0] | (e[1] << 8) | (e[2] << 16) | ((uint32_t)e[3] << 24);
+                v.extra[i].data = o == 0xFFFFFFFFu ? nullptr : sms_->rom_orig_ptr(o, 32);
+            }
+        }
     }
 
     std::vector<CheatEntry> cheats() const override {
@@ -1531,6 +1817,7 @@ private:
     static constexpr uint8_t EXT_VERSION = 1;   // (save_ext's layout)
     uint8_t page_[64] = {};   // each sprite table buffer entry's page as the writers left it (uploaded at the VBlank)
     StorySprites story_;      // the story screens' sprite pieces (story_.upload at the VBlank)
+    uint32_t story_rows_ = 0; // a widened scene's rows the scene has drawn over (scene_replaced_rows, each frame)
     SectionTiles s7_;    // stage 7's sections' reloaded tiles (made from ROM when first needed)
     CamTiles cam_tiles_;   // stages 0 and 1's camera-animated tiles by phase, and their walls (made when first needed)
     uint8_t anim_buf_[ANIM_TILES * 32] = {};   // the frame's tiles 257-273 for the VDP (anim_tiles)
@@ -1738,7 +2025,7 @@ private:
         (void)line;
         const Sms& s = *((SmsAladdin*)host)->sms_;
         const SmsVdp& v = s.vdp;
-        if (!shows_stage(s)) return story_bg_entry(s, vcol, vrow);
+        if (!shows_stage(s)) return story_bg_entry(s, vcol, vrow, ((const SmsAladdin*)host)->story_rows_);
         // (the table's 28 rows wrap: Jafar's turn into the snake shakes the screen with the vertical scroll, 222 / 224)
         vrow %= 28;
         // the status bar (rows 0-1): blank beyond the 256 px; below the playfield: see line_hook
