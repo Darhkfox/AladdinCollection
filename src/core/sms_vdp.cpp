@@ -16,6 +16,7 @@ void SmsVdp::reset() {
     memcpy(reg, init, sizeof(reg));
     status = 0;
     line_pending = false;
+    line_irq_line = -1;
     line_counter = 0xFF;
     vscroll_latch = 0;
     pending = false;
@@ -92,13 +93,17 @@ void SmsVdp::latch_hcount(int cycle) {
     hcount_latch = (uint8_t)(px < 0x128 ? px >> 1 : (px + 0xE9 * 2 - 0x128) >> 1);
 }
 
-void SmsVdp::start_frame() { vscroll_latch = reg[9]; }
+void SmsVdp::start_frame() {
+    vscroll_latch = reg[9];
+    line_irq_line = -1;
+}
 
 void SmsVdp::line_counter_tick() {
     if (line <= 192) {
         if (line_counter == 0) {
             line_counter = reg[10];
             line_pending = true;
+            line_irq_line = line;
             update_irq();
         } else {
             line_counter--;
@@ -221,6 +226,17 @@ void SmsVdp::render_sprites(uint8_t* dst, int ln) {
 
 void SmsVdp::render_line(int ln) {
     if (ln < 0 || ln >= kMaxLines) return;
+    // (a module's scroll for the line: reg 8 stands in for it while the line and its in-between lines are drawn,
+    // and is the game's again before the CPU runs on)
+    const int fix = line_scroll ? line_scroll(hook_host, ln) : -1;
+    if (fix < 0) { draw_line(ln); return; }
+    const uint8_t r8 = reg[8];
+    reg[8] = (uint8_t)fix;
+    draw_line(ln);
+    reg[8] = r8;
+}
+
+void SmsVdp::draw_line(int ln) {
     const int W = 256 + 2 * ext;
     fb_width = W;
     fb_lines = active_lines();
