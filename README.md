@@ -195,7 +195,8 @@ achievements of its own: *A Whole New World* (defeat Jafar in all three versions
   at another width) brings out only the objects the new sides add: never an enemy already defeated, collected or
   swept away by an event. Boss arenas and events (the Market at Dusk,
   the end of the Cave of Wonders, Sultan's Dungeon and Jafar's Palace, Jafar) keep the original camera; their sides
-  show the level at full brightness, dimmed only past the level's ends and beside Jafar's fire floor. In the Lava
+  show the level at full brightness, dimmed only beside Jafar's fire floor. Past a level's ends the sides show only
+  its far background, at full brightness: no platforms, props or sprites, nothing that looks like a way on. In the Lava
   Cavern, which scrolls by itself, the screen's limits follow the wide picture's edges (in widescreen only, a small
   change to the original's rules): Aladdin can run on to 16 px from the picture's right edge, is only left behind
   once he is 48 px past its left edge (before, he was killed while still in view in the left side), and the falling
@@ -360,9 +361,11 @@ gradlew assembleDebug
   background, up to about 70 px of that background is shown mirrored at a level's start at 21:9 (the level itself
   is real to the edge). In Agrabah Rooftops the far hills behind the palace can show a seam in the left side area:
   the game never scrolls that far into them, so their picture doesn't join up there. Inside the Lamp 3's tower is
-  one screen wide and holds nothing beside it: the view is centred on it and both sides show the tower mirrored and
-  dimmed (black with *Past Level Ends: Black*); between the tower and the corridor at its top the view glides over as
-  the screen scrolls. The STAGE CLEAR panel keeps its 4:3 frame on a purple background that fills the width; the
+  one screen wide and holds nothing beside it: the view is centred on it, its gold pillars stand at the edges, and
+  both sides show the sky, columns and clouds behind it going on (its own background mirrored past the pillars) at
+  full brightness, without the genie statues, platforms or sprites (black with *Past Level Ends: Black*); between
+  the tower and the corridor at its top the view glides over as the screen scrolls. The STAGE CLEAR panel keeps its
+  4:3 frame on a purple background that fills the width; the
   bonus wheel and the story scenes between stages are on black and so look the same as before. The staff roll stays 4:3. The
   level select starts with new-game stats (3 lives, 3 hearts, 10 apples).
 - Save states made by a newer version may not load in an older one.
