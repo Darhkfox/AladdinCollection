@@ -382,7 +382,9 @@ gradlew assembleDebug
   (black with *Past Level Ends: Black*); between the tower and the corridor at its top the view glides over as the
   screen scrolls, the corridor coming down onto the wall. The corridor's start stays in the left side as Aladdin
   walks on, also after the game closes it behind him. The STAGE CLEAR panel keeps its
-  4:3 frame on a purple background that fills the width; the
+  4:3 frame on a purple background that fills the width; the Genie flies out into the purple whole, but only about
+  his own width: the game starts, turns and removes him just past the 4:3 edges, so he appears and vanishes beside
+  the panel. The
   bonus wheel and the story scenes between stages are on black and so look the same as before. The staff roll stays 4:3. The
   level select starts with new-game stats (3 lives, 3 hearts, 10 apples).
 - Save states made by a newer version may not load in an older one.

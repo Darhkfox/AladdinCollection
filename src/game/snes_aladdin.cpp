@@ -55,6 +55,12 @@ constexpr uint32_t kLevelWaitRet = 0x8182E9, kPauseWaitRet = 0x8183FA;
 // STAGE CLEAR: screen $24; its task's waits from the picture's set-up to the fade-out after B
 constexpr uint8_t kStageClearScreen = 0x24;
 constexpr uint32_t kStageClearFrom = 0x81F7B6, kStageClearTo = 0x81F90C;
+// Its Genie (object type $8F, $83:FA45): out of sight at x -32 he waits, then flies right 4 px a frame for $56 frames
+// at y 200 ($40 counts them down; his script's frame loop resumes at $83:FA8C), is moved to y 128 at x 312 and flies
+// back left as many ($14 set: the second pass), and is deleted at x -32: every end of his path is past the game's
+// screen by his own width. His first frame drawn shows tiles his graphics' upload hasn't replaced yet.
+constexpr uint8_t kGenieType = 0x8F;
+constexpr uint32_t kGenieFly = 0x83FA8C;
 // Sprites: the OAM builder stores each piece's 16-bit screen x (A; X = OAM index * 4); the NMI's OAM DMA.
 constexpr uint32_t kOamPiece = 0x81938B, kOamPieceFlip = 0x8193F9, kOamBuild = 0x819258, kOamDma = 0x8081B2;
 // Objects drawn while within a range of the camera's centre ($81:91D4, table $80:BA02 by the object's class $12) and
@@ -611,9 +617,9 @@ public:
     // ---- PPU hooks
     void beginLine(Ppu& p, int row) override {
         if (row == 0) frame_start(p);
-        if (stage_clear_) {   // (the backdrop alone in the margins)
+        if (stage_clear_) {   // (the backdrop and the sprites at their true x in the margins)
             for (bool& h : p.hideWideBg) h = true;
-            p.hideWideObj = true;
+            p.hideWideObj = genie_loading_;
             return;
         }
         if (!level_ || ext_ == 0 || !snes_) return;
@@ -1133,6 +1139,7 @@ private:
     bool shaft_ = false;     // the span is a shaft's column (span)
     bool slide_y_ = false;   // the offset came from a shaft's span: it closes as the camera moves in x or y
     bool stage_clear_ = false;   // this frame: the STAGE CLEAR screen (its plain backdrop fills the margins)
+    bool genie_loading_ = false; // ...with its Genie's first frame drawn (his tiles not yet uploaded)
     bool stop_ = true;                    // the view may stop at the level's ends (can_stop)
     int el_ = 0, er_ = 0, mid_ = 0;
     int bg2_ratio_ = 0;      // this frame: BG2's x speed against the camera (8.8), 0 = scrolled by the game itself
@@ -1748,8 +1755,9 @@ private:
 
     // STAGE CLEAR (screen $24, its task from the picture's set-up to the fade-out after B, $81:F7B6-$81:F90C): a
     // panel on a plain backdrop (colour 0, the dark purple) whose BG maps hold nothing past its 256 px. The margins
-    // show the backdrop alone, so the purple fills the width around the panel (the app's plain bars don't take it: the
-    // panel's gold frame runs 4 px inside its edges). Read as the frame starts, so a loaded state draws the same.
+    // show the backdrop and the sprites, so the purple fills the width around the panel (the app's plain bars don't
+    // take it: the panel's gold frame runs 4 px inside its edges) and the Genie flies out into it. Read as the frame
+    // starts, so a loaded state draws the same.
     static bool stage_clear(const Snes& s) {
         if (rd8(s, kLevel) != kStageClearScreen) return false;
         const uint16_t sp = rd16(s, 0x0071);
@@ -1758,9 +1766,22 @@ private:
         return ret >= kStageClearFrom && ret <= kStageClearTo;
     }
 
+    // STAGE CLEAR's Genie on his first frame drawn, as the frame starts (his loop has run once more by then: $40 is
+    // $54): the tiles shown aren't his yet (in the game they are past the screen's left edge), so the margins hide it.
+    static bool genie_loading(const Snes& s) {
+        for (int k = 0; k < 35; k++) {
+            const uint32_t o = 0x092B + k * 0x50;
+            if (rd8(s, o) == 0 || rd8(s, o + 6) != kGenieType) continue;
+            const uint32_t pc = rd16(s, o + 3) | (rd8(s, o + 5) << 16);
+            return pc == kGenieFly && rd8(s, o + 0x14) == 0 && rd8(s, o + 0x40) >= 0x54;
+        }
+        return false;
+    }
+
     void frame_start(Ppu& p) {
         el_ = er_ = ext_;
         stage_clear_ = ext_ > 0 && snes_ && !level_ && stage_clear(*snes_);
+        genie_loading_ = stage_clear_ && genie_loading(*snes_);
         mid_ = 0;
         arena_ = false;
         paint_row_ = 0x10000;
@@ -1806,7 +1827,7 @@ private:
             }
         }
         for (int i = 0; i < 128; i++) {
-            p.objTrueXSet[i] = level_ && ext_ > 0 && oam_set_[i];
+            p.objTrueXSet[i] = (level_ || stage_clear_) && ext_ > 0 && oam_set_[i];
             p.objTrueX[i] = oam_x_[i];
         }
     }
