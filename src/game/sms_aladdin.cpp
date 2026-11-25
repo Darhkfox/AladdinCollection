@@ -524,6 +524,14 @@ int behind(const Sms& m) { return (int)((m.module_state[MS_UNDRAWN] >> BEHIND_SH
 void set_behind(Sms& m, int d) {
     m.module_state[MS_UNDRAWN] = (m.module_state[MS_UNDRAWN] & ~(0xFFu << BEHIND_SHIFT)) | ((uint32_t)d << BEHIND_SHIFT);
 }
+// The parallax bands' line interrupts ($01E9: jp ($C91D), the chain $01F3 -> $0205 -> $0222 -> $023F): the k-th
+// handler with a scroll (k = 1..3) writes reg 8 = -($C4A7 + k).
+constexpr uint16_t BAND_SCROLL = 0xC4A7, BAND_NEXT = 0xC91D;
+constexpr uint16_t BAND_CHAIN[4] = {0x01F3, 0x0205, 0x0222, 0x023F};
+// How many lines past its own the drawing-only correction still draws a split that has not landed (line_scroll):
+// the game takes a line interrupt a few lines late now and then (its logic holding interrupts off).
+constexpr int SPLIT_LATE = 6;
+
 int shown_cam(const Sms& s) { return (int)(s.module_state[MS_CAM] & 0xFFFF); }
 // The camera a line of the camera's band was drawn with: the one whose low byte its scroll register (-camera) has,
 // next to the frame's (a line interrupt can load it from the next frame's logic)
@@ -724,6 +732,20 @@ bool off_screen_vertically(const Sms& s, uint16_t o) {
 
 // A sprite table entry's 256-px page (module_state[0..3], see sprite_x)
 enum : uint8_t { PAGE_0 = 0, PAGE_RIGHT = 1, PAGE_LEFT = 2, PAGE_HIDDEN = 3 };
+
+// Screen-fixed sprites: READY. A stage's setup ($3486: every stage but the Lamp, at its start and at TRY AGAIN, not in
+// the demos) puts table slots 57-61 at Y $40 with the X / tile pairs at $3834 (x 108-147, the 256-px screen's middle)
+// and leaves them until the objects' writers take the slots. It belongs to the screen, not the level: it neither
+// slides with the view near a level's ends (it is shown at the start, where the view has slid by E) nor takes the
+// page a piece left in those slots. Told by what the VDP's table holds, so nothing to keep.
+constexpr int READY_SLOT = 57, READY_LEN = 5;
+constexpr uint8_t READY_Y = 0x40;
+constexpr uint8_t READY_XT[READY_LEN][2] = {{108, 0xF4}, {116, 0xF2}, {124, 0xF0}, {132, 0xF1}, {140, 0xF7}};
+bool ready_sprite(const SmsVdp& v, int index, int x, int y, int pattern) {
+    const int k = index - READY_SLOT;
+    if (k < 0 || k >= READY_LEN || y != READY_Y || (pattern & 0xFF) != READY_XT[k][1]) return false;
+    return x + ((v.reg[0] & 0x08) ? 8 : 0) == READY_XT[k][0];
+}
 
 // ---- story screens: the cut scenes, the intro and title, the ending (docs/re_sms_wide.md section 5a) ------------------
 // Everything but the ten stage modes used to be pillarboxed. The story screens are widened where their picture allows:
@@ -1132,6 +1154,8 @@ public:
         s.on_frame_start = nullptr;
         v.sprite_shift = 0;
         v.line_shift = wide ? line_shift : nullptr;
+        v.line_scroll = line_scroll;   // (every width, 4:3 too: a visual fix to the original, see line_scroll)
+        std::memset(line_early_, -1, sizeof(line_early_));
         v.alt_patterns = nullptr;   // (bg_entry points them at stage 7's copies when it uses them)
         v.alt_cram = nullptr;
         v.bg_alt = nullptr;         // (apply_view: stages 0 and 1's camera-animated tiles)
@@ -1519,6 +1543,12 @@ private:
     // each line's band as drawn: a band starts where its line interrupt writes the scroll - one the game takes late
     // (its logic holding interrupts off) starts a few lines lower than $C499.. say (line_shift)
     int8_t line_band_[SmsVdp::kMaxLines] = {};
+    // each line's band when line_scroll drew it with a split that had not landed yet (-1: as the registers say)
+    int8_t line_early_[SmsVdp::kMaxLines] = {};
+    // the frame's last line interrupt as line_scroll found it the line after: its line, the handler it runs, the
+    // scroll writes so far (within a frame only: SmsVdp::line_irq_line starts each frame at -1)
+    int irq_line_ = -1;
+    uint16_t irq_handler_ = 0, irq_writes_ = 0;
     int moved_at_ = 0;
     bool wide_ = false;   // (configured with widescreen: the hooks keep page_ and the extra sprites)
     bool demo_rom_ = false;   // the ROM holds the demos' patches (demo_patch_list), not patch_list
@@ -1621,6 +1651,45 @@ private:
         v.bg_alt_count = count;
     }
 
+    // A visual fix to the original, at every width (4:3 too, widescreen off included): the parallax bands' line
+    // interrupts land one line late. The counter underflows at the end of the line above the band's first tile row
+    // (stage 1's rooftops from line 128: at the end of line 127), and the handler's scroll write lands during that
+    // row's first line, so the row's top pixel line is drawn with the band above's scroll (1-2: the roofs' sky-orange
+    // top row shifted sideways into the brown city by the two scrolls' gap). A line due a band whose write has not
+    // landed yet is drawn with the scroll that write brings (-($C4A7 + k), read as the handler will read it): the
+    // split as if on time. The same a few lines further when the game takes the interrupt late (SPLIT_LATE). Only the
+    // picture changes: the registers, the line interrupts and everything the game reads stay the original's.
+    // The write is known to be coming from the VDP and the CPU: an interrupt raised at the end of a line above
+    // (SmsVdp::line_irq_line), still pending or its handler under way, with a handler that writes a band's scroll
+    // ($C91D as the line after the raise finds it: no handler has run so soon) and no scroll write since. (A status
+    // read outside the handler, $09A5 at a mode change, can lose one: then nothing is corrected.)
+    static int line_scroll(void* host, int line) {
+        SmsAladdin& mod = *(SmsAladdin*)host;
+        const Sms& s = *mod.sms_;
+        const SmsVdp& v = s.vdp;
+        if (line < 0 || line >= SmsVdp::kMaxLines) return -1;
+        mod.line_early_[line] = -1;
+        if (v.line_irq_line < 0) return -1;
+        if (line == v.line_irq_line + 1) {   // (the handler to run, before it can have moved the chain on)
+            mod.irq_line_ = v.line_irq_line;
+            mod.irq_handler_ = v.line_pending ? s.ram16(BAND_NEXT) : 0;
+            mod.irq_writes_ = v.hscroll_writes;
+        }
+        if (line < 16 || line >= 176 || !(v.reg[0] & 0x10)) return -1;   // (the playfield; line interrupts on)
+        if (mod.irq_line_ != v.line_irq_line || line - 1 - mod.irq_line_ > SPLIT_LATE || v.hscroll_writes != mod.irq_writes_)
+            return -1;
+        const uint16_t pc = s.z80.pc;
+        const bool under_way = (pc >= 0x0038 && pc < 0x0045) || (pc >= 0x01E9 && pc < 0x0258);   // ($0038, $01E9..)
+        if (!v.line_pending && !under_way) return -1;
+        int due = 0;
+        for (int k = 1; k < 4; k++)
+            if (mod.irq_handler_ == BAND_CHAIN[k]) due = k;
+        const int done = (uint16_t)(v.hscroll_writes - v.line_hscroll_writes[0]);   // (the frame's writes so far)
+        if (!due || done != due - 1) return -1;
+        mod.line_early_[line] = (int8_t)due;
+        return (-s.ram8((uint16_t)(BAND_SCROLL + due))) & 0xFF;
+    }
+
     // A line's background shift, as it is drawn: the status bar (lines 0-15) and the rows below the playfield
     // (176-191: blank, or a story moment's text box) stay; the level's lines slide by the view's shift. The band
     // values a line interrupt loads are read from RAM as it happens - the game's logic for the next frame may have
@@ -1637,7 +1706,8 @@ private:
         // (the band: the scroll writes since the frame's first line - the VBlank wrote the first band's)
         int k = mod.band_of(line);
         if (banded && line >= 0 && line < SmsVdp::kMaxLines)
-            k = std::min(3, s.vdp.line_hscroll_writes[line] - s.vdp.line_hscroll_writes[0]);
+            k = mod.line_early_[line] >= 0 ? mod.line_early_[line]   // (drawn with its split on time: line_scroll)
+                                           : std::min(3, s.vdp.line_hscroll_writes[line] - s.vdp.line_hscroll_writes[0]);
         if (line >= 0 && line < SmsVdp::kMaxLines) mod.line_band_[line] = (int8_t)k;
         if ((vs == 0 && !banded) || line < 16 || line >= 176) return 0;
         const int cam = shown_cam(s);
@@ -1705,9 +1775,9 @@ private:
     }
 
     static int sprite_x(void* host, int index, int x, int y, int pattern) {
-        (void)y; (void)pattern;
         const Sms& s = *((SmsAladdin*)host)->sms_;
         if (!shows_stage(s)) return story_sprite_x(s, index, x);
+        if (ready_sprite(s.vdp, index, x, y, pattern)) return x + s.vdp.sprite_shift;   // (the screen's: no slide)
         switch ((s.module_state[index >> 4] >> ((index & 15) * 2)) & 3) {
         case PAGE_RIGHT: return x + 256;
         case PAGE_LEFT: return x - 256;
