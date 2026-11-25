@@ -18,9 +18,23 @@ maps `$4800` / `$4000`) hold the level's leftovers past the panel's 32 columns a
 own repeat: nothing of a wider picture. The app's plain bars didn't take it: the panel's 8-px edge strip holds the
 frame's line, so it isn't plain (`plain_bar`). While the screen's task waits between the picture's set-up and the
 fade-out after B (`$81:F7B6` .. `$81:F90C`, read at the frame's start, so a loaded state draws the same) the module
-reports the frame as gameplay and hides every BG layer and the sprites in the margins: they show the backdrop, so the
-purple fills the width around the 4:3 panel and fades with it. The bonus wheel (`$2F`), the story scenes between
-stages (`$30`) and the continue screen are on black: their black bars look the same as a fill.
+reports the frame as gameplay and hides every BG layer in the margins: they show the backdrop, so the purple fills
+the width around the 4:3 panel and fades with it. The sprites are drawn there at their true x (the OAM builder's,
+as in a level), which only the Genie reaches: he (object type `$8F`, `$83:FA45`) waits out of sight at x -32 (y 200),
+flies right 4 px a frame for `$56` frames (`$40` counts them; the panel's task reads his x, `$A5`, and shows each
+portrait as he passes it), is moved to y 128 at x 312 and flies back left as many (`$14` set), and is deleted at
+x -32. His sprite is 48 px wide (x - 31 .. x + 17 facing right, x - 17 .. x + 31 facing left) and the draw range
+test hides him from x 292 on: every end of his path lies just past the game's screen by his own width. In the sides
+he so flies out whole instead of being cut at the 4:3 edge, but appears and goes beside the panel: he comes in from
+beside its left edge, flies out to the right and goes there, comes back 72 px higher 12 frames later and goes as he
+leaves its left edge. More of his path can't be shown: he waits without his draw flag and turns past the draw
+range (drawing him there would change the game's OAM in RAM). His first frame drawn shows tiles his graphics' upload hasn't replaced yet (past the
+4:3 screen's left edge in the game): the sides hide the sprites on that frame (`genie_loading`: his flight's loop,
+`$83:FA8C`, first pass, `$40` >= `$54` as the frame starts). The other sprites (the gem row, the portraits'
+sparkles, his trail) stay on the 256 px. The bonus wheel (`$2F`), the story scenes between stages (`$30`) and the
+continue screen are on black: their black bars look the same as a fill. While visible none of them nor the password
+screen (`$2C`) has a sprite past the 4:3 screen's edges (checked after every stage's last level, with and without a
+Genie token, and on the password screen with input).
 
 **Attract demos** (`$0331` = 2: the pad read from the recording at `$84:F700`; their level index is the level's own,
 `$00` for Agrabah Market) replay recorded input against the original game: anything that changes the code they run
@@ -651,7 +665,19 @@ margins and, where the view is split, moved to the picture's middle (`(extR - ex
   `snes_rewind.py` 106 all, 106 from the user's tower state and 140 from the glide state (0 differing),
   `snes_edges.py` 106 / 140 (identical output).
 
-## 7. High frame rate
+- STAGE CLEAR's Genie (section 1): `tools/re/snes_clear_genie.py`, all seven STAGE CLEARs at 30 / 46 / 68 / 106 and
+  52 / 72 / 96 / 140, each from its first frame against 4:3 with the same input through B to the next screen: the work
+  RAM identical in every frame, the game's 256 px identical to the 4:3 picture, the sides plain backdrop with the
+  sprites off, and with them every side pixel the Genie's (his box this frame or the last); he is in the sides on 56
+  frames, up to 55 px into the left and 59 px into the right one (all of them at 30 / 46 / 52). The STAGE CLEARs all
+  run his flight alike. His first frame (wrong tiles) is hidden with Remove Slowdown on and off; the app's shots at
+  21:9 from that state show him whole in the sides from his second frame. `r3_stageclear.py` at 106 / 140: as
+  before but for the sides holding more than one colour on 55 frames of each STAGE CLEAR (his flight). The bonus
+  wheel (after the Market at Dusk, the Agrabah Market and the Underground River with a token), every story scene
+  after a STAGE CLEAR and the password screen: no visible frame with a sprite past the 4:3 edges. `r2_parity.py`
+  (0 frames differing), `snes_attract.py 0 106 140t4` (0 RAM differences), `snes_rewind.py 106 all`, 106 from the
+  first frame of Jafar's Palace 3's STAGE CLEAR and 140 from the Carpet Escape's (0 differing), `hfr_test.py snes`
+  (all passed).
 
 With *High Frame Rate* on a 100 Hz+ display the PPU draws up to three in-between pictures with each line
 (`Ppu::subFrames`, `subFrame`; ported from the Super Mario All-Stars port's PPU). Each BG layer's line is drawn again
@@ -688,7 +714,9 @@ every frame; layer by layer the in-betweens at (1 - k/4) of the frame's move and
   on at): if the console's timing differs, they are a line or so off (the band's value is checked against the register
   at its edges).
 - STAGE CLEAR is widened with its plain backdrop only: the panel (its gold frame, the title, the CONGRATULATIONS
-  bar) keeps its 4:3 width in the middle of the purple. Its maps hold nothing wider.
+  bar) keeps its 4:3 width in the middle of the purple. Its maps hold nothing wider. Its Genie flies out into the
+  sides at his real place, but only one sprite's width (up to 55 px left, 59 px right): the game starts, turns and
+  deletes him just past its screen, so in the sides he appears and goes beside the panel (section 1).
 - Inside the Lamp 3's tower is centred; the level holds nothing beside it, so the sides are its gold pillars going on
   as a flat gold wall (their outer tile column reflected outward, their bands running on). The game has no such wall:
   it is made from the pillar's own pixels. Past other levels' ends the sides are their background mirrored.
