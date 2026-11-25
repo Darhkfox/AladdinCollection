@@ -162,7 +162,9 @@ left, which the blanked left column (reg 0 bit 5) hides. So the 32-column name t
 `tools/re/sms_map.py` implements both and checks them against VRAM: no mismatch in any stage.
 
 Parallax: stage 0's floor (lines 160-175) scrolls faster than the camera (`$C491`, `$C492`); stage 1's sky and city
-(lines 0-127) slower (`$C495`, `$C494`, `$C493`); stage 9 has a band from line 80. These bands repeat every 256 px.
+(lines 0-127) slower (`$C495`, `$C494`, `$C493`); stage 9 has a band from line 80. These bands repeat every 256 px. The
+splits land one line late (the scroll changes on 65 / 81 / 129 and 161 / 169, a line into the tile rows the bands
+start with): the module draws those lines with their band's scroll at every width (`docs/re_sms_wide.md` section 1).
 
 Pattern animation: stage 0 rewrites a few tiles with the camera (`$30F6`, the brick wall), stage 1 tiles 1-34 and
 257-272 (railings, roof faces), stages 2/4/9 animate water / torches; stage 7 reloads tiles 259-374 for each of
