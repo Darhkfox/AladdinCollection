@@ -171,8 +171,9 @@ ROM patches (`wide_patches(E)`, code caves in bank 1's unused zero fill, `$7A00`
 | bank `$12` `$B3D6` | `ld de,$0020` | `call $7A90` | the bird type `$3B` leaving by itself, the same test |
 | `$3E25` / `$3E29` | `ld de,$0040` / `$0170` | `call $7B10` / `$7B30` | stages 2 3 4 6 9: awake while x in [-64 - E + s, 304 + E + s) (hook at `$7B23`) |
 | `$3D86` / `$3D6B` | `ld (ix+$1D),0; ret` | `jp $7AD0` / `$7AF0` | sprite table full: skip the draw (see below) |
-| bank `$12` `$AAEB` | `ld a,h; or a; ret z` | `call $7B50` | rolling boulders come home off the view and the keep window (hook at `$7B54`) |
-| bank `$12` `$AC23` | `ld a,h; or a; ret z` | `call $7B50` | the Treasure Room's bats come home the same way |
+| bank `$12` `$AAEB` | `ld a,h; or a; ret z` | `call $7BA0` | rolling boulders come home: home not within [-64 - E + s, 256) (hooks at `$7BA4`, `$7BA8`) |
+| bank `$12` `$AC23` | `ld a,h; or a; ret z` | `call $7B50` | the Treasure Room's bats come home off the view and the keep window (hook at `$7B54`) |
+| bank `$12` `$A77A`, `$A862`, `$AA53`, `$AA7D`, `$AB12` | `ld a,(ix+$1D)` | `call $7B70` | the fixed hazards' awake test on the original's keep window (hook at `$7B73`, below) |
 | `$3D13`, `$425B`, bank `$12` `$B25A` | `ld b,$07` | `ld b,$0C` | the queue stages keep 12 objects (below) |
 | bank `$0C` `$AE9A`, `$B5C4` | `ld b,$07` | `ld b,$0C` | the other loops over them: stage 8's flying figure drops what waits for it; the Market's pursuer runs into what is on the screen |
 
@@ -196,7 +197,7 @@ plays the ROM holds none of these patches (below).
   the original's start: it dashed across the side and stayed a few px behind.) The `$3B` leaves by itself once 32 px past the
   screen's left edge (it drops off the bottom): past the view's, as everything else.
 * The Treasure Room's bats (type `$0D`, bank `$12` `$AC16`) come home (x -2, y 0: the original screen's top left
-  corner) by the boulders' test, and so through the same cave: off the view and past the keep window's left edge.
+  corner) by the boulders' old test (`$7B50`): off the view and past the keep window's left edge.
   Before, one that had flown off swooped out of the wide view's left side, 66 px inside it at 21:9.
 * Leaving: 32 px past the view's left edge (de = 32 + E - s) - or, for an object that shows nowhere (all its
   pieces above or below the screen: flown off the top, fallen off the bottom), where the original lets it go (de =
@@ -246,13 +247,33 @@ plays the ROM holds none of these patches (below).
   object at -64 is one passing by: hidden for that frame, it blinked.) The VBlank upload hook
   `$02D9` turns the pages into the displayed order (reversed on odd frames: `$C20E` bit 0) in module_state[0..3];
   `sprite_x` adds ±256 or hides; the VDP moves every sprite by the slide. Off the stages the hooks change nothing.
-* The Caverns' and the Treasure Room's rolling boulders (type `$0A`, bank `$12` `$AADE`) roll left from their home,
-  fall, and come back home once it is off the screen (hl = home - camera not within x 0..255): just past the
-  original's left edge, under its blanked column, which put them out of nothing 70-100 px inside a wide view's left
-  side. They come back once it is off the view, and on the left past the keep window's edge: not within [-64 - E +
-  s, 256 + E + s). (With 32 px on the left, a home between that and the window's edge brought the boulder back only
-  for it to roll out of the window, be put back home and wake again every 8 frames while the camera stood still, out
-  of sight; the original has the same loop for homes in [-64, 0).)
+* **Fixed hazards on the original's window.** The free-scrolling stages' hazards that stay where they are put tie
+  their logic to the awake flag (+`$1D`, set by the keep test `$3E1F`): the Caverns' ceiling boulders and what
+  drops from the Sultan's Palace's ceiling (types `$09` / `$1E`, handler `$A9D9`: fall once their x is in [64, 160); landed, they lie there while
+  awake and go back to the ceiling - re-armed - once asleep, `$AA53`), the rolling boulders (`$0A`, `$AA7D`: roll
+  left from home while awake; asleep, or after their fall, they come home), the geysers (`$0C`, `$A77A`: erupt every
+  few seconds while awake), the spikes (`$12`, `$A862`: rise and retract as Aladdin nears; asleep, back to their
+  first phase) and the crumbling ledges (`$0E`, `$AB12`: asleep, back home). With the wide keep window [-64 - E + s,
+  304 + E + s) they acted E + s px of camera travel early (a geyser's cycle, a boulder's roll, out of step with the
+  4:3 game's by the time Aladdin got there) and re-armed only as much further away: a ceiling boulder that had
+  fallen stayed on the floor when Aladdin came back, where the 4:3 game had put it back at the ceiling to fall
+  again (the user's state in the Caverns, sub-area 2: walk left to the wall, back right - at 4:3 the boulder at
+  world x 1216 is asleep at x 304 and falls again at x 150; at 21:9 it stayed awake, on the floor, and never fell).
+  Their `ld a,(ix+$1D)` (each followed by `or a`) now calls `$7B70` (`ld a,(ix+$1D); ret`), and a hook at its `ret`
+  (`awake43`) clears a outside [-64, 304), the original's window: they act, re-arm and come home at the moment the
+  4:3 game has them do it, relative to Aladdin, at every width. They stay awake in the wide window for the drawing
+  and the touch test, so they show in the sides as they are (a geyser waiting there shows its splash, a boulder
+  hanging at the ceiling); one the 4:3 game re-arms or brings home just past its own screen does so in a side (a
+  landed boulder back at the ceiling at x 304, at the right side's far end at 21:9). The queue stages' objects wake
+  and leave by their own rules (stage 8's ceiling drops, type `$1E`): unchanged there. The extra `call` / `ret`
+  cycles are taken off (`slot_begin`'s clock).
+* The Caverns' and the Treasure Room's rolling boulders (type `$0A`, bank `$12` `$AADE`) come back home once it is off
+  the screen (hl = home - camera not within x 0..255) and roll again from there. On the right this is the 4:3 game's
+  test (home x 256 or more: a boulder that rolls again and again from a home just past the 4:3 edge does so at every
+  width, coming home in the right side); on the left a home under the original's blanked column put the boulder out
+  of nothing 70-100 px inside a wide view's left side, rolling away left out of play: there it comes home only past
+  the wide keep window's edge, home not within [-64 - E + s, 256). (Before, home had to be off the view on the right
+  too: a boulder whose home was in the right side never came back.)
 * The attract mode's demos replay recorded input against the original game. Any change to the code they run
   changes their course: the windows above (objects act earlier), the cheats, and also the number of instructions,
   as the game's random numbers take the Z80's R register. At 2:1 square and wider the third demo (The Rooftops)
@@ -418,7 +439,9 @@ story screens are now drawn wide where their picture allows it (`story_screen`, 
   floor-top boulders above water, and a dark gap where the picture's dark columns 0-1 met it - and the floor again on
   the right, after the picture's water: the user's "left/right borders issues", QA state `ready/r.state`.) $10 / $18 / $1A pillars on the left (0-8,
   not the throne), the room on the right (0-27); $11 / $13 and $15 / $17 stars on the left (0-12), the balcony / cliff
-  carried on on the right (24-31 or 28-31); $12 and $1E sky, railing or floor (0-15); $1C plain sky and the balcony
+  carried on on the right (24-31 or 28-31); 4's hidden column, rows 18-19, the left side's (its cells there are bare
+  rock without the priority bit, never shown on the hardware: a dark block under the ridge that runs into it from the
+  left side; now the ridge goes on to the hill at column 1); $12 and $1E sky, railing or floor (0-15); $1C plain sky and the balcony
   (28-31); $1F the floor around the hourglass (0-7 / 24-31). Kept 4:3, with black bars: 8 (a rock cut by the right
   edge), $C and $D (rock walls cut by both edges), $14 (a roof's slope cut by the left edge), $16 (the Genie's cave,
   lit from the middle, black rock at the right edge). Chosen with an offline model of the rules for every scene, then
@@ -440,9 +463,15 @@ story screens are now drawn wide where their picture allows it (`story_screen`, 
   their true X: the game's sprite table, its RAM, stays as it is. Scenes keep characters waiting off the screen for
   their cue (scene 0's second guard at x -48 for 557 frames, Aladdin at -16 for 1009 frames in $18, a figure at -36 in 4):
   a character is drawn beyond the 256 px only once it has been on them (X within 0..255, or one of its pieces shown
-  there: the writer has put the piece's Y in the buffer before its X) since it was put where it is (a jump of more
-  than 16 px, or another scene). So one leaving walks on into the side (and stays there if it stops there), one
-  waiting stays unseen unless the scene's walk (below) draws it.
+  there - past the blanked column, x 8 on: the writer has put the piece's Y in the buffer before its X) since it was
+  put where it is (a jump of more than 16 px, or another scene). So one leaving walks on into the side (and stays
+  there if it stops there), one waiting stays unseen unless the scene's walk (below) draws it. While a character
+  isn't shown, its pieces under the blanked column (x 0..7, which a widened scene shows) are hidden too, as the
+  hardware hides them. (Scene 4's guard waits at x -36 for the whole scene with two pieces at x 4, under the blanked
+  column: counted as shown, he was drawn in the left side, mostly behind the rocks' priority cells, his turban and
+  a foot poking out at the 4:3 picture's bottom left corner, in the hidden column - the user's "garbage graphics at
+  the bottom left", a state in scene 4. Before the walks, characters coming in from the left showed as a sliver in
+  that column for a few frames - scenes 0, 3, 9, $B, $10, $1D, $1E: now nothing there until they are drawn whole.)
 * **Walks** (`kSceneWalks`, generated by `tools/re/sms_scene_walks.py`): the scenes move their characters by a clock of
   their own, -(`$CF79`), counted by `$6100` on each pass of the scene's logic and not while text is written (a button
   hurries the text, not the clock: the characters' X per tick is the same with and without button-1 taps, every
@@ -566,11 +595,13 @@ scene 3 at 102 differs in 76 of 954 (the characters in the sides).
 | attract mode | `sms_attract.py`, 60,000 frames at every width, with and without cheats | RAM identical to 4:3 every frame; 12 demos, never a game over |
 | widescreen off | the module at E = 0 against the plain core: attract 20,000 frames, every stage 3,000 | RAM identical; the picture identical but for the late splits' lines drawn on time (section 1), a visual fix to the original |
 | object wakes / pop-in | `sms_wakes.py 74 102`, every stage 4200 frames; `sms_popin.py` | section 3: none inside the view but the original's own |
+| fixed hazards | stages 2 3 4 6 driven right then left, every logic step at the same camera, each hazard (types `$09 $0A $0C $0E $12 $1E`) against 4:3 at 74 / 102; the user's Caverns state walked left to the wall and back at 0 / 74 / 102 | state, Y and X as at 4:3 (before: the ceiling boulders, geysers and rolling boulders out of step for hundreds of steps); the boulder falls again on the same frame at every width (before: never, at 74 and 102); left: the rolling boulders' homes under the blanked column (section 3) |
 | width changes | E 0 → 102 → 40 in stage 5 | waiting objects wake for the current E |
 | slowdown | `r2_lag.py` (QA, round 2), every stage at 0 / 22 / 74 / 102, 3000 frames | section 3, "CPU time": near 4:3 everywhere |
 | left behind, fade-outs | stage 1 standing still and walking back, stage 8's wall; every auto-scrolling stage's exit, a death to TRY AGAIN | sections 2 and 5 |
 | story screens | every scene, the intro, title and ending at 74 and 102 (tool), the app at 21:9 CRT (before / after); `sms_rewind.py 74 102 --scenes .. --ending` | section 5a; rewind identical |
 | scene walks | every walk: each frame from 6 before t0 to 8 after at 74 / 102, strips at 74 / 102, the app at 21:9 CRT and square (before / after); scenes as played from the QA playthrough states: RAM, VRAM, CRAM at 74 and 102 against 4:3 (and the plain core) every frame through every story screen into the next stage, without input and with button-1 taps | no doubled or missing character at the hand-over; identical |
+| scene characters under the blanked column | every scene from the title at 74 / 102 against the build before the walks, frame by frame (pictures), and the sprite pixels in the hidden column | scene 4's waiting guard unseen again (turban and foot gone), its hidden column's bottom cells the ridge; characters walking in from the left are drawn whole from their first piece past x 8 (before the walks a sliver in the hidden column for a few frames: 0, 3, 9, $B, $10, $1D, $1E) |
 | scene sides | every scene's table against the ROM model every 10 frames; the tiles the model uses, every 5 frames; the 4:3 edges of every widened scene at 74 | the spell in $10 the only picture drawn over (now repeated from the table); no tile reloads; $A's rule remade |
 | screen changes | GAME START and PASSWORD from the title, a password taken, game over (continue) at 21:9 CRT (tool, app); QA's round-3 replays (`r3_play_e74`, `r3_play_e74b`: to scene $11, and scene $23 to the title), frames where the sides change under a still 4:3 picture | section 5a "A wait before the fade": none but characters walking in a side |
 | screen-fixed texts | READY at stages 0 2 5's (re)start, PAUSE at a stage's start (slid) and mid-stage, TRY AGAIN?, at 0 / 74 / 102 with `hud_anchor` on and off (tool and app) | section 5: centred in the wide picture (READY was E px left at a start before) |
@@ -600,6 +631,11 @@ another width, name or sprite table, a loaded state. The status bits stay the fr
 * The walls stages 0 and 1 animate with the camera (section 4a) have no look of their own for places off the
   original screen: there they show the look the tables give the nearest place they have right (a right wall all
   face, a left wall all face or none), not a face wider than the original ever draws.
+* The free-scrolling stages' fixed hazards (ceiling boulders, rolling boulders, geysers, spikes, crumbling ledges)
+  run on the original's window (section 3): one the 4:3 game re-arms or brings home just past its own screen does
+  so where a wide view shows it (a landed boulder back at the ceiling at the far end of a side). A rolling boulder
+  whose home is under the original's blanked column comes home only past the wide keep window's edge (it would
+  come out of nothing in the left side, rolling away from Aladdin).
 * Left behind by the scroll Aladdin is lost at the view's edge (section 2), and can walk back in until then: a
   wider view gives him more time than the original.
 * With the sprite limit on ("Remove Sprite Flicker" off), sprites in the sides count towards the 8 per line.

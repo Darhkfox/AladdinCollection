@@ -151,10 +151,15 @@ constexpr uint16_t GAME_OVER_ENTRY = 0x7270, DEMO_END = 0x352C;
 // 4:3 (in_stage); as a second line of defence every cave first tests $C104 and does what the original does.
 // Code caves in bank 1's unused zero fill ($7943-$7DFF).
 constexpr uint16_t CAVE_WAKE = 0x7A00, CAVE_GONE = 0x7A90, CAVE_FULL_A = 0x7AD0, CAVE_FULL_B = 0x7AF0,
-                   CAVE_KEEP_A = 0x7B10, CAVE_KEEP_B = 0x7B30, CAVE_BOULDER = 0x7B50;
+                   CAVE_KEEP_A = 0x7B10, CAVE_KEEP_B = 0x7B30, CAVE_BOULDER = 0x7B50, CAVE_AWAKE43 = 0x7B70,
+                   CAVE_ROLL_HOME = 0x7BA0;
 // the caves' last instructions, where the module's hooks put the values for the view of the frame (see configure)
 constexpr uint16_t CAVE_WAKE_DECIDE = CAVE_WAKE + 11, CAVE_GONE_DE = CAVE_GONE + 19, CAVE_KEEP_A_DE = CAVE_KEEP_A + 19,
-                   CAVE_BOULDER_DE = CAVE_BOULDER + 4;
+                   CAVE_BOULDER_DE = CAVE_BOULDER + 4, CAVE_ROLL_HOME_DE = CAVE_ROLL_HOME + 4,
+                   CAVE_ROLL_HOME_DE2 = CAVE_ROLL_HOME + 8;
+// (CAVE_AWAKE43's `ret`, where awake43 sets a; the cycles it takes more than the `ld a,(ix+$1D)` it replaces)
+constexpr uint16_t CAVE_AWAKE43_RET = CAVE_AWAKE43 + 3;
+constexpr int CAVE_AWAKE43_COST = 46 - 19;
 constexpr uint16_t CAVE_FULL_A_WIDE = CAVE_FULL_A + 16, CAVE_FULL_B_WIDE = CAVE_FULL_B + 16;   // (their wide paths)
 // the Z80 cycles the wake and leave tests' caves take more than the instructions they replace (given back: slot_begin)
 constexpr int CAVE_WAKE_COST = 75 - 16, CAVE_GONE_COST = 97 - 10, CAVE_KEEP_COST = 97 - 10;
@@ -246,12 +251,10 @@ std::vector<RomPatch> wide_patches(int E) {
         0xF1,                    // done: pop af
         0xC9,                    // ret
     });
-    // The Caverns' and the Treasure Room's rolling boulders (type $0A, bank $12 $AADE) come back to their home once
-    // it is off the screen (`ld a,h; or a; ret z` with hl = home - camera: not within x 0..255) - just past the
-    // original's left edge, under its blanked column, they popped up inside a wide view's left side. Off the view
-    // now, and on the left past the keep window's edge: not within [-64 - E + s, 256 + E + s). (A home between the
-    // two came back only to roll out of the window at once and be put back home again, every few frames while the
-    // camera stood still: one past the window's edge stays asleep there.)
+    // The Treasure Room's bats (type $0D, bank $12 $AC16) come back to their home once it is off the screen (`ld a,h;
+    // or a; ret z` with hl = home - camera: not within x 0..255) - just past the original's left edge, under its
+    // blanked column, they popped up inside a wide view's left side. Off the view now, and on the left past the keep
+    // window's edge: not within [-64 - E + s, 256 + E + s).
     const std::vector<uint8_t> boulder = {
         0xE5,                    // push hl
         0x11, lo(64 + E), hi(64 + E),               // ld de,64+E
@@ -259,6 +262,44 @@ std::vector<RomPatch> wide_patches(int E) {
         0x11, lo(320 + E2), hi(320 + E2),           // ld de,320+2E
         0xB7,                    // or a
         0xED, 0x52,              // sbc hl,de           in the view or the keep window left of it
+        0xE1,                    // pop hl
+        0xD0,                    // ret nc              (back: come home)
+        0xD1,                    // pop de              (the call's return)
+        0xAF,                    // xor a
+        0xC9,                    // ret                 (as the original `ret z`: not yet)
+    };
+    // The free-scrolling stages' fixed hazards run on the original's keep window, x in [-64, 304) ($3E1F), not the
+    // wide one: what they do while awake starts, and what they do once asleep (re-arm, come back home) happens, at
+    // the moment the 4:3 game does it, relative to Aladdin - at every width. The wide window had them act E + s px of
+    // camera travel earlier and re-arm only that much further away: a ceiling boulder that had fallen stayed on the
+    // floor when Aladdin came back (the 4:3 game had put it back at the ceiling: it falls again). They stay awake in
+    // the wide window for the drawing (the flag the VDP and the touch test read). CAVE_AWAKE43 replaces their
+    // `ld a,(ix+$1D)` (each followed by `or a`); the hook at its `ret` (awake43) clears a outside the original's
+    // window (in the free-scrolling stages: the queue stages' objects wake and leave by their own rules, section 3).
+    //   bank $12 $A77A  type $0C, the Caverns' geysers: erupt every few seconds while awake (sound $CC)
+    //   bank $12 $A862  type $12, spikes: rise / retract as Aladdin nears; asleep: back to their first phase
+    //   bank $12 $AA53  types $09 / $1E (handler $A9D9: the Caverns' ceiling boulders, the Sultan's Palace's ceiling
+    //                   drops): fall once x is in [64, 160); landed, they lie there while awake and go back to the
+    //                   ceiling once asleep
+    //   bank $12 $AA7D  type $0A, rolling boulders: roll left from home while awake, come home once asleep
+    //   bank $12 $AB12  type $0E, ledges that crumble under Aladdin: asleep, back home
+    const std::vector<uint8_t> awake43 = {
+        0xDD, 0x7E, 0x1D,        // ld a,(ix+$1D)       (the original's)
+        0xC9,                    // ret                 CAVE_AWAKE43_RET: a as the original's window has it
+    };
+    // The rolling boulders (type $0A, bank $12 $AADE) come back home after their fall once home is off the original
+    // screen (the same `ld a,h; or a; ret z`): on the right, home x 256 or more, as the 4:3 game does - so a boulder
+    // that rolls again and again from a home just past the 4:3 edge does so at every width (seen coming home in the
+    // right side). On the left not within the wide keep window's edge, -64 - E + s (a home there came back under the
+    // original's blanked column - it popped up inside a wide view's left side - and rolls away left, out of play):
+    // home not within [-64 - E + s, 256).
+    const std::vector<uint8_t> roll_home = {
+        0xE5,                    // push hl
+        0x11, lo(64 + E), hi(64 + E),               // ld de,64+E
+        0x19,                    // add hl,de           CAVE_ROLL_HOME_DE: de = 64 + E - the slide
+        0x11, lo(320 + E), hi(320 + E),             // ld de,320+E
+        0xB7,                    // or a                CAVE_ROLL_HOME_DE2: de = 320 + E - the slide
+        0xED, 0x52,              // sbc hl,de
         0xE1,                    // pop hl
         0xD0,                    // ret nc              (back: come home)
         0xD1,                    // pop de              (the call's return)
@@ -278,11 +319,18 @@ std::vector<RomPatch> wide_patches(int E) {
         // side); the Market's pursuer runs into what is on the screen (bank $0C $B5C0))
         {0x32E9A, {0x06, QUEUE_SLOTS}, {0x06, QUEUE_WIDE}},
         {0x335C4, {0x06, QUEUE_SLOTS}, {0x06, QUEUE_WIDE}},
-        {0x4AAEB, {0x7C, 0xB7, 0xC8}, {0xCD, lo(CAVE_BOULDER), hi(CAVE_BOULDER)}},
-        // (the Treasure Room's bats, type $0D, bank $12 $AC16, the same test: one that flew off came home at x -2, the
-        // top left corner of the original screen, and swooped out of the wide view's left side)
+        {0x4AAEB, {0x7C, 0xB7, 0xC8}, {0xCD, lo(CAVE_ROLL_HOME), hi(CAVE_ROLL_HOME)}},
+        {CAVE_ROLL_HOME, zeros(roll_home.size()), roll_home},
+        // (the Treasure Room's bats, type $0D, bank $12 $AC16: one that flew off came home at x -2, the top left corner
+        // of the original screen, and swooped out of the wide view's left side)
         {0x4AC23, {0x7C, 0xB7, 0xC8}, {0xCD, lo(CAVE_BOULDER), hi(CAVE_BOULDER)}},
         {CAVE_BOULDER, zeros(boulder.size()), boulder},
+        {0x4A77A, {0xDD, 0x7E, 0x1D}, {0xCD, lo(CAVE_AWAKE43), hi(CAVE_AWAKE43)}},
+        {0x4A862, {0xDD, 0x7E, 0x1D}, {0xCD, lo(CAVE_AWAKE43), hi(CAVE_AWAKE43)}},
+        {0x4AA53, {0xDD, 0x7E, 0x1D}, {0xCD, lo(CAVE_AWAKE43), hi(CAVE_AWAKE43)}},
+        {0x4AA7D, {0xDD, 0x7E, 0x1D}, {0xCD, lo(CAVE_AWAKE43), hi(CAVE_AWAKE43)}},
+        {0x4AB12, {0xDD, 0x7E, 0x1D}, {0xCD, lo(CAVE_AWAKE43), hi(CAVE_AWAKE43)}},
+        {CAVE_AWAKE43, zeros(awake43.size()), awake43},
         {0x3E50, {0x2A, 0x82, 0xC4}, {0xCD, lo(CAVE_WAKE), hi(CAVE_WAKE)}},
         {CAVE_WAKE, zeros(wake.size()), wake},
         {0x3EC5, {0x11, 0x20, 0x00}, {0xCD, lo(CAVE_GONE), hi(CAVE_GONE)}},
@@ -609,6 +657,16 @@ void wake_decide(Sms& m) {
     m.z80.hl = 0xFFFF;
 }
 
+// A fixed hazard's awake test (ix = the object; a = its +$1D, CAVE_AWAKE43_RET): in the free-scrolling stages awake
+// only inside the original's keep window, x in [-64, 304) ($3E1F), so it acts, re-arms and comes home when the 4:3
+// game has it do so (wide_patches). The queue stages' objects (stage 8's ceiling drops, type $1E) wake at their
+// X and leave by the leave test: as before.
+void awake43(Sms& m) {
+    if (queue_objects(m.ram8(STAGE)) || demo_playing(m)) return;
+    const int x = (int16_t)m.ram16((uint16_t)(m.z80.ix + 2));
+    if (x < -64 || x >= 304) m.z80.af &= 0x00FF;   // (a = 0: the caller's `or a` reads it)
+}
+
 // The objects' CPU time. A wide view keeps more objects awake (they wake earlier and leave later), the queue stages
 // (0/1/5/7/8) in more slots (QUEUE_WIDE): the objects' loop no longer fit the frame, and the auto-scrolling stages
 // lagged (the logic missed frames: the scroll stalled, the Rooftops took 18 % longer at 21:9). A pass of the loop (a
@@ -786,7 +844,9 @@ const SceneRule kSceneRules[SCENES] = {
     {1, {WHOLE}},   // 1 the market: the guard and Jasmine (stalls meet across the edges)
     {1, {WHOLE}},   // 2 the rooftops: Aladdin and Jasmine run (the tower repeats)
     {1, {WHOLE}},   // 3 the rooftops: the pole vault
-    {1, {WHOLE}},   // 4 the desert hills over Agrabah
+    // 4 the desert hills over Agrabah: the hidden column's two bottom cells are bare rock (never shown), under the
+    // ridge that runs into it from the left side: the left side's (the ridge goes on to the hill at column 1)
+    {1, {WHOLE}, 0x3u << 18},
     {1, {WHOLE}},   // 5 the palace wall: the guards take Aladdin
     {1, {WHOLE}},   // 6 the palace: Jafar and Jasmine (pillars and windows)
     {1, {WHOLE}},   // 7 the dungeon
@@ -1086,6 +1146,8 @@ struct StorySprites {
     // the screen the pieces belong to (kind << 8 | scene; kept through a screen's fade-out)
     static uint16_t screen_key(const Sms& m) { return (uint16_t)(story_screen(m) << 8 | m.ram8(SCENE)); }
     static bool hidden_y(uint8_t y) { return y >= 0xBF && y < 0xE0; }   // (below the picture: the writers' $C0 - 1)
+    // the end of the column the hardware blanks (x 0..7 on the screen), as a table X (reg 0 bit 3 shifts sprites 8 left)
+    static int blanked_end(const Sms& m) { return (m.vdp.reg[0] & 0x08) ? 16 : 8; }
     void piece(const Sms& m, int slot, int c) {
         if (slot < 0 || slot >= 64 || c < 0 || c >= CHARS) return;
         const int px = (int16_t)m.z80.hl;
@@ -1099,8 +1161,11 @@ struct StorySprites {
         tick = scene_tick(m);
         const int cx = (int16_t)m.z80.bc;
         if (at[c] == NONE || std::abs(cx - at[c]) > 16) seen[c] = 0;
-        // (the writer has put the piece's Y in the buffer already: a piece shown on the 256 px shows its character)
-        if ((cx >= 0 && cx < 256) || (px >= 0 && px < 256 && !hidden_y(m.ram8((uint16_t)(SAT_Y + slot))))) seen[c] = 1;
+        // (the writer has put the piece's Y in the buffer already: a piece shown on the 256 px shows its character -
+        // past the blanked column x 0..7, where the hardware shows nothing: scene 4's guard waits at x -36 for the
+        // whole scene with two pieces at x 4, unseen in the original)
+        if ((cx >= 0 && cx < 256) || (px >= blanked_end(m) && px < 256 && !hidden_y(m.ram8((uint16_t)(SAT_Y + slot)))))
+            seen[c] = 1;
         at[c] = (int16_t)cx;
     }
     // the list's character whose X ($CF37 + 4k + 2) the writer at $50D4 adds ($CF33 points at it)
@@ -1191,9 +1256,17 @@ struct StorySprites {
             }
         }
         for (int w = 0; w < 4; w++) m.module_state[w] = 0;
+        const int blanked = blanked_end(m);
         for (int i = 0; i < 64; i++) {
             const int slot = rev ? 63 - i : i;
-            if (!valid[slot] || x[slot] == NONE || (x[slot] >= 0 && x[slot] < 256)) continue;
+            if (!valid[slot] || x[slot] == NONE) continue;
+            if (x[slot] >= 0 && x[slot] < 256) {
+                // (a piece of a character not shown, under the column the hardware blanks: hidden, as there - the
+                // widened scene shows that column, and scene 4's waiting guard showed his turban in it)
+                if (x[slot] < blanked && !show[who[slot]] && (kind != STORY_SCENE || scene_up))
+                    m.module_state[i >> 4] |= (uint32_t)PAGE_HIDDEN << ((i & 15) * 2);
+                continue;
+            }
             m.module_state[i >> 4] |= (uint32_t)PAGE_HIDDEN << ((i & 15) * 2);
             if (show[who[slot]] && !walk[who[slot]] && (kind != STORY_SCENE || scene_up))
                 add(x[slot] - shift, snap[slot][0], snap[slot][2], nullptr);
@@ -1497,6 +1570,10 @@ public:
         });
         s.add_pc_hook(CAVE_KEEP_B_END, [](Sms& m) { m.z80.wait_cycles -= CAVE_KEEP_COST; });
         s.add_pc_hook(CAVE_BOULDER_DE, [slide_now](Sms& m) { m.z80.de = (uint16_t)(64 + m.vdp.ext - slide_now(m)); });
+        s.add_pc_hook(CAVE_ROLL_HOME_DE, [slide_now](Sms& m) { m.z80.de = (uint16_t)(64 + m.vdp.ext - slide_now(m)); });
+        s.add_pc_hook(CAVE_ROLL_HOME_DE2, [slide_now](Sms& m) { m.z80.de = (uint16_t)(320 + m.vdp.ext - slide_now(m)); });
+        // the fixed hazards' awake test as the original's keep window has it (wide_patches, CAVE_AWAKE43)
+        s.add_pc_hook(CAVE_AWAKE43_RET, [](Sms& m) { awake43(m); m.z80.wait_cycles -= CAVE_AWAKE43_COST; });
         s.add_pc_hook(CAVE_FULL_A_WIDE, undrawn);
         s.add_pc_hook(CAVE_FULL_B_WIDE, undrawn);
         // the objects' loops, a pass per object (queue stages $3D15..$3D39, the others $3CBC..$3CE4): CPU time the
