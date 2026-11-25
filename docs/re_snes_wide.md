@@ -9,8 +9,18 @@ Extension per side (`wide_ext`, `src/app/settings.cpp`): CRT pixels 30 / 46 / 68
 A level is on screen while the main task waits in the level's main loop or its pause loop (task 0's saved return
 address `$81:82E9` / `$81:83FA`), or the loop's top (`$81:82CF`, an exec hook) ran within the last 4 frames (a frame
 the game's logic doesn't finish in leaves the task running and its saved stack stale). Everything else - logos,
-title, OPTIONS, password, story scenes, STAGE CLEAR, the bonus wheel, continue, the ending and staff roll - is
-reported as no gameplay and pillarboxed, and so is a level the game runs as an attract demo.
+title, OPTIONS, password, story scenes, the bonus wheel, continue, the ending and staff roll - is reported as no
+gameplay and pillarboxed, and so is a level the game runs as an attract demo. STAGE CLEAR is drawn wide (below).
+
+**STAGE CLEAR** (screen `$24`) is a panel - a gold frame 4 px inside the screen's edges, the title, the password's
+portraits (sprites), the CONGRATULATIONS bar - on the backdrop, colour 0 (`$1806`, a dark purple). BG1 / BG2 (64-column
+maps `$4800` / `$4000`) hold the level's leftovers past the panel's 32 columns and BG3 (32 columns, scrolled 252) its
+own repeat: nothing of a wider picture. The app's plain bars didn't take it: the panel's 8-px edge strip holds the
+frame's line, so it isn't plain (`plain_bar`). While the screen's task waits between the picture's set-up and the
+fade-out after B (`$81:F7B6` .. `$81:F90C`, read at the frame's start, so a loaded state draws the same) the module
+reports the frame as gameplay and hides every BG layer and the sprites in the margins: they show the backdrop, so the
+purple fills the width around the 4:3 panel and fades with it. The bonus wheel (`$2F`), the story scenes between
+stages (`$30`) and the continue screen are on black: their black bars look the same as a fill.
 
 **Attract demos** (`$0331` = 2: the pad read from the recording at `$84:F700`; their level index is the level's own,
 `$00` for Agrabah Market) replay recorded input against the original game: anything that changes the code they run
@@ -139,8 +149,8 @@ so one side can take both extensions, 2 x 140).
 
 **Where the view stops** (`span`): at the level's ends, `[0, $1A04 + 256)` less the columns of pages no row the
 camera reaches may enter (bit 15 top to bottom: `level_extent`; the Underground River's first 256 px, where its camera
-never goes - a first version stopped at 0 there and showed that column dimmed and mirrored), and on an arena's screen
-when the camera is held in x while free in y (`$1A10` set, `$1A12` clear: Jafar, the Cave of Wonders' last event). The
+never goes - a first version stopped at 0 there and showed that column dimmed and mirrored), in a shaft (below), and
+on an arena's screen when the camera is held in x while free in y (`$1A10` set, `$1A12` clear: Jafar, the Cave of Wonders' last event). The
 view is centred on the camera and stops there; an arena's picture is centred on its screen but kept inside the level
 where the level is as wide as the picture (the Cave's end: centred, it went a pixel past the level's end once the
 offset closed); a span narrower than the picture is centred. That is where every layer can follow a view that stays
@@ -149,16 +159,65 @@ still while the game's camera moves (`can_stop`): BG1, and BG2 in every level's 
 first version kept the view centred in those seven levels, with the level mirrored and dimmed past their ends; before
 that they stopped with the bands sliding against the still picture.) A mode outside those would keep the view centred.
 
-The span changes only at an arena or when the level's width changes (Jafar's room). The view's offset to its new place
-then closes only as the game's camera moves (at most 4 px a frame, and no more than the camera moved): the picture
-never pans by itself while the game's screen holds still. (A first version also stopped at the zones' camera limits and
-at pages the camera can't enter at its height and slid there by itself: in play testing layers moved where the
-console's don't. `tools/re/snes_motion.py` measures each layer's motion from the pixels and checks it.)
+**Shafts.** Where every page row of the game's screen (camera y to + 223) holds only the camera's own page column - the
+pages beside it may not be entered (bit 15) or lie outside the level - the game's camera is pinned in x, and the span
+is that column, 256 px, centred (`shaft`). Two in the game: Inside the Lamp 3 (level `$0A`, page column 0 from row 1
+to its start in row 7; the corridor in row 0 runs right to x 3328) and the Cave of Wonders' drop (column 11, row 2,
+between its upper rows and the treasure room's row 3; there the view is centred anyway). The pages beside a shaft hold
+nothing of the level: the game draws a bit-15 page as page 0 (the tower's bottom), and VRAM beside the screen holds
+that. So the sides show what any level shows past its end (below): the tower's own background going on beyond its
+gold pillars, nothing of the tower itself. Before, the tower took the level's extent (the corridor's), so the view
+stopped at x 0: the tower stood at the picture's left edge with 212 px (106) / 280 px (140) of it mirrored and dimmed
+on the right, its right wall doubled - the user's report from the tower at 21:9, "not centred and mirrored badly".
+The span becomes a shaft's as the screen leaves the corridor's row (camera y past 256) and the corridor's as it
+reaches it again.
+
+The span changes only at an arena, when the level's width changes (Jafar's room) or into and out of a shaft. The view's
+offset to its new place then closes only as the game's camera moves (at most 4 px a frame, and no more than the camera
+moved; into or out of a shaft, where the camera moves only in y, its move in y counts too): the picture never pans by
+itself while the game's screen holds still. Climbing out of the tower the picture glides from centred to the
+corridor's start over the first ~30 frames of the screen's climb, and back as Aladdin drops in. (A first version
+also stopped at the zones' camera limits and at pages the camera can't enter at its height and slid there by itself:
+in play testing layers moved where the console's don't. `tools/re/snes_motion.py` measures each layer's motion from
+the pixels and checks it.)
+
+**Past the level's ends** on each line - its own page row's pages the camera may enter around the game's screen (a page
+it may not, bit 15, the game draws as page 0), within the level's width - the margins show scenery beside the level,
+not the level: BG2 mirrored about the level's edge on the line, at full brightness; BG1 (walls, platforms, props) and
+the sprites are not drawn there, on the status bar's lines too (`Ppu::wideMirror` = BG2 only, `wideShowKeep` = BG3;
+black instead with *Past Level Ends: Black*, `Ppu::edgeMirror`). Nothing there is a place to go, so nothing there
+looks like one, and nothing needs dimming. Where a strip of the level at the edge hides BG2 on every line of its page
+(`edge_cover`: BG1's tile columns from the page's edge in whose tiles draw every pixel in all 32 tile rows, cached per
+frame), BG2 is mirrored about the strip's inner edge instead (`Ppu::wideMirrorLo/Hi`: the part of the span the mirror
+takes its pixels from). Inside the Lamp 3's tower stands between two gold pillars 32 px wide (4 tile columns on every
+line of page column 0, rows 0-7), complete pillars with their ornament centred, and its background (BG2: its own one
+page wide column from row 1, at half the camera's speed in y) has nothing drawn behind them (tile columns 0-3 and
+28-31 empty). Mirrored about the pillars' inner edges, the sky, columns, ornament bridges and clouds seen between them
+go on past them, the joins stay behind the pillars, and the pillars end at the tower's edges as on the console's
+screen (doubled, as before, they made 64-px pillars with two ornaments side by side). The mirror takes the same span on
+every line of the tower and on the corridor's lines past the level's left end, so the sides run on unbroken while the
+view glides between the two. Where BG2 is drawn shifted (`bgHofsAdj`: the view gliding or stopped at the corridor's
+start while the game's camera isn't, BG2 at half speed) its blank strip comes out from behind a pillar, up to ext / 2
+px: the mirror leaves that out too. It reflects the pixels drawn between the pillars on the screen, never level data
+the game doesn't show: the pages beside the tower hold BG2's page 0 (gold pillars), and BG2's corridor row runs on to
+the right with columns cut off where the game never looks. Where the sides are wider than that span (the corridor's
+start at 21:9: the right side 212 / 280 px, the span 192 px less the shift) the second reflection shows the clouds'
+edges near the left pillar. Before, the level itself was mirrored there and dimmed: in the tower both pillars doubled,
+the genie statues, pink platforms and vines mirrored into the sides (the user's report at 21:9: "I don't think it
+should have the genie in the dimmed out area. In fact I'm not sure it actually needs to be dimmed since the player
+can't reach the area").
+A first try mirrored BG2 about the tower's page edges: its blank strips came out as a 32-px band of plain sky beside
+each pillar and the clouds were cut straight. Drawn from BG2's data at its place on the game's screen (one mapping per
+side), the mirror's axis came out from behind the pillar while the view glided (a narrow band of cloud doubled about
+it), and a reflection reached BG2's page 0; the tile fetch can't take an axis off BG2's own 8-px grid anyway.
+The other places with sides past the level (the mirror run against the black run, every level's start and end walks
+and the play bot, 1,800 frames, at 140): Agrabah Rooftops' start (past the rock face that ends its row: before its
+mirror image dimmed, now the pink sky band beyond the cliff), the Underground River's end (the top-left corner over
+the rocks: the dark cave background), Jafar's room at 21:9 with square pixels (12 px a side, the room on BG2: the
+room's picture mirrored at full brightness instead of two dim bands) and single sprites' pixels on the bar's lines in
+Sultan's Dungeon 2 and Jafar's Palace 2. None has a strip (BG2 mirrored about the edge, as before but undimmed).
 
 **Dimmed** only where the margins can't show what the console would:
-- Past the level on each line - its own page row's pages the camera may enter around the game's screen (a page it may
-  not, bit 15, the game draws as page 0), the level's width: BG1 and BG2 are mirrored about the level's edge and
-  dimmed (`Ppu::wideMirror`, `wideDimLo/Hi`; black instead with *Past Level Ends: Black*, `Ppu::edgeMirror`).
 - Where the game paints on its screen what the level beside it doesn't hold (`painted_row`): Jafar's cobra (level
   `$11`) sets the floor on fire by writing the fire into its room's map (`$4000`, on BG1 since the room was held:
   rows 21-31) in the 32 columns on its screen only, and in the same frame points BG2 at a spiked arch (`$4800`, rows
@@ -240,6 +299,9 @@ the band routines' inputs (both snapshots, whether this logic frame's is taken, 
 a level is being played (section 1; an older state: a level index, no demo and the main task in the level loop),
 and (version 5) the level objects deleted, swept or refused since the level's start, whose spawn is running, and the
 Lava Cavern's eased limits (section 4).
+Version 7 adds the camera's y and whether the span is a shaft's and its offset closes with the camera's y, in the two
+words the dimmed range held (version 6 and older: not read, and the view starts where it stops now, as for a state
+made at another width: the user's state from the tower opens centred).
 `tools/re/snes_rewind.py` rewinds as the app does and compares every rewound picture with the straight run's:
 identical (also from near a level's end: its `state` argument).
 
@@ -490,6 +552,31 @@ margins and, where the view is split, moved to the picture's middle (`(extR - ex
   `r2_dusk_window.py` (all ok), `snes_lava.py` (all ok), `snes_bands.py 106` (0 bad), `snes_rewind.py 140 all` and
   106 in levels 6 and 13 (0 differing): as before.
 
+- Shafts and STAGE CLEAR (section 3; `tools/re/snes_edges.py` counts a shaft's frames apart and checks the view is
+  centred there): from the user's state in Inside the Lamp 3's tower at 106 and 140 the view is centred
+  (`view_left` = ext); carried up into the corridor, right, left and back down (1,200 frames) the view never moves by
+  more than 4 px a frame nor while the camera holds still, and every rewound frame of that run and of STAGE CLEAR
+  (through B and its fade) equals the straight run's at 106 and 140. `snes_edges.py` at 106 / 140: the tower's frames
+  centred, the rest as before (Jafar's room 12 px a side at 140). `r2_parity.py` (0 frames differing), `snes_attract.py
+  0 106 140t4` (0 RAM differences), `snes_bands.py 106` (0 bad), `snes_dusk_end.py 0,106` (12 / 12), `snes_lava.py`
+  (0 bad), `snes_rewind.py 140 all` and 106 in level 10 (0 differing), `snes_motion.py 106 all`: as before.
+
+- Past the level's ends (section 3), against the module before with the same input: from the user's state in Inside
+  the Lamp 3's tower at 106 and 140, carried up the tower's open left side into the corridor's row and back down
+  (1,200 frames, both glides), every pixel inside the level's extent is the same (the extent from the run with *Past
+  Level Ends: Black*), and with that option on the pictures are identical in every frame; in the sides no statue,
+  platform or sprite, no dimming, and no frame where they jump while the view glides (the share of side pixels that
+  change from frame to frame: 0.24 / 0.25 on average at 106 / 140 against 0.38 / 0.37 before, at most 0.48 / 0.51,
+  in the tower's vine section, against 0.62 / 0.64). The other places (above) at 140: as described.
+  `r2_parity.py` (0 frames differing), `snes_attract.py 0 106 140t4` (0 RAM differences), `snes_bands.py 106` (0 bad),
+  `snes_dusk_end.py 0,106` (12 / 12), `snes_lava.py` (0 bad), `snes_rewind.py 140 all`, 106 in levels 2, 5, 10 and
+  18, from the user's tower state at 106 and 140 and over the climb above (0 differing), `snes_edges.py` 106 / 140
+  (identical output), `hfr_test.py snes` (all passed). `snes_motion.py 106 all`: as before but in Inside the Lamp 3,
+  BG1 1 / BG2 6 frames (140: 1 / 13; from the user's state: 1 / 4) against 0, every one a frame of a fade whose master
+  brightness steps from the frame before (the level's fade-in, a life lost and the restart's fade-in): the shift
+  measure isn't brightness-blind, and the sides at full brightness change more with the step than dimmed ones did
+  (it hits its limit, 10 px). Measured on pictures scaled to their brightness the shift is 0 in all of them.
+
 ## 7. High frame rate
 
 With *High Frame Rate* on a 100 Hz+ display the PPU draws up to three in-between pictures with each line
@@ -526,6 +613,11 @@ every frame; layer by layer the in-betweens at (1 - k/4) of the frame's move and
 - The bands' lines follow the core's HDMA timing (the table's second entry 3 rows after the line the IRQ switches HDMA
   on at): if the console's timing differs, they are a line or so off (the band's value is checked against the register
   at its edges).
+- STAGE CLEAR is widened with its plain backdrop only: the panel (its gold frame, the title, the CONGRATULATIONS
+  bar) keeps its 4:3 width in the middle of the purple. Its maps hold nothing wider.
+- Inside the Lamp 3's tower is centred; the level holds nothing beside it, so the sides are its background mirrored past
+  its pillars. At the corridor's start at 21:9 the right side is wider than the background between the pillars: the
+  second reflection shows the clouds' edges there. Past other levels' ends the sides are their background mirrored.
 - Where Jafar's room grows and the camera is then held, the view keeps its place (the offset only closes while the
   camera moves), so the arena isn't centred in the picture; beside it the room is shown as stored.
 - Jafar's cobra sets the floor on fire only on the game's screen (section 3): beside it the floor lines show the
