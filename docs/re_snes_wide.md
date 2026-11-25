@@ -165,8 +165,8 @@ is that column, 256 px, centred (`shaft`). Two in the game: Inside the Lamp 3 (l
 to its start in row 7; the corridor in row 0 runs right to x 3328) and the Cave of Wonders' drop (column 11, row 2,
 between its upper rows and the treasure room's row 3; there the view is centred anyway). The pages beside a shaft hold
 nothing of the level: the game draws a bit-15 page as page 0 (the tower's bottom), and VRAM beside the screen holds
-that. So the sides show what any level shows past its end (below): the tower's own background going on beyond its
-gold pillars, nothing of the tower itself. Before, the tower took the level's extent (the corridor's), so the view
+that. So the sides show nothing of the tower's rooms: the tower stands as a shaft inside solid gold wall, its gold
+pillars going on as that wall (below). Before, the tower took the level's extent (the corridor's), so the view
 stopped at x 0: the tower stood at the picture's left edge with 212 px (106) / 280 px (140) of it mirrored and dimmed
 on the right, its right wall doubled - the user's report from the tower at 21:9, "not centred and mirrored badly".
 The span becomes a shaft's as the screen leaves the corridor's row (camera y past 256) and the corridor's as it
@@ -189,27 +189,35 @@ black instead with *Past Level Ends: Black*, `Ppu::edgeMirror`). Nothing there i
 looks like one, and nothing needs dimming. Where a strip of the level at the edge hides BG2 on every line of its page
 (`edge_cover`: BG1's tile columns from the page's edge in whose tiles draw every pixel in all 32 tile rows, cached per
 frame), BG2 is mirrored about the strip's inner edge instead (`Ppu::wideMirrorLo/Hi`: the part of the span the mirror
-takes its pixels from). Inside the Lamp 3's tower stands between two gold pillars 32 px wide (4 tile columns on every
-line of page column 0, rows 0-7), complete pillars with their ornament centred, and its background (BG2: its own one
-page wide column from row 1, at half the camera's speed in y) has nothing drawn behind them (tile columns 0-3 and
-28-31 empty). Mirrored about the pillars' inner edges, the sky, columns, ornament bridges and clouds seen between them
-go on past them, the joins stay behind the pillars, and the pillars end at the tower's edges as on the console's
-screen (doubled, as before, they made 64-px pillars with two ornaments side by side). The mirror takes the same span on
-every line of the tower and on the corridor's lines past the level's left end, so the sides run on unbroken while the
-view glides between the two. Where BG2 is drawn shifted (`bgHofsAdj`: the view gliding or stopped at the corridor's
-start while the game's camera isn't, BG2 at half speed) its blank strip comes out from behind a pillar, up to ext / 2
-px: the mirror leaves that out too. It reflects the pixels drawn between the pillars on the screen, never level data
-the game doesn't show: the pages beside the tower hold BG2's page 0 (gold pillars), and BG2's corridor row runs on to
-the right with columns cut off where the game never looks. Where the sides are wider than that span (the corridor's
-start at 21:9: the right side 212 / 280 px, the span 192 px less the shift) the second reflection shows the clouds'
-edges near the left pillar. Before, the level itself was mirrored there and dimmed: in the tower both pillars doubled,
-the genie statues, pink platforms and vines mirrored into the sides (the user's report at 21:9: "I don't think it
-should have the genie in the dimmed out area. In fact I'm not sure it actually needs to be dimmed since the player
-can't reach the area").
-A first try mirrored BG2 about the tower's page edges: its blank strips came out as a 32-px band of plain sky beside
-each pillar and the clouds were cut straight. Drawn from BG2's data at its place on the game's screen (one mapping per
-side), the mirror's axis came out from behind the pillar while the view glided (a narrow band of cloud doubled about
-it), and a reflection reached BG2's page 0; the tile fetch can't take an axis off BG2's own 8-px grid anyway.
+takes its pixels from).
+
+**Inside the Lamp 3's tower: a shaft in solid gold wall.** The tower stands between two gold pillars 32 px wide on BG1
+(page column 0, rows 0-7; `edge_cover` finds 3 tile columns that draw every pixel, the fourth holds the pillar's dark
+inner edge) with their ornaments (zigzag and scallop bands, a medallion with an orange diamond) across the pillar's
+width. In the tower only (level `$0A`, on a line whose span ends at page column 0's edge with such a strip: the
+tower's rows both sides, the corridor's row on its left, where the same left pillar runs up), the sides are that
+wall going on (`Ppu::wideWall` = BG1, `wideWallL` / `wideWallR`: the pillar's outer edge on the line): the pillar's
+outer tile column (8 px, plain gold at the pillar's outer edge) reflected back and forth outward from the edge over the
+whole side, and nothing else there - no BG2, no sprites; the status bar (BG3) stays on top as on the game's screen
+(where its right part sits over the right pillar too). The pillars keep their own shading and medallions at the
+shaft's edges, and the wall beside them is flat gold with their bands running on as mouldings at their height (the
+medallion's outer part as a row of plain hexagons, without the orange diamond): seamless, since a reflection joins
+pixel to the same pixel. The wall is the line's own pixels, so it scrolls with the pillar exactly, and at the line's
+own scroll (no level data the game doesn't show). Repeating the whole pillar was tried in mock-ups: every 32 px (a row
+of shaded columns, the medallions side by side), or mirrored (64-px double pillars); both read as a busy colonnade
+rather than a wall. With *Past Level Ends: Black* the sides are black (the wall is part of the mirror).
+**The corridor** at the tower's top is real level data (its gold blocks carved with genie faces go on right to x
+3328). The rule is per line: a line of the corridor's row shows the corridor on the right (inside the level) and the
+wall on the left (past its left end); a line of the tower shows the wall both sides. As the view glides between the
+tower and the corridor's start (above), each line's wall stays attached to its pillar, so the corridor's
+floor comes down onto the wall's top on the right with no flash, pop or tear; at the corridor's start (the view
+stopped at x 0) the left side is gone and the right side below the corridor is wall. In an in-between picture (high
+frame rate) the wall's edge moves with the layer's own shift (`subHofs_`), so it stays joined to the pillar there too.
+The corridor's right end (x 3328) keeps the background-only rule, as every other level's ends.
+(Round 3 showed the tower's background there instead: BG2 mirrored about the pillars' inner edges, the pastel sky,
+columns and clouds going on past them. The user, at 21:9: "for the vertical bit can we just extend the walls to the
+sides in widescreen". Before that, the level itself was mirrored and dimmed: both pillars doubled, the genie statues,
+pink platforms and vines mirrored into the sides.)
 The other places with sides past the level (the mirror run against the black run, every level's start and end walks
 and the play bot, 1,800 frames, at 140): Agrabah Rooftops' start (past the rock face that ends its row: before its
 mirror image dimmed, now the pink sky band beyond the cliff), the Underground River's end (the top-left corner over
@@ -577,6 +585,20 @@ margins and, where the view is split, moved to the picture's middle (`(extR - ex
   measure isn't brightness-blind, and the sides at full brightness change more with the step than dimmed ones did
   (it hits its limit, 10 px). Measured on pictures scaled to their brightness the shift is 0 in all of them.
 
+- The tower's gold wall (section 3): `tools/qa` round 3's `r3_tower.py` / `r3_pastend.py`, with a past-the-end pixel
+  now passing either as background (no BG1 or sprites, = BG2 + BG3) or, in level `$0A` only, as wall (no BG2, no
+  sprites, = BG1 + BG3), and every past-the-end pixel of a tower frame required to be wall: at 46 / 106 / 140 every
+  tower frame's sides are wall, nothing else fails, and every other level's counts are as in round 3 (108 runs, the
+  same pixels past the ends, 0 wall pixels outside the tower); the view's moves as before. With *Past Level Ends:
+  Black* the sides are black. High frame rate, from a state below the corridor carried up and down through both
+  glides (260 frames, 4 pictures a frame) at 106 / 140: on every tower line of every frame and in-between each side is
+  an exact reflection of the 8 px at the pillar's outer edge (0 of 93,056 lines otherwise); `hfr_test.py snes` all
+  passed. `snes_motion.py 106 10` from the start and from that state: 0 / 0 / 0 (before: BG1 1 / BG2 6, BG2 2 - the
+  fade frames above, now on gold wall). `r2_parity.py` (0 frames differing), `snes_attract.py 0 106 140t4` (0 RAM
+  differences), `snes_bands.py 106` (0 bad), `snes_dusk_end.py 0,106` (12 / 12), `snes_lava.py` (0 bad),
+  `snes_rewind.py` 106 all, 106 from the user's tower state and 140 from the glide state (0 differing),
+  `snes_edges.py` 106 / 140 (identical output).
+
 ## 7. High frame rate
 
 With *High Frame Rate* on a 100 Hz+ display the PPU draws up to three in-between pictures with each line
@@ -615,9 +637,9 @@ every frame; layer by layer the in-betweens at (1 - k/4) of the frame's move and
   at its edges).
 - STAGE CLEAR is widened with its plain backdrop only: the panel (its gold frame, the title, the CONGRATULATIONS
   bar) keeps its 4:3 width in the middle of the purple. Its maps hold nothing wider.
-- Inside the Lamp 3's tower is centred; the level holds nothing beside it, so the sides are its background mirrored past
-  its pillars. At the corridor's start at 21:9 the right side is wider than the background between the pillars: the
-  second reflection shows the clouds' edges there. Past other levels' ends the sides are their background mirrored.
+- Inside the Lamp 3's tower is centred; the level holds nothing beside it, so the sides are its gold pillars going on
+  as a flat gold wall (their outer tile column reflected outward, their bands running on). The game has no such wall:
+  it is made from the pillar's own pixels. Past other levels' ends the sides are their background mirrored.
 - Where Jafar's room grows and the camera is then held, the view keeps its place (the offset only closes while the
   camera moves), so the arena isn't centred in the picture; beside it the room is shown as stored.
 - Jafar's cobra sets the floor on fire only on the game's screen (section 3): beside it the floor lines show the

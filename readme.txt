@@ -551,10 +551,11 @@
   original shape, with black bars.
 
   Narrow climbs: where an SNES level is a tower one screen wide (Inside
-  the Lamp 3), the view is centred on it. Both sides show the sky and
-  columns behind the tower at full brightness, without its statues,
-  platforms or enemies (or black, with Past Level Ends: Black). Past any
-  SNES level's ends the sides likewise show only the background.
+  the Lamp 3), the view is centred on it. Its gold pillars go on into
+  both sides as a solid gold wall, so the tower reads as a shaft in the
+  wall, with no statues, platforms or enemies beside it (or black, with
+  Past Level Ends: Black). Past any other SNES level's ends the sides
+  show only the background.
 
   Attract-mode demos are recorded button presses. All three games show
   them in their original shape, exactly as recorded, at every width and
