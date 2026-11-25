@@ -126,6 +126,8 @@ void SmsVdp::pattern_row(uint16_t e, int row, uint8_t* out) const {
     const uint8_t* p = &vram[(pat * 32 + r * 4) & 0x3FFF];
     if ((e & 0x8000) && alt_patterns && pat >= alt_first && pat < alt_first + alt_count)
         p = alt_patterns + (pat - alt_first) * 32 + r * 4;
+    else if (bg_alt && pat >= bg_alt_first && pat < bg_alt_first + bg_alt_count)
+        p = bg_alt + (pat - bg_alt_first) * 32 + r * 4;
     for (int i = 0; i < 8; i++) {
         const int bit = hflip ? i : 7 - i;
         const uint8_t c = (uint8_t)(((p[0] >> bit) & 1) | (((p[1] >> bit) & 1) << 1) | (((p[2] >> bit) & 1) << 2) |

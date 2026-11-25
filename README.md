@@ -339,10 +339,10 @@ gradlew assembleDebug
   stage's ends the scenery holds still while Aladdin walks for the first stretch of camera travel. Objects wake as
   they come within the original's margins of the view as shown, so those entering from the right act as much
   earlier as the extra width takes the camera to cover (and A Whole New World's birds from the left start
-  correspondingly earlier). Tiles the game animates with the
-  camera (stage 0's distant building and brick wall, stage 1's railings) show their current state at the sides,
-  and the Market's pillars, whose graphics the game redraws for the one place on the screen it shows them,
-  show as a strip of scrambled tiles for a second or so as each passes through the left side. In a wide view
+  correspondingly earlier) - in the Market the barrels that trip the guard chasing Aladdin roll that much earlier,
+  so he is tripped earlier too, and in a wide view he shows trailing behind for a couple of seconds where the 4:3
+  screen loses him. The walls the game draws in perspective (the Market's sky gaps, the Rooftops' roof ends) have
+  no look of their own off the original screen: at the sides they show the nearest look the game has for them. In a wide view
   Aladdin left behind by the scrolling (or pushed back by a wall) is lost only at the picture's edge, not at the
   4:3 screen's, and can still walk back in until then.
   Infinite Health keeps the gems, but the guards' grabs, the carpet's crashes, pits and lava still cost a life;

@@ -68,6 +68,11 @@ public:
     // graphics since (or not yet). The module may point it elsewhere from one bg_entry call to the next.
     const uint8_t* alt_patterns = nullptr;
     int  alt_first = 0, alt_count = 0;
+    // Background cells whose pattern is in [bg_alt_first, bg_alt_first + bg_alt_count) take their rows from bg_alt (32
+    // bytes a tile) wherever they are, the hardware table's cells too: a module's own state of tiles a game animates
+    // (with the camera, say) for a view the game's own uploads don't know. Bit 15 (alt_patterns) goes first.
+    const uint8_t* bg_alt = nullptr;
+    int  bg_alt_first = 0, bg_alt_count = 0;
     // bg_entry may set bit 14 of an entry: that cell's colours come from alt_cram (32 CRAM values, as cram) - a
     // module's copy of the colours a part of the level had before the game reused the palette entries. (The hardware
     // ignores bits 13-15 of the table's own entries.)

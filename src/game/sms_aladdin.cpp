@@ -22,7 +22,7 @@ constexpr uint16_t FRAMES = 0xC20E;      // frame counter (bit 0 picks the sprit
 constexpr uint16_t TITLE_STATE = 0xCF01; // mode 0's script: $12 = title menu
 constexpr uint16_t TITLE_CURSOR = 0xCF24;// title menu: bit 0 = PASSWORD
 constexpr uint16_t PASSWORD = 0xC924;    // the four letters on the password screen (0 = A)
-constexpr uint16_t STAGE_INIT = 0xC912;  // set while a stage loads
+constexpr uint16_t STAGE_INIT = 0xC912;  // set while a stage loads (and around the VDP writes of most frames: $0B20)
 // camera and level map (all stages)
 constexpr uint16_t CAM_X = 0xC482, CAM_MAX = 0xC480, CAM_MIN = 0xC4B9;
 constexpr uint16_t MAP = 0xC48F, MAP_STRIDE = 0xC489, METATILES = 0xC49D;
@@ -385,6 +385,102 @@ struct SectionTiles {
         return sec;
     }
 };
+
+// Tiles the game animates with the camera (stages 0 and 1). Stage 0's sky gaps have side walls drawn in perspective -
+// the left wall (B: tiles 265-272, world x 64 mod 512) shows its face while it is left of the screen's middle, the right
+// wall (A: 257-264, x 176 mod 512) while right of it - and a brick wall between them (tile 273) that moves slower than
+// the camera; stage 1's roofs end in faces the same way at its gaps (B 265-272 at x 96 mod 512, A 257-264 at 128). $30F6 /
+// $3159 compute the uploads for the camera's phase - stage 0: (camera - 40) & $1FC, 4-px steps, tables bank $0A $8000
+// (A), bank 2 $A324 (B) and $0A $8400 (the bricks, 8 steps of 32 px); stage 1: (camera - 40) & $1F8, 8-px steps, bank
+// $0A $9850 / $9A50; an entry is source, VRAM address, tile count, mostly a part of the tiles - and the VBlank job ($32DE /
+// $32EA, every fourth frame) copies them from bank $3311[stage]. So the tiles show the one wall of each kind near the
+// original screen as it looks at its place there; where the original never shows one they hold whatever suited the
+// tables: a right wall in the right side showed no face until 8 px from the 4:3 picture and then all of it at once, a left
+// wall just past the left edge scraps of other tiles, a left wall in the right side bricks out of step with the wall
+// beside it, and stage 1's roof ends far in a side another gap's look. The module keeps the tiles' state for every phase
+// (CamTiles, from ROM: a whole cycle of uploads in order) and gives the VDP each frame the tiles (SmsVdp::bg_alt) as for
+// the wall of each kind in view at a place where the tables are right for it (kAnimGroups): one wholly off the original
+// screen and past those places looks as it does at their end - in stage 0 a whole number of 32-px brick steps away, so
+// its bricks keep step with the wall's. While the view holds still at a stage's start or end (the slide) the tiles are
+// those of the view's camera (camera + slide), the 4:3 part's too: walls and bricks hold still with the picture.
+constexpr int ANIM_FIRST = 257, ANIM_TILES = 17;   // tiles 257-273 (stage 1: 257-272)
+struct AnimGroup {
+    int stage, first, xref;          // its 8 tiles; the wall's world x (mod 512) the tables' phases are for
+    int left_lo, left_hi, right_lo, right_hi;   // where the tables are right for a wall wholly off the original screen
+    int left_win, right_win;         // else it is shown as at [win, win + step) (stage 0: a brick step, 32 px; else 1)
+};
+const AnimGroup kAnimGroups[] = {
+    {0, 257, 176, -240, -8, 256, 263, -240, 232},   // stage 0, right walls: all face from 232 on, none left of 100
+    {0, 265, 64, -148, -20, 1, 0, -52, 197},        // left walls: all face -148..-20; right of 196: bricks in step
+    {1, 257, 128, -128, -24, 256, 375, -128, 375},  // stage 1's roof ends (right of the gap), as far as the tables go
+    {1, 265, 96, -160, -24, 256, 343, -160, 343},   // (left of the gap)
+};
+
+struct CamTiles {
+    int stage = -1, phases = 0;
+    uint16_t map = 0;
+    std::vector<uint8_t> state;      // [phase][tile - ANIM_FIRST][32 bytes]
+    uint8_t bricks[8][32] = {};      // stage 0's tile 273 by brick step
+    struct Wall { int group, x0, w; };
+    std::vector<Wall> walls;
+    int phase(int cam) const { return stage == 0 ? ((cam - 40) & 0x1FC) >> 2 : ((cam - 40) & 0x1F8) >> 3; }
+    const uint8_t* tiles(int cam) const { return &state[(size_t)phase(cam) * ANIM_TILES * 32]; }
+    void build(const Sms& s, int st);
+};
+
+void CamTiles::build(const Sms& s, int st) {
+    stage = st;
+    map = s.ram16(MAP);
+    phases = st == 0 ? 128 : 64;
+    state.assign((size_t)phases * ANIM_TILES * 32, 0);
+    const int src_bank = s.rom_orig8(0x3311 + st);
+    uint8_t cur[ANIM_TILES * 32] = {};
+    auto upload = [&](uint16_t src, uint16_t vram, int n) {
+        const int t0 = (vram & 0x3FFF) / 32 - ANIM_FIRST;
+        for (int i = 0; i < n; i++)
+            if (t0 + i >= 0 && t0 + i < ANIM_TILES)
+                for (int b = 0; b < 32; b++) cur[(t0 + i) * 32 + b] = bank_rd8(s, src_bank, (uint16_t)(src + 32 * i + b));
+    };
+    auto entry = [&](int bank, uint16_t at) {
+        upload(bank_rd16(s, bank, at), bank_rd16(s, bank, (uint16_t)(at + 2)), bank_rd8(s, bank, (uint16_t)(at + 4)));
+    };
+    // (two cycles of the job's uploads in order: the second leaves each phase's state)
+    for (int q = 0; q < 2 * phases; q++) {
+        const int p = q % phases;
+        if (st == 0) {
+            upload(bank_rd16(s, 0x0A, (uint16_t)(0x8400 + 2 * (p & 7))), 0x6220, 1);   // (tile 273, $32DE)
+            entry(0x0A, (uint16_t)(0x8000 + 8 * p));
+            entry(0x02, (uint16_t)(0xA324 + 8 * p));
+        } else {
+            entry(0x0A, (uint16_t)(0x9850 + 8 * p));
+            entry(0x0A, (uint16_t)(0x9A50 + 8 * p));
+        }
+        if (q >= phases) std::memcpy(&state[(size_t)p * ANIM_TILES * 32], cur, sizeof(cur));
+    }
+    for (int k = 0; k < 8; k++)
+        for (int b = 0; b < 32; b++) bricks[k][b] = bank_rd8(s, src_bank, (uint16_t)(bank_rd16(s, 0x0A, (uint16_t)(0x8400 + 2 * k)) + b));
+    // the walls: the map's columns with the animated tiles, by group
+    walls.clear();
+    const int end = map_pages(s, st) * 256;
+    for (int g = 0; g < (int)std::size(kAnimGroups); g++) {
+        const AnimGroup& G = kAnimGroups[g];
+        if (G.stage != st) continue;
+        int from = -1, last = -1;
+        for (int wx = 0; wx <= end; wx += 8) {
+            bool used = false;
+            for (int row = 0; row < 20 && !used && wx < end; row++) {
+                const int t = map_entry(s, wx, row) & 0x1FF;
+                used = t >= G.first && t < G.first + 8;
+            }
+            if (used && from < 0) from = wx;
+            if (used) last = wx;
+            if (!used && from >= 0) {
+                walls.push_back({g, from, last + 8 - from});
+                from = -1;
+            }
+        }
+    }
+}
 
 // Jafar's room (stage 9) is the boss arena: a 384-px map the camera crosses 0..136, all of it within Aladdin's
 // reach. Past its ends there is no level: the widened view carries the room's pillars on there (its middle part,
@@ -756,6 +852,7 @@ public:
         v.line_shift = wide ? line_shift : nullptr;
         v.alt_patterns = nullptr;   // (bg_entry points them at stage 7's copies when it uses them)
         v.alt_cram = nullptr;
+        v.bg_alt = nullptr;         // (apply_view: stages 0 and 1's camera-animated tiles)
         std::memset(v.bg_shift, 0, sizeof(v.bg_shift));
         // (a width change within a stage keeps what the hooks recorded for the frames under way)
         if (!wide || !wide_ || !in_stage(s)) {
@@ -839,6 +936,9 @@ public:
         s.add_pc_hook(0x34A5, [](Sms& m) { push_left_frame(m); });
         s.add_pc_hook(0x34B4, [](Sms& m) { push_left(m); });
         s.add_pc_hook(0x36B8, [](Sms& m) { push_left_release(m); });
+        // (the auto-scrolling stages' handler: a stage (re)starting, TRY AGAIN too. $C912 doesn't tell: the game sets it
+        // around its VRAM writes in the middle of most frames, not only while a stage loads)
+        s.add_pc_hook(0x33B7, [](Sms& m) { set_behind(m, 0); });
         // the VBlank's sprite table upload ($02D9): in reverse order on odd frames (the game's flicker)
         s.add_pc_hook(0x02D9, [this](Sms& m) {
             const bool rev = m.ram8(FRAMES) & 1;
@@ -1097,6 +1197,8 @@ private:
     static constexpr uint8_t EXT_VERSION = 1;   // (save_ext's layout)
     uint8_t page_[64] = {};   // each sprite table buffer entry's page as the writers left it (uploaded at the VBlank)
     SectionTiles s7_;    // stage 7's sections' reloaded tiles (made from ROM when first needed)
+    CamTiles cam_tiles_;   // stages 0 and 1's camera-animated tiles by phase, and their walls (made when first needed)
+    uint8_t anim_buf_[ANIM_TILES * 32] = {};   // the frame's tiles 257-273 for the VDP (anim_tiles)
     bool s7_built_ = false;
     uint8_t s7_day_[32] = {}, s7_night_[32] = {};   // stage 7's palettes before / after section 4 (apply_view)
     // the view's slide (apply_view): the parallax bands' first lines (line interrupts), the camera's band, and the
@@ -1127,7 +1229,7 @@ private:
         const int before = shown_cam(m);   // (the frame before's)
         m.module_state[MS_CAM] = m.module_state[MS_CAM_NEXT];
         const int E = v.ext, cam = shown_cam(m), stage = shown_stage(m);
-        if (!shows_stage(m) || m.ram8(STAGE_INIT)) set_behind(m, 0);   // (a stage (re)starting)
+        if (!shows_stage(m)) set_behind(m, 0);   // (and at a stage's (re)start: the hook at $33B7)
         v.sprite_shift = view_slide(m, cam, E);
         for (int& b : band_start_) b = 999;
         cam_band_ = 0;
@@ -1142,6 +1244,7 @@ private:
             cam_band_ = stage == 0 ? 0 : 3;
         }
         if (cam != before) moved_at_ = (int)((m.module_state[MS_CAM] >> 16) & 0xFF);
+        anim_tiles(m, stage, cam, v.sprite_shift);
         if (stage == 7) {
             // stage 7's two background palettes (from ROM; the sprites' half as it is now)
             const uint16_t day = (uint16_t)(m.rom_orig8(PALETTES + 2 * 7) | (m.rom_orig8(PALETTES + 2 * 7 + 1) << 8));
@@ -1152,6 +1255,59 @@ private:
             std::memcpy(s7_day_ + 16, v.cram + 16, 16);
             std::memcpy(s7_night_ + 16, v.cram + 16, 16);
         }
+    }
+
+    // Stages 0 and 1's camera-animated tiles for the frame (see CamTiles): the walls in view as at a place where the
+    // tables are right for them, all of it for the view's camera while the view slides.
+    void anim_tiles(Sms& m, int stage, int cam, int slide) {
+        SmsVdp& v = m.vdp;
+        v.bg_alt = nullptr;
+        if (!shows_stage(m) || (stage != 0 && stage != 1)) return;
+        CamTiles& ct = cam_tiles_;
+        if (ct.stage != stage || ct.map != m.ram16(MAP)) ct.build(m, stage);
+        const int count = stage == 0 ? ANIM_TILES : ANIM_TILES - 1, step = stage == 0 ? 32 : 1;
+        // the view's camera; without a slide the one whose tiles are in VRAM (the job copies them every fourth frame:
+        // stage 0's bricks tell their step) - a wall where the tables are right is VRAM's then
+        int ce = cam + slide;
+        const bool vram = slide == 0;
+        if (stage == 0 && vram) {
+            for (int k = 0; k < 8; k++) {
+                if (std::memcmp(&v.vram[(ANIM_FIRST + 16) * 32], ct.bricks[k], 32)) continue;
+                const int d = ((ct.phase(cam) & 7) - k) & 7;
+                ce = d <= 4 ? cam - 4 * d : cam + 4 * (8 - d);
+                break;
+            }
+        }
+        bool any = !vram;
+        for (int i = 0; i < count * 32; i++) anim_buf_[i] = v.vram[ANIM_FIRST * 32 + i];
+        if (!vram && stage == 0) std::memcpy(&anim_buf_[16 * 32], ct.tiles(ce) + 16 * 32, 32);   // (the bricks)
+        for (int g = 0; g < (int)std::size(kAnimGroups); g++) {
+            const AnimGroup& G = kAnimGroups[g];
+            if (G.stage != stage) continue;
+            // the wall of the kind nearest the view's middle (they lie 512 px or more apart: one in view at most)
+            const CamTiles::Wall* w = nullptr;
+            for (const CamTiles::Wall& c : ct.walls)
+                if (c.group == g && (!w || std::abs(c.x0 + c.w / 2 - ce - 128) < std::abs(w->x0 + w->w / 2 - ce - 128))) w = &c;
+            int cg = ce;
+            if (w) {
+                const int x = w->x0 - ce;
+                const bool left = x + w->w <= 8, right = x >= 256;   // (wholly off the original screen)
+                if (left || right) {
+                    const int xt = x + ((G.xref - w->x0) % 512 + 512 + 256) % 512 - 256;   // (as the tables have it)
+                    const int lo = left ? G.left_lo : G.right_lo, hi = left ? G.left_hi : G.right_hi;
+                    const int win = left ? G.left_win : G.right_win;
+                    // (shown as at win + ((xt - win) mod step): the camera that puts it there)
+                    if (xt < lo || xt > hi) cg = ce + (xt - win) - (((xt - win) % step) + step) % step;
+                }
+            }
+            if (cg == ce && vram) continue;
+            std::memcpy(&anim_buf_[(G.first - ANIM_FIRST) * 32], ct.tiles(cg) + (G.first - ANIM_FIRST) * 32, 8 * 32);
+            any = true;
+        }
+        if (!any) return;
+        v.bg_alt = anim_buf_;
+        v.bg_alt_first = ANIM_FIRST;
+        v.bg_alt_count = count;
     }
 
     // A line's background shift, as it is drawn: the status bar (lines 0-15) and the rows below the playfield
