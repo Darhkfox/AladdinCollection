@@ -359,7 +359,11 @@ gradlew assembleDebug
   beside the picture) until the scrolling catches up with him, rather than pushing him. In the levels with a half-speed
   background, up to about 70 px of that background is shown mirrored at a level's start at 21:9 (the level itself
   is real to the edge). In Agrabah Rooftops the far hills behind the palace can show a seam in the left side area:
-  the game never scrolls that far into them, so their picture doesn't join up there. The staff roll stays 4:3. The
+  the game never scrolls that far into them, so their picture doesn't join up there. Inside the Lamp 3's tower is
+  one screen wide and holds nothing beside it: the view is centred on it and both sides show the tower mirrored and
+  dimmed (black with *Past Level Ends: Black*); between the tower and the corridor at its top the view glides over as
+  the screen scrolls. The STAGE CLEAR panel keeps its 4:3 frame on a purple background that fills the width; the
+  bonus wheel and the story scenes between stages are on black and so look the same as before. The staff roll stays 4:3. The
   level select starts with new-game stats (3 lives, 3 hearts, 10 apples).
 - Save states made by a newer version may not load in an older one.
 
