@@ -749,6 +749,7 @@ constexpr int M_ENDING = 0x12;
 constexpr uint16_t SCENE_SELECT = 0xC120, SCENE_RUNNING = 0xCF2E;   // (developers' scene select; set by $601B)
 constexpr int SCENES = 0x24, SCENE_ROWS = 20;
 constexpr uint16_t SCENE_BLANK = 0x11BF, ENDING_BLANK = 0x0100;
+constexpr uint16_t SCENE_MAPS = 0x8048;   // ($C48F) while a scene is shown: its map pointers' table ($4E92)
 constexpr uint16_t SAT_Y = 0xC300;
 // a band of a scene's cell rows [r0, r1): the left side repeats source columns [la, lb) (the one next to the picture's
 // edge is lb - 1), the right side [ra, rb) (ra next to the edge); a rule without bands: the scene stays 4:3
@@ -847,6 +848,9 @@ int story_bg_entry(const Sms& s, int vcol, int vrow) {
         vrow %= 28;
         if (vrow >= 24) return -1;
         if (vrow >= SCENE_ROWS) return SCENE_BLANK;   // the text box's rows
+        // (until $4E92 builds a scene's picture ($C48F the scenes' map table) the pointers are another screen's - the
+        // title's are 0, a stage's its map - and would make garbage of the sides: the plain entry 0, as on the title)
+        if (s.ram16(MAP) != SCENE_MAPS) return 0;
         const int sc = s.ram8(SCENE);
         const SceneRule& r = *scene_rule(sc);
         for (int i = 0; i < r.n; i++) {
@@ -1224,6 +1228,12 @@ public:
             m.module_state[MS_SHOWN] = (m.module_state[MS_SHOWN] & ~SHOWN_STAGE_BITS) | FADING | ((uint32_t)st << SHOWN_STAGE_SHIFT);
         });
         s.add_pc_hook(0x092D, [](Sms& m) { m.module_state[MS_SHOWN] &= ~(FADING | STORY_FADE_BITS); });
+        // Two screens set the next mode and wait before their fade: the title's GAME START / PASSWORD ($4BC9: mode $13
+        // or $F, then `ld b,$14; call $0B4D`, 20 frames) and a password taken ($7494: the stage's mode, 30 frames).
+        // They stay themselves from the mode's write (before, the title was taken for scene 0, its sides drawn from
+        // the title's null map pointers, and the password screen for the stage, its sides from the stage's map).
+        s.add_pc_hook(0x4BCA, [](Sms& m) { story_fade_begin(m, 0x4BD2); });
+        s.add_pc_hook(0x7497, [](Sms& m) { story_fade_begin(m, 0x74A4); });
         // left behind by the scroll: lost at the view's left edge
         s.add_pc_hook(0x34A5, [](Sms& m) { push_left_frame(m); });
         s.add_pc_hook(0x34B4, [](Sms& m) { push_left(m); });
