@@ -122,6 +122,8 @@ if hasattr(_dll, 'snt_edge_mirror'):
 if hasattr(_dll, 'snt_line_regs'):
     _sig('snt_line_regs', None, V, C.POINTER(C.c_int))
 _sig('snt_module_info', None, V, C.POINTER(C.c_int))
+if hasattr(_dll, 'snt_module_load_ext'):
+    _sig('snt_module_load_ext', None, V, PU8, I)
 _sig('snt_module_start_level', I, V, I, I)
 _sig('snt_module_jukebox_boot', None, V)
 _sig('snt_module_play', None, V, I)
@@ -447,6 +449,25 @@ class SNES:
             return None
         v = _dll.snt_module_view_left(self.h)
         return v if v >= 0 else None
+
+    def load_app_state(self, path):
+        """Loads a save the app wrote (src/app/session.cpp: core state, the module's state and its length, the tag
+        `snes|<ext>|<cheats>|...` and its length byte), configured as the tag says. Returns (ext, cheats)."""
+        d = open(path, 'rb').read()
+        n = d[-1]
+        tag = d[-1 - n:-1].decode()
+        end = len(d) - 1 - n
+        ml = int.from_bytes(d[end - 4:end], 'little')
+        end -= 4
+        mod, core = d[end - ml:end], d[:end - ml]
+        parts = tag.split('|')
+        ext = int(parts[1]) if len(parts) > 1 else 0
+        cheats = parts[2] if len(parts) > 2 else ''
+        self.configure(ext, True, cheats)
+        self.load(core)
+        buf = (C.c_uint8 * len(mod)).from_buffer_copy(mod)
+        _dll.snt_module_load_ext(self.h, buf, len(mod))
+        return ext, cheats
 
     def can_configure(self, ext, cheats=''):
         return _dll.snt_module_can_configure(self.h, ext, cheats.encode()) != 0
