@@ -255,6 +255,11 @@ achievements of its own: *A Whole New World* (defeat Jafar in all three versions
   their background, and the ending's starfield and sea run the whole width. Menus, password, game over and the
   five scenes whose picture can't be carried on stay in their original shape, and so do the attract demos, which
   play exactly as recorded at every width.
+- **A visual fix to the original** (at every width, 4:3 and widescreen off too): the game changes the scroll of
+  its parallax bands a line late, so in The Rooftops (1-2) a line of the roofs' sky-orange edge floated sideways
+  in the brown city above them, and the far city and the Market's floor (1-1) had stray one-line dashes at their
+  bands' edges. Those lines are now drawn with their own band's scroll, as if the split came on time. Only the
+  picture changes: the game plays exactly as the original.
 - **Level select**: all 10 stages, numbered as the developers' TEST MODE numbers them (1-1 to 7), entered through
   the password screen as a player would.
 - **Cheats**: invincibility (the game's own, as the developers' password AIQY gives it, extended to the palace

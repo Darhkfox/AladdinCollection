@@ -63,6 +63,10 @@ public:
     // When set, asked for each line's background shift as the line is drawn (bg_shift[ln] keeps the answer): the
     // registers a line interrupt set for the line are known then.
     int  (*line_shift)(void* host, int line) = nullptr;
+    // When set, asked first as each line is drawn: the horizontal scroll to draw the line with instead of reg 8's
+    // (0-255), or -1 for reg 8's. A module's drawing-only correction (a raster split the game makes land a line
+    // late): the register itself is left as the game wrote it; line_hscroll records the scroll drawn with.
+    int  (*line_scroll)(void* host, int line) = nullptr;
     // bg_entry may set bit 15 of an entry: that cell's pattern comes from alt_patterns (32 bytes a tile, from tile
     // alt_first, alt_count of them) instead of VRAM - a module's copy of tiles the game has reloaded with other
     // graphics since (or not yet). The module may point it elsewhere from one bg_entry call to the next.
@@ -97,7 +101,7 @@ public:
     void (*line_hook)(void* host, int line, uint8_t* bg, uint8_t* spr) = nullptr;
     void* hook_host = nullptr;
 
-    void render_line(int ln);       // renders an active line into the frame buffer
+    void render_line(int ln);       // renders an active line into the frame buffer (line_scroll, then draw_line)
 
     // ---- high frame rate: in-between pictures ------------------------------------
     // With sub_frames = K > 1 every line is also drawn into sub_fb[k-1] (k = 1 .. K-1), k/K of the way from the last
@@ -145,6 +149,7 @@ public:
     uint8_t reg[16];
     uint8_t status = 0;             // bit 7 frame interrupt, bit 6 sprite overflow, bit 5 collision
     bool    line_pending = false;
+    int     line_irq_line = -1;     // the line at whose end the last line interrupt was raised, this frame (-1: none)
     uint8_t line_counter = 0xFF;
     uint8_t vscroll_latch = 0;
     bool    pending = false;        // first control byte written
@@ -159,6 +164,7 @@ public:
 
 private:
     void update_irq();
+    void draw_line(int ln);
     void render_sprites(uint8_t* dst, int ln);
     void compose(uint8_t* out, const uint8_t* bg, const uint8_t* spr, int W);
 
