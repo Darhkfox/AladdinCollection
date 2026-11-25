@@ -1166,18 +1166,39 @@ void band_refresh(MegaDrive& md, const Wide& w) {
 //   game's edge columns do - not in the band's columns inside the view - except while a level start or a restart
 //   fills the plane ($FFF175: the camera runs 23 columns right and back, every block once, deduplicated);
 // - room is never made by evicting one (it would only come back at its column's next entry).
+// The apples ($61) are the boss fights' ammunition: their blocks sit in the arenas (Jafar's hall 44,44 / 58,44, the
+// idol's 131,30 / 144,27, the Rooftops' end 135,19 / 147,19 / 129,30, Jafar's Quarters 18,12 / 33,12), where the
+// framing holds the view still or the level is hardly wider than the view, so their columns never left the slid view:
+// in Jafar's hall at 21:9 the apples of block 44 never came and those of block 58 only with Aladdin at the left wall.
+// So for $61, in the 4:3 game's own edge columns (the plane window's, L/16 and L/16 + 22: only the game's writers spawn
+// there, the caves outside it), in the iteration the 4:3 game brings the apples:
+// - the column spawn goes ahead inside the view too;
+// - a set with apples missing (picked up) doesn't stop it: the 4:3 game's leftovers have gone out of its despawn window
+//   by then (or get a new set stacked over them), while the widened one keeps them alive in a held view. With Aladdin
+//   out of apples (the handler's own test) the leftovers are despawned and the handler spawns a whole set, so the
+//   block shows the 4:3 game's four apples, never stacked copies. Only a whole set (4 alive) stops it.
+constexpr uint8_t APPLES_OUT = 0x61;
 constexpr uint32_t PC_COL_CALL = 0x1AE46C, PC_COL_RET = 0x1AE46E;   // the column spawner's jsr (a4) and what follows it
 constexpr uint32_t PC_ROW_CALL = 0x1AE4E8, PC_ROW_RET = 0x1AE4EA;   // the row spawner's
 constexpr uint32_t PC_SPAWN_KEEP = 0x1B52A0, PC_SPAWN_RTS = 0x1B529E;
 constexpr uint32_t SPAWN_X = 0xFF7DB0, SPAWN_DX = 0xFFF150, FILLING = 0xFFF175;
 
-// An object spawned from this block (+$32: the block word / 2, +$34 its type) alive
-bool block_alive(const MegaDrive& md, uint16_t blk, uint8_t type) {
+// The objects spawned from this block (+$32: the block word / 2, +$34 its type) alive
+int block_alive(const MegaDrive& md, uint16_t blk, uint8_t type) {
+    int n = 0;
     for (int i = 1; i < 32; i++) {
         const uint32_t o = OBJECTS + i * OBJ_SIZE;
-        if (md.ram8(o) && md.ram16(o + 0x32) == blk && md.ram8(o + 0x34) == type) return true;
+        if (md.ram8(o) && md.ram16(o + 0x32) == blk && md.ram8(o + 0x34) == type) n++;
     }
-    return false;
+    return n;
+}
+
+// A column spawn of the apples ($61, d3) at the 4:3 game's own moment: its column (the spawner's x, $7DB0 + $FFF150)
+// one of the 4:3 plane window's, outside a fill
+bool apples_43(const MegaDrive& md) {
+    if ((uint8_t)md.cpu.r[3] != APPLES_OUT || md.ram8(FILLING)) return false;
+    const int col = ((int16_t)md.ram16(SPAWN_X) + (int16_t)md.ram16(SPAWN_DX) + 16) >> 4, L = md.ram16(STREAM_X) >> 4;
+    return col >= L && col <= L + 22;
 }
 
 // A spawned object whose block stays in the map (alive, its block's type still there)
@@ -1185,13 +1206,26 @@ bool keeps_block(const MegaDrive& md, uint32_t o) {
     return md.ram8(o) && md.ram8(o + 0x34) && md.ram8(OBJ_TYPES + (uint32_t)(int16_t)md.ram16(o + 0x32)) != 0;
 }
 
+void despawn(MegaDrive& md, uint32_t o);   // (below)
+
 // At a spawner's handler call (d2 = the block word / 2, d3 = its type; the call skipped by going on to the restore)
 void spawn_call(MegaDrive& md, uint32_t restore) {
-    if (block_alive(md, (uint16_t)md.cpu.r[2], (uint8_t)md.cpu.r[3])) md.cpu.pc = restore;
+    const uint16_t blk = (uint16_t)md.cpu.r[2];
+    const uint8_t type = (uint8_t)md.cpu.r[3];
+    const int n = block_alive(md, blk, type);
+    if (!n) return;
+    if (restore == PC_COL_RET && n < 4 && apples_43(md) && md.ram16(APPLES) == 0x3030) {   // a new set: the rest go
+        for (int i = 1; i < 32; i++) {
+            const uint32_t o = OBJECTS + i * OBJ_SIZE;
+            if (md.ram8(o) && md.ram16(o + 0x32) == blk && md.ram8(o + 0x34) == type) despawn(md, o);
+        }
+        return;
+    }
+    md.cpu.pc = restore;
 }
 
 // At $1B52A0: from the column spawner (its handler call's return on the stack, under a helper's for $61), outside a
-// fill, inside the view: not spawned (NE, as when no slot is free)
+// fill, inside the view, not the apples at their 4:3 moment: not spawned (NE, as when no slot is free)
 void spawn_keep(MegaDrive& md, const Wide& w) {
     if (md.ram8(FILLING)) return;
     const uint32_t sp = md.cpu.r[15] & 0xFFFFFF;
@@ -1203,6 +1237,7 @@ void spawn_keep(MegaDrive& md, const Wide& w) {
     }
     if (!column) return;
     const int x = ((int16_t)md.ram16(SPAWN_X) + (int16_t)md.ram16(SPAWN_DX) + 16) & ~15;   // the block column's map x
+    if (apples_43(md)) return;
     const int camx = (int16_t)md.ram16(CAM_X), E = md.vdp.ext, s = wide_slide(w, camx);
     if (x + 16 <= camx + 16 - E + s || x >= camx + 336 + E + s) return;
     md.cpu.set_sr((uint16_t)(md.cpu.get_sr() & ~4));
