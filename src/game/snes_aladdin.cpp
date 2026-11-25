@@ -2157,6 +2157,19 @@ constexpr uint8_t kStopAll = 0xF0;
 // and their jingle) in a stub in patch ROM that waits for requests in a RAM mailbox (cmd: 1 song, 2 effect, 3 stop).
 constexpr uint32_t kJukeboxPark = 0x818025;
 constexpr uint32_t kJukeboxStub = 0x608100;
+// A soundtrack pack switched (replay_music): the sound driver starts clean, as at a power-on with the pack or without
+// it - an MSU-1 patch mutes the console's music by uploading each song 30 bytes low ($0D02 for $0D20), which plays
+// silent only on a driver that has played nothing else (after real songs the misplaced data sounds, at their volume).
+// Whichever comes first: at the level loop's next top, or at the game's next song request ($81:FA23), the sound CPU
+// starts afresh from its IPL ROM (as at power-on; the console's clock runs on) and the CPU runs a stub in the patch ROM
+// that uploads the driver again with the game's own boot routine (JSL $80:B4AA, its done flag $000A cleared, the NMI's
+// queue sending held meanwhile by $0371 as the song upload holds it); at the loop's top it then asks for the song
+// playing again ($03B9: the upload index of the last one asked for, which $81:FA23 keeps) and goes on at the top, at a
+// song request it goes on with the request. The pack's patch then plays its track (or, switched off, the driver the
+// song).
+constexpr uint32_t kReplayStub = 0x608200, kRebootStub = 0x608240;
+constexpr uint32_t kSongIndex = 0x03B9, kDriverBooted = 0x000A, kUploading = 0x0371;
+constexpr uint32_t kDriverBoot = 0x80B4AA;
 constexpr uint32_t kMailCmd = 0x1FF8, kMailId = 0x1FF9, kMailBefore = 0x1FFA;
 
 // ---- Achievements: screens by level index $035E (levels are $00-$13, the attract demos' $14-$1C).
@@ -2289,6 +2302,7 @@ public:
         if (ls_.active) s.markExec(kLevelCompute, true);
         write_jukebox_stub(s);
         if (jb_park_) s.markExec(kJukeboxPark, true);
+        if (replay_) s.markExec(kSong, true);
     }
 
     // ---- Music player
@@ -2360,6 +2374,22 @@ public:
             r.z = true;
             r.n = false;
             r.pc = (uint16_t)(pc + 3);
+            return true;
+        case kLevelLoop:
+        case kSong:
+            if (!replay_ || demo_playing(s)) break;
+            replay_ = false;
+            s.markExec(kSong, false);
+            {
+                const uint64_t t = s.apu.cycles();
+                const std::vector<int16_t> sound = s.apu.samples;
+                s.apu.reset(true);
+                s.apu.setCycles(t);
+                s.apu.samples = sound;
+            }
+            write_replay_stubs(s);
+            r.pb = (uint8_t)((pc == kSong ? kRebootStub : kReplayStub) >> 16);
+            r.pc = (uint16_t)(pc == kSong ? kRebootStub : kReplayStub);
             return true;
         case kLevelCompute:
             // The level select: GAME START's first level computation gets the chosen stage and act, as the game's own
@@ -2583,6 +2613,36 @@ private:
         a.b({0x9C}); a.w16((uint16_t)kMailCmd);             // STZ cmd
         a.b({0x80, (uint8_t)(loop - (a.pc + 2))});          // BRA loop
     }
+
+    void replay_music(Snes& s) override {
+        replay_ = true;
+        s.markExec(kSong, true);
+    }
+
+    // (all registers saved, 8-bit set, D 0, DB $80; the driver again; at the loop's top the song again, then back to it;
+    // at a request, back to it with the registers it had)
+    static void write_replay_stubs(Snes& s) {
+        for (const uint32_t at : {kReplayStub, kRebootStub}) {
+            PatchAsm a(s, at);
+            a.b({0x08, 0xC2, 0x30, 0x48, 0xDA, 0x5A});                  // PHP, REP #$30, PHA, PHX, PHY
+            a.b({0xE2, 0x30, 0x0B, 0xA9, 0x00, 0x48, 0x48, 0x2B});       // SEP #$30, PHD, LDA #0, PHA x2, PLD
+            a.b({0x8B, 0xA9, 0x80, 0x48, 0xAB});                        // PHB, LDA #$80, PHA, PLB
+            a.b({0xEE}); a.w16((uint16_t)kUploading);                   // INC $0371 (the NMI sends nothing)
+            a.b({0x9C}); a.w16((uint16_t)kDriverBooted);                // STZ $000A
+            for (uint8_t b : jsl(kDriverBoot)) a.b8(b);                 // JSL $80:B4AA
+            a.b({0xE2, 0x30});                                          // SEP #$30
+            a.b({0x9C}); a.w16((uint16_t)kUploading);                   // STZ $0371
+            if (at == kReplayStub) {
+                a.b({0xAD}); a.w16((uint16_t)kSongIndex);               // LDA $03B9
+                for (uint8_t b : jsl(kSong)) a.b8(b);                   // JSL $81:FA23
+                a.b({0xE2, 0x30});                                      // SEP #$30
+            }
+            a.b({0xAB, 0x2B, 0xC2, 0x30, 0x7A, 0xFA, 0x68, 0x28});      // PLB, PLD, REP #$30, PLY, PLX, PLA, PLP
+            for (uint8_t b : jml(at == kReplayStub ? kLevelLoop : kSong)) a.b8(b);   // JML back
+        }
+    }
+
+    bool replay_ = false;   // a soundtrack switched: the driver afresh, at the level loop's top or a song (replay_music)
 
     struct LevelSelect {
         bool active = false, done = false;

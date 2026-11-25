@@ -22,14 +22,25 @@ public:
     GameModule* module() const { return module_; }
     System system() const { return module_ ? module_->system() : System::MegaDrive; }
 
-    // An MD+ soundtrack for the game (Mega Drive only; open() was given the ROM with the pack's patch applied).
+    // A CD-quality soundtrack for the game: an MD+ pack (Mega Drive) or an MSU-1 pack (SNES); open() was given the ROM
+    // the pack runs on (soundtrack_rom). detach_soundtrack: none any more (the console's own music; for a switch made in
+    // a game, see Session::switch_soundtrack).
     virtual bool attach_soundtrack(const SoundtrackPack& pack, std::string& error) {
         (void)pack;
-        error = "soundtracks are for Mega Drive games";
+        error = "this console has no soundtrack packs";
+        return false;
+    }
+    virtual void detach_soundtrack() {}
+    // Another soundtrack chosen in a game (`pack`, or none: the original music), with the ROM it runs on: true if the
+    // console can switch while the game goes on (SNES: at the next frame where no code the swap changes is running or
+    // returned to; the song playing is then asked for again in a level). False: only a new start can (Mega Drive).
+    virtual bool switch_soundtrack(const std::vector<uint8_t>& rom, const SoundtrackPack* pack, std::string& error) {
+        (void)rom; (void)pack; (void)error;
         return false;
     }
     virtual bool has_soundtrack() const { return false; }
     virtual MdPlus* soundtrack() { return nullptr; }   // (the Music Player plays its tracks directly)
+    virtual Msu1* msu() { return nullptr; }
 
     // Applies video/audio/cheat settings. Safe to call at any time between frames.
     void apply_settings(const Settings& s);
@@ -37,6 +48,7 @@ public:
     void soft_reset();
     // The launcher preview's start: runs the game headless to its title screen (GameModule::preview_start).
     void warm_up();
+    void set_headless(bool on) { core_headless(on); }   // (no pictures drawn: scratch runs)
     bool start_level(int index, int variant = 0);
 
     // Runs one emulated frame with the given pad states (the console's own button bits: see action_bits()).

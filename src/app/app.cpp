@@ -482,12 +482,14 @@ bool App::load_script(const std::wstring& path) {
         else if (c == "mark") script_.push_back({fr, 0, 5, a});       // log time + frames run / rewound to marks.txt
         else if (c == "record") script_.push_back({fr, 0, 6, a});     // trailer footage: <a>.vid / <a>.pcm
         else if (c == "stoprec") script_.push_back({fr, 0, 7, ""});
+        else if (c == "recaudio") script_.push_back({fr, 0, 13, a});  // the sound only: <a>.pcm (48 kHz stereo s16)
         else if (c == "loadstate") script_.push_back({fr, 0, 8, a});  // <dir>\<a>.state into the running game
         else if (c == "pads") script_.push_back({fr, 0, 9, a});       // <dir>\<a>.pads: uint16 p1, p2 per frame
         else if (c == "set") script_.push_back({fr, 0, 10, a});       // key=value: widescreen, color, filter, slang_preset,
                                                                       // aspect, integer_scale, hud_anchor, menu_style, covers,
                                                                       // background, cover_fill, black_frames, high_frame_rate,
-                                                                      // vsync, refresh (the display rate to assume)
+                                                                      // vsync, refresh (the display rate to assume), soundtrack
+                                                                      // (the game's n-th pack, 0 none), reset_game
         else if (c == "award") script_.push_back({fr, 0, 11, a});     // an achievement id (tests of the pop-up / pages)
         else if (c == "welcome") script_.push_back({fr, 0, 12, ""});  // the first start's achievements page
     }
@@ -518,6 +520,7 @@ void App::run_script() {
             break;
         }
         case 6: start_recording(s.arg); break;
+        case 13: start_recording(s.arg, true); break;
         case 7: stop_recording(); break;
         case 8: {
             std::vector<uint8_t> d;
@@ -557,6 +560,13 @@ void App::run_script() {
             else if (k == "background") settings_.launcher_background = v != 0;
             else if (k == "cover_fill") settings_.cover_fill = v != 0;
             else if (k == "refresh") test_refresh_ = v;
+            else if (k == "soundtrack" && session_ && current_ >= 0) {   // the running game's n-th pack (0: original)
+                const std::string id = games_[current_].module->id();
+                std::vector<std::string> names = {""};
+                for (const SoundtrackPack& pk : soundtracks_) if (pk.game_id == id) names.push_back(pk.name);
+                settings_.soundtrack[id] = names[std::clamp(v, 0, (int)names.size() - 1)];
+                switch_soundtrack();
+            } else if (k == "reset_game" && session_) reset_game();
             apply_settings();
             break;
         }
@@ -679,8 +689,9 @@ void App::poll_roms(double dt) {
 }
 
 void App::scan_soundtracks() {
-    std::vector<std::pair<std::string, uint32_t>> ids;
-    for (auto& g : games_) ids.push_back({g.module->id(), g.module->rom_crc32()});
+    std::vector<SoundtrackGame> ids;
+    for (auto& g : games_)
+        ids.push_back({g.module->id(), g.module->system(), g.module->rom_crc32(), g.rom.found ? &g.rom.data : nullptr});
     soundtracks_ = find_soundtracks(ids);
 }
 
@@ -690,6 +701,27 @@ const SoundtrackPack* App::soundtrack_for(int g) {
     for (const SoundtrackPack& p : soundtracks_)
         if (p.game_id == it->first && p.name == it->second) return &p;
     return nullptr;
+}
+
+// Another soundtrack chosen in a game: switched as the game goes on where the console can (SNES), else at the next
+// Reset Game (which starts the game again with it).
+void App::switch_soundtrack() {
+    if (mode_ != Mode::Playing || !session_ || current_ < 0) return;
+    const SoundtrackPack* p = soundtrack_for(current_);
+    if ((p ? p->name : std::string()) == playing_soundtrack_) return;
+    std::vector<uint8_t> rom;
+    std::string err;
+    if (p && !soundtrack_rom(*p, games_[current_].rom.data, rom, err)) {
+        menu_.toast("Soundtrack not used: " + err, 4.0f);
+        return;
+    }
+    if (!session_->switch_soundtrack(p ? rom : games_[current_].rom.data, p, err)) {
+        menu_.toast(err.empty() ? "The soundtrack changes at the next Reset Game" : "The soundtrack changes at the next Reset Game (" + err + ")", 3.0f);
+        return;
+    }
+    playing_soundtrack_ = p ? p->name : "";
+    rewind_.clear();   // (the rewind buffer's states ran on the other ROM)
+    menu_.toast(p ? "âª  Soundtrack: " + soundtrack_label(*p) : std::string("âª  Original music"), 3.0f);
 }
 
 void App::reset_game() {
@@ -711,12 +743,13 @@ void App::launch(int g) {
     session_ = Session::create(games_[g].module.get());
     rewind_.clear();
     session_->set_audio_rate(48000);
-    // An MD+ soundtrack: the game runs the pack's patched ROM (in memory) and the pack plays the music it asks for.
+    // A soundtrack (MD+ or MSU-1): the game runs the ROM patched for the pack (in memory: the files are never changed)
+    // and the pack plays the music it asks for.
     scan_soundtracks();
     const SoundtrackPack* pack = soundtrack_for(g);
     std::vector<uint8_t> patched;
     std::string err;
-    if (pack && !apply_rom_patch(games_[g].rom.data, pack->patch, patched, err)) {
+    if (pack && !soundtrack_rom(*pack, games_[g].rom.data, patched, err)) {
         menu_.toast("Soundtrack not used: " + err, 4.0f);
         pack = nullptr;
     }
@@ -727,7 +760,7 @@ void App::launch(int g) {
         pack = nullptr;
     }
     playing_soundtrack_ = pack ? pack->name : "";
-    if (pack) menu_.toast("\xE2\x99\xAA  MD+ soundtrack: " + soundtrack_label(pack->name), 3.0f);
+    if (pack) menu_.toast("\xE2\x99\xAA  Soundtrack: " + soundtrack_label(*pack), 3.0f);
     session_->apply_settings(settings_);
     session_->power_on();
     ach_new_run(settings_.achievements);

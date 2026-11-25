@@ -1,7 +1,9 @@
 // Music player / sound test: a dedicated emulator instance runs the game's own sound driver. The Music Player can
-// also play an MD+ soundtrack's arranged tracks (soundtrack.h) instead.
+// also play a soundtrack pack's arranged tracks (soundtrack.h) instead: an MD+ pack's directly, an MSU-1 pack's through
+// the game's own requests on the ROM patched for it (its patch picks the track and mutes the console's music).
 #include "app.h"
 #include "../core/md.h"
+#include "../core/msu1.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -13,15 +15,41 @@ namespace {
 const std::map<int, std::pair<int, bool>>& soundtrack_tracks(GameModule* module, const std::vector<uint8_t>& rom,
                                                              const SoundtrackPack& pack) {
     static std::map<std::wstring, std::map<int, std::pair<int, bool>>> cache;
-    const std::wstring key = pack.patch;
+    const std::wstring key = pack.dir + L"|" + pack.patch + L"|" + pack.rom;
     auto it = cache.find(key);
     if (it != cache.end()) return it->second;
     std::map<int, std::pair<int, bool>>& out = cache[key];
-    if (module->system() != System::MegaDrive) return out;   // (MD+ packs are for Mega Drive games)
-    MdModule* mm = static_cast<MdModule*>(module);
     std::vector<uint8_t> patched;
     std::string err;
-    if (!apply_rom_patch(rom, pack.patch, patched, err)) return out;
+    if (!soundtrack_rom(pack, rom, patched, err)) return out;
+    if (pack.kind == SoundtrackKind::Msu1) {
+        // MSU-1: each tune asked for through the music player's own request (the game's song upload) on the patched
+        // ROM with the pack's chip; the track it loads (not missing) and whether it repeats, once it plays
+        std::unique_ptr<Session> s = Session::create(module);
+        if (!s || !s->open(module, patched) || !s->attach_soundtrack(pack, err)) return out;
+        Settings js;
+        js.widescreen = WideMode::Off;
+        s->apply_settings(js);
+        s->muted = true;
+        s->set_headless(true);
+        s->jukebox_boot();
+        for (const SoundEntry& e : module->sounds()) {
+            if (!e.music) continue;
+            s->play_sound(e.id);
+            Msu1* m = s->msu();
+            for (int f = 0; f < 60; f++) {   // (the song played ahead of some, then the song's upload)
+                s->jukebox_frame();
+                s->run_frame(0, 0);
+            }
+            if (m && m->playing() && !m->missing()) out[e.id] = {m->track(), m->repeating()};
+            s->stop_sound();
+            if (m) m->stop();
+            for (int f = 0; f < 4; f++) { s->jukebox_frame(); s->run_frame(0, 0); }
+        }
+        return out;
+    }
+    if (module->system() != System::MegaDrive) return out;   // (MD+ packs are for Mega Drive games)
+    MdModule* mm = static_cast<MdModule*>(module);
     std::unique_ptr<MegaDrive> md(new MegaDrive);
     if (!md->load_rom(patched)) return out;
     mm->jukebox_boot(*md);
@@ -58,11 +86,13 @@ bool Jukebox::open(GameModule* module, const std::vector<uint8_t>& rom, const Se
     if (!session_) return false;
     session_->set_audio_rate(48000);
     if (!session_->open(module, rom)) { session_.reset(); return false; }
-    Settings js = s;
-    js.widescreen = WideMode::Off;
-    js.cheats.clear();
-    session_->apply_settings(js);
+    rom_ = &rom;
+    js_ = s;
+    js_.widescreen = WideMode::Off;
+    js_.cheats.clear();
+    session_->apply_settings(js_);
     session_->jukebox_boot();
+    session_rom_ = 0;
     tunes_.clear();
     for (const SoundEntry& e : module->sounds())
         if (sfx || e.music) tunes_.push_back(e);
@@ -104,6 +134,22 @@ bool Jukebox::has_version(int i) const {
 }
 
 void Jukebox::start(int i) {
+    if (Msu1* m = session_->msu()) {
+        // MSU-1: a tune through the game's own request (the patch plays its track, or the original if it has none);
+        // a track no tune names, directly (the driver's music stopped)
+        if (playing_ >= 0) session_->stop_sound();
+        m->stop();
+        if (list_[i].id < 0) cd_ = m->play(-list_[i].id, true);
+        else session_->play_sound(list_[i].id);
+        if (list_[i].id >= 0) cd_ = has_version(i) && list_[i].music;
+        cd_len_ = cd_ ? m->trackSeconds(list_[i].id < 0 ? -list_[i].id : versions_[ver_].tracks.at(list_[i].id).first) : 0.0;
+        cd_heard_ = list_[i].id < 0;
+        playing_ = i;
+        elapsed_ = 0;
+        silent_frames_ = 0;
+        heard_ = false;
+        return;
+    }
     MdPlus* cd = session_->soundtrack();
     const bool arranged = has_version(i) && list_[i].music;
     const std::pair<int, bool> t = !arranged ? std::pair<int, bool>(0, false)
@@ -125,7 +171,10 @@ void Jukebox::start(int i) {
 }
 
 void Jukebox::stop_playing() {
-    if (!cd_) session_->stop_sound();
+    if (Msu1* m = session_->msu()) {
+        session_->stop_sound();
+        m->stop();
+    } else if (!cd_) session_->stop_sound();
     else if (MdPlus* cd = session_->soundtrack()) cd->stop();
     cd_ = false;
     playing_ = -1;
@@ -139,7 +188,23 @@ void Jukebox::set_version(int v) {
     if (playing_ >= 0) stop_playing();
     ver_ = v;
     std::string err;
-    if (ver_ > 0 && !session_->attach_soundtrack(versions_[ver_].pack, err)) ver_ = 0;
+    // An MSU-1 version runs the ROM patched for its pack; the others the game's own (MD+: the pack plays directly)
+    const int want = ver_ > 0 && versions_[ver_].pack.kind == SoundtrackKind::Msu1 ? ver_ : 0;
+    if (want != session_rom_ && rom_) {
+        std::vector<uint8_t> patched;
+        const bool msu = want > 0 && soundtrack_rom(versions_[want].pack, *rom_, patched, err);
+        if (!session_->open(module_, msu ? patched : *rom_)) { close(); return; }
+        session_->apply_settings(js_);
+        if (msu && !session_->attach_soundtrack(versions_[want].pack, err)) {
+            session_->open(module_, *rom_);
+            session_->apply_settings(js_);
+            ver_ = 0;
+        }
+        session_->jukebox_boot();
+        session_rom_ = session_->has_soundtrack() ? want : 0;
+    } else if (ver_ > 0 && !session_->attach_soundtrack(versions_[ver_].pack, err)) {
+        ver_ = 0;
+    }
     list_ = tunes_;
     list_.insert(list_.end(), versions_[ver_].more.begin(), versions_[ver_].more.end());
     sel_ = std::min(sel_, std::max(0, (int)list_.size() - 1));
@@ -199,7 +264,11 @@ void Jukebox::step() {
     session_->jukebox_frame();
     session_->run_frame(0, 0);
     if (playing_ >= 0) elapsed_ += 1.0 / session_->frame_rate();
-    if (cd_ && (!session_->soundtrack() || !session_->soundtrack()->playing())) { cd_ = false; playing_ = -1; }   // played once
+    if (cd_ && session_->msu()) {   // (an MSU-1 track starts once the game's upload is done: ends after it was heard)
+        const bool on = session_->msu()->playing();
+        if (on) cd_heard_ = true;
+        else if (cd_heard_ || elapsed_ > 3.0) { cd_ = false; playing_ = -1; }
+    } else if (cd_ && (!session_->soundtrack() || !session_->soundtrack()->playing())) { cd_ = false; playing_ = -1; }   // played once
     const int chans = std::min(kMaxMeters, session_->channel_count());
     for (int i = 0; i < kMaxMeters; i++) {
         // a soundtrack track: two meters, its left and right channels
@@ -241,10 +310,8 @@ void Jukebox::draw(Video& v, float time, uint32_t accent) {
         switch_rect_ = {W - pad - tw - pad * 0.5f, 0, tw + pad * 1.5f, pad * 0.9f + v.line_height(FontId::Small) * 1.6f};
     }
     if (versions_.size() > 1) {
-        // which version of the music plays: the game's own, or an MD+ soundtrack
-        const std::string label = ver_ == 0 ? std::string() : soundtrack_label(versions_[ver_].pack.name);
-        const std::string vt = ver_ == 0 ? std::string("Original music")
-                               : label.find("MD+") == std::string::npos ? "MD+  " + label : label;
+        // which version of the music plays: the game's own, or a soundtrack pack
+        const std::string vt = ver_ == 0 ? std::string("Original music") : soundtrack_label(versions_[ver_].pack);
         const char* key = touch_ui ? "Tap to change" : "Tab / (Y)";
         const float y = pad * 0.9f + v.line_height(FontId::Small) * 1.7f;
         const float vw = v.measure_text(FontId::Body, vt), kw = v.measure_text(FontId::Small, key);
@@ -298,12 +365,14 @@ void Jukebox::draw(Video& v, float time, uint32_t accent) {
     v.draw_text(FontId::Title, np.x + pad * 0.6f, y, title, 0xFFFFFFFF, Align::Left, fit);
     y += v.line_height(FontId::Title) * 1.1f;
     const MdPlus* cd = cd_ && session_ ? session_->soundtrack() : nullptr;
-    const std::string clock = cd ? clock_text(cd->position()) + " / " + clock_text(cd_len_)
-                                 : clock_text(playing_ >= 0 ? elapsed_ : 0.0);
+    const Msu1* msu = cd_ && session_ ? session_->msu() : nullptr;
+    const std::string clock = cd    ? clock_text(cd->position()) + " / " + clock_text(cd_len_)
+                              : msu ? clock_text(msu->position()) + " / " + clock_text(cd_len_)
+                                    : clock_text(playing_ >= 0 ? elapsed_ : 0.0);
     v.draw_text(FontId::Body, np.x + pad * 0.6f, y, clock, accent);
     if (playing_ >= 0 && versions_.size() > 1)
         v.draw_text(FontId::Small, np.x + pad * 0.6f, y + v.line_height(FontId::Body) * 1.05f,
-                    cd ? "MD+ soundtrack: " + soundtrack_label(versions_[ver_].pack.name) : std::string("Original music"),
+                    cd || msu ? "Soundtrack: " + soundtrack_label(versions_[ver_].pack) : std::string("Original music"),
                     0xFF7C8598);
     y += v.line_height(FontId::Body) * 2.0f;
 
@@ -311,21 +380,22 @@ void Jukebox::draw(Video& v, float time, uint32_t accent) {
     // track's two
     static const char* cd_labels[2] = {"LEFT", "RIGHT"};
     const int chans = std::min(kMaxMeters, session_->channel_count());
-    const int bars = cd ? 2 : chans;
+    const bool two = cd || msu;
+    const int bars = two ? 2 : chans;
     float mh = np.y + np.h - y - pad * 1.4f;
     const float bw = (np.w - pad * 1.2f) / bars, bw10 = (np.w - pad * 1.2f) / 10;
-    const float barw = cd ? bw10 * 1.6f : bw10 * 0.7f, radius = bw10 * 0.12f;
+    const float barw = two ? bw10 * 1.6f : bw10 * 0.7f, radius = bw10 * 0.12f;
     for (int i = 0; i < bars; i++) {
         float bx = np.x + pad * 0.6f + i * bw;
         Rect back = {bx + (bw - barw) * 0.5f, y, barw, mh};
         v.fill_round_rect(back, radius, 0xFF1A1F2B);
         float h = mh * vu_[i];
         // (the Mega Drive's PSG channels in a second colour beside its FM ones)
-        uint32_t c = cd || session_->system() != System::MegaDrive || i < 6 ? accent : lerp_color(accent, 0xFF6FCF8A, 0.7f);
+        uint32_t c = two || session_->system() != System::MegaDrive || i < 6 ? accent : lerp_color(accent, 0xFF6FCF8A, 0.7f);
         if (h > 1) v.fill_round_rect({back.x, back.y + mh - h, back.w, h}, radius, c);
         float py = back.y + mh - mh * peak_[i];
         v.fill_rect({back.x, py - 2, back.w, 3}, 0xE0FFFFFF);
-        v.draw_text(FontId::Small, bx + bw * 0.5f, y + mh + pad * 0.2f, cd ? cd_labels[i] : session_->channel_name(i), 0xFF7C8598,
+        v.draw_text(FontId::Small, bx + bw * 0.5f, y + mh + pad * 0.2f, two ? cd_labels[i] : session_->channel_name(i), 0xFF7C8598,
                     Align::Center);
     }
     std::string help = sfx_ ? "\xE2\x86\x91\xE2\x86\x93 Select    Enter / (A) Play / Stop    PgUp/PgDn (LB/RB) Jump    Esc / (B) Back"

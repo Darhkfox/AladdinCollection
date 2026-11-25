@@ -282,6 +282,7 @@ public class CollectionActivity extends SDLActivity {
     private static boolean wanted(String name) {
         String n = name.toLowerCase();
         return n.endsWith(".cue") || n.endsWith(".bps") || n.endsWith(".ips") || n.endsWith(".wav") || n.endsWith(".bin")
+            || n.endsWith(".pcm") || n.endsWith(".msu") || n.endsWith(".sfc") || n.endsWith(".smc")   // (MSU-1 packs)
             || n.endsWith(".txt");
     }
 

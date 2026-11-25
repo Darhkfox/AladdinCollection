@@ -40,5 +40,11 @@ the status bar against a run without them (`--perf`: the cores' time per frame w
 `tools/re/hfr_apptest.py <dir>` runs the app's autotest at 21:9 with the display taken as 240 Hz (`set refresh=240`,
 `set high_frame_rate=1`): the picture each refresh shows, captures, and the speed with V-Sync off.
 
+Soundtrack packs: `tools/re/md_mdplus.py <pack> ...` (an MD+ pack: the ROM the app runs, the CD commands per level, the
+held boss tune, pause, the attract demos, the music player's map; `mdt cart_log`), `tools/re/snes_msu.py <pack> ...` (an
+MSU-1 pack: its pre-patched ROM checked, the tracks per level, the attract demos, save states, audio; `SNES.msu_open`)
+and `tools/re/soundtrack_apptest.py <dir> md|snes [--jukebox]` (the app with the pack from power-on, its sound recorded
+with the autotest's `recaudio` and matched second by second against the pack's tracks).
+
 Per-game notes and the scripts behind them: `docs/re_md_*.md` + `tools/re/md_*.py`, `docs/re_snes_*.md` +
 `tools/re/snes_*.py`, `docs/re_sms_*.md` + `tools/re/sms_*.py`.

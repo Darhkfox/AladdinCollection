@@ -106,11 +106,16 @@ Bluetooth / USB controller.
 - Mega Drive: YM2612 + SN76489 with the YM2612 "ladder effect"; SNES: S-SMP / S-DSP with original (gaussian) or
   crisper (cubic) interpolation; Master System: SN76489. Volume and an output filter (off, the console's own,
   or warm).
-- MD+ soundtrack packs can be used with the Mega Drive game (drop the pack's folder into `soundtracks`).
+- CD-quality soundtrack packs: MD+ packs for the Mega Drive game and MSU-1 packs for the SNES game (see
+  *Soundtrack packs* below).
 
 **Music player & sound test**
 - Every music track and sound effect of each game, played by the game's own sound driver, with channel meters
   (6 FM + 4 PSG on the Mega Drive, 8 voices on the SNES, 4 PSG channels on the Master System).
+- With a soundtrack pack for the game, *Tab* / *(Y)* switches between the original music and the pack's (it starts on
+  the one the game is set to play): each tune plays the track the pack's own patch plays for it in the game (asked for
+  the way the game asks), tunes the pack doesn't arrange play the original, and the pack's other tracks are listed
+  after the game's tunes.
 
 **Level select, cheats and achievements** — see *The games* below. With achievements on (the default), cheats,
 the level select, fast forward and rewind are switched off; save states still work. The collection adds two
@@ -270,6 +275,55 @@ achievements of its own: *A Whole New World* (defeat Jafar in all three versions
 - **Achievements**: 17 — one per stage and for defeating Jafar, plus finishing from GAME START without a password
   or a game over, clearing a stage without losing a gem, a flawless tour and beating Jafar without a scratch.
 
+## Soundtrack packs (MD+ and MSU-1)
+
+CD-quality fan soundtracks made for flash carts and emulators can replace the music of the Mega Drive game (**MD+**
+packs, made for the MegaSD and the Mega EverDrive Pro) and of the SNES game (**MSU-1** packs, made for the SD2SNES /
+FXPak and higan-style emulators). None are included: you supply them, as you do the ROMs. A pack's patch is applied
+to the console's copy of the ROM in memory (the files are never changed), and the game's sound effects stay the
+console's own; the patch mutes the console's music where the pack has a track.
+
+| | Mega Drive: MD+ | SNES: MSU-1 |
+|---|---|---|
+| A pack is | a `.cue` sheet, a `.bps` (or `.ips`) patch for the USA ROM (`ED427EA9`) and the music as `.wav` files | the tracks `NAME-1.pcm`, `NAME-2.pcm`, ... with an MSU-1 patch (`.bps` / `.ips`) for the USA ROM (`124D8E4D`), or a ROM already patched for them (`.sfc`) |
+| Its folder goes in | `soundtracks` next to `AladdinCollection.exe` | `msu` next to `AladdinCollection.exe` |
+| Example | `soundtracks\Aladdin CD - MD+\Aladdin (USA).cue`, `...\Aladdin (USA)[MDplus, ArcadeTV](...).bps`, `...\01-NENAW_nl.wav` ... `20-GAMEOVER.wav` | `msu\Aladdin (USA) (1993) (Action Platform) (MSU1) (Audio Orchestral) (Super Nes)\Aladdin_(USA)_(MSU1)-2.pcm` ... `-41.pcm` and `Aladdin_(USA)_(MSU1).sfc` |
+| Switching it | starts with the game (or *Reset Game*) | at once, also in a level: the game holds for about a second while the console's sound driver restarts, and the song playing starts again in the new music |
+
+Choose a pack under *Options → Audio → Soundtracks* (per game; *Open Soundtracks Folder* / *Open MSU-1 Folder* on
+Windows) and set its level with *Soundtrack Volume*. A pack is recognised by its contents, not its name: the BPS
+patch's source CRC says which ROM it is for, an IPS patch must add MSU-1 code to the SNES ROM, and a pre-patched ROM is
+only used once checked to be your ROM with MSU-1 code added and nothing else changed (the same size; every difference
+in the header's checksum, in the ROM's free space or in at most 16 short hooks). A downloaded folder that wraps the pack
+in one more folder works too, and either kind of pack is found in either folder (or in a folder next to the ROMs). On
+Android, *Options → Audio → Add Soundtrack…* copies a pack's folder into the app; MSU-1 packs can also be copied over
+USB into `Android/data/com.darhkfox.aladdincollection/files/msu`.
+
+What works with a pack: the music changes as in the game (each level's and screen's tune, the boss tunes - in
+widescreen held until the boss is in the 4:3 view, as with the original music -, a life lost, the level's end);
+the game's pause pauses it; save states and rewind take the track back to where it was (its place is
+saved with the state); widescreen, cheats, the level select, Remove Slowdown and achievements work as usual, and the
+attract demos play as recorded (checked against the original ROM: SNES, the same state in every demo frame; Mega
+Drive, every demo ends on the same frame with its input at the same place, Aladdin a frame early or late in a few
+frames of each, where the MD+ code's own time shifts a frame's work). Tracks play once or repeat from
+their loop point as the pack says: an MSU-1 track's header loop point and the patch's repeat bit; for MD+, the cue
+sheet's `REM LOOP [n]` / `REM NOLOOP` override the command's own (as on the MegaSD and in Genesis Plus GX); a track the
+pack doesn't have leaves the music as it is (MD+, as on the MegaSD) or is reported missing to the patch
+(MSU-1), which decides what plays.
+
+Notes on the packs tested:
+- *Aladdin CD - MD+* (ArcadeTV, 2023): the patch puts an "MD+ SOUND ENABLED" screen of its own before the game (about
+  7 s, and the game's start-up then runs late for the level select and the launcher's preview): it is skipped (the
+  original reset vector). Its tune table has the boss tune (`$32`) and the bonus jingle (`$12`) the wrong way round (a
+  boss fight played the 5.5 s jingle, which ends in silence): the collection corrects those two bytes of that exact patch
+  (`kPackFixes` in `src/app/soundtrack.cpp`, by the patched ROM's CRC `4A7C033C`). Its cue sheet marks every track
+  `REM LOOP`, the jingles too, so one heard for longer than itself (the continue screen's after 8 s) starts again, as on
+  a MegaSD. The pack's tracks 19 (`CONTINUE`) and 20 (`GAMEOVER`) aren't played by its patch; the Music Player lists
+  them. The pre-patched `Aladdin (USA).bin` in the pack isn't used: the `.bps` is applied to your verified ROM.
+- *Aladdin (USA) (MSU1) (Audio Orchestral)*: no patch file, only `Aladdin_(USA)_(MSU1).sfc` (CRC `88E2EA66`): it is the
+  verified ROM with two 4-byte hooks (`$00:B49C`, `$00:B544`, the sound driver's command and song uploads), the
+  header's checksum and 905 bytes of MSU-1 code in what was free space at `$27:E940`, so it is used. 40 tracks (2-41).
+
 ## Default controls
 
 | | Keyboard | Xbox pad |
@@ -298,8 +352,8 @@ that is already in use swaps the two.
 
 Settings are stored in `settings.ini`, earned achievements in `achievements.ini` (each with the date and time it
 was earned; older files, with the date only, still load), save states in `saves\`, screenshots in
-`screenshots\`, the achievements export in `achievements export\`; soundtrack packs go in `soundtracks\`, launcher pictures
-in `covers\`. These live next to the exe (the folder is
+`screenshots\`, the achievements export in `achievements export\`; soundtrack packs go in `soundtracks\` (MD+) and `msu\`
+(MSU-1), launcher pictures in `covers\`. These live next to the exe (the folder is
 portable), or in `%LOCALAPPDATA%\Aladdin Collection` if that folder isn't writable. Delete `settings.ini` to
 restore the defaults.
 
@@ -340,9 +394,9 @@ gradlew assembleDebug
 
 | Path | Contents |
 |---|---|
-| `src/core/` | Mega Drive (`m68k`, `vdp`, `ym2612`, `md`), SNES (`cpu65816`, `apu`, `dsp`, `ppu`, `snes`) and Master System (`sms`, `sms_vdp`) hardware; the Z80 and SN76489 (`z80`, `psg`) serve both Sega consoles. Each video chip renders a widened picture with hooks for the game modules, and the high frame rate's in-between pictures (`hfr_match`: matching the sprites of two frames) |
+| `src/core/` | Mega Drive (`m68k`, `vdp`, `ym2612`, `md`: with the MD+ cartridge overlay), SNES (`cpu65816`, `apu`, `dsp`, `ppu`, `snes`, and `msu1`: the MSU-1 chip) and Master System (`sms`, `sms_vdp`) hardware; the Z80 and SN76489 (`z80`, `psg`) serve both Sega consoles. Each video chip renders a widened picture with hooks for the game modules, and the high frame rate's in-between pictures (`hfr_match`: matching the sprites of two frames) |
 | `src/game/` | `game.h` (the module interface, typed per console), the three modules `md_aladdin.cpp`, `snes_aladdin.cpp`, `sms_aladdin.cpp` and each console's helpers (`*_common.cpp`: verified ROM patching, scripted input) |
-| `src/app/` | Launcher, sessions (`session.cpp` and one per console: `session_md/snes/sms.cpp`), menus, music player / sound test, rewind, achievements and their export (`achexport.cpp`), the update check (`updatecheck.cpp`, `app_updates.cpp`; the repository is `kUpdateRepo`), settings, ROM finder, PNG writer, touch controls; per platform `app_win.cpp` / `app_android.cpp` and `sys_win.cpp` / `sys_android.cpp` |
+| `src/app/` | Launcher, sessions (`session.cpp` and one per console: `session_md/snes/sms.cpp`), soundtrack packs (`soundtrack.cpp`: finding MD+ and MSU-1 packs, the ROM a pack runs on, the MD+ player), menus, music player / sound test, rewind, achievements and their export (`achexport.cpp`), the update check (`updatecheck.cpp`, `app_updates.cpp`; the repository is `kUpdateRepo`), settings, ROM finder, PNG writer, touch controls; per platform `app_win.cpp` / `app_android.cpp` and `sys_win.cpp` / `sys_android.cpp` |
 | `src/platform/` | Windows: Direct3D 11 video and DirectWrite UI text, slang shader presets through librashader (`slang.cpp`), XAudio2 audio, keyboard / XInput / DirectInput input. `android/`: OpenGL ES 3.0 video, SDL audio and controllers |
 | `third_party/` | `librashader` (the DLL, its C headers and licence), `slang-shaders` (the bundled presets, with their licences) and `stb` (`stb_image.h`, which reads the cover pictures) |
 | `src/tools/` + `tools/` | Headless cores as DLLs with Python wrappers (`mdt.py`, `snt.py`, `smst.py`) used for the reverse engineering and testing; `tools/re/` the scripts behind the notes in `docs/` |
@@ -417,6 +471,12 @@ gradlew assembleDebug
   game creates them. For the roll's first few seconds (left side) and beside THE END (right side) the sides lie past
   the roll's ends and show its sky mirrored (black with *Past Level Ends: Black*). The
   level select starts with new-game stats (3 lives, 3 hearts, 10 apples).
+- Soundtrack packs: an MD+ pack changes only at a game's start (*Reset Game*), as its patch changes the game's start-up
+  and interrupt vectors. A save state goes on with the soundtrack chosen now: one made with an MD+ pack and loaded
+  without it (or the other way round) keeps the music it has until the game asks for the next tune; with an MSU-1 pack,
+  in a level the song starts again in the chosen music (elsewhere at the next song). Switching an MSU-1 pack outside a
+  level (the title, a story scene) takes effect from the next song. In fast forward an MD+ track plays on at its own speed (it
+  isn't sped up with the game), an MSU-1 track keeps the game's time.
 - Save states made by a newer version may not load in an older one.
 
 ## Credits and licences
@@ -426,6 +486,11 @@ gradlew assembleDebug
   [X](https://x.com/ADH_Gaming) · [Patreon](https://www.patreon.com/c/TeamRedTail).
 - The port's own code is released under the MIT licence (`LICENSE`). The emulation cores are written from
   scratch. UI text uses the system font (Segoe UI through DirectWrite on Windows, Android's own font on Android).
+- The MSU-1 chip (`src/core/msu1.cpp`) and the MSU-1 pack handling (finding a pack's tracks, applying its patch) are
+  ported from the Super Mario All-Stars PC port by the same author (MIT licence, as here); the chip here resamples with a
+  cubic interpolation and keeps its state with the session's save-state tag. MD+ is the CD-audio standard of the MegaSD
+  (Terraonion) and the Mega EverDrive Pro (Krikzz), MSU-1 byuu's (higan) and the SD2SNES's. Soundtrack packs, their
+  patches and music belong to their makers (e.g. ArcadeTV for *Aladdin CD - MD+*) and aren't part of this project.
 - The Android build uses SDL2 by Sam Lantinga and contributors, zlib licence (fetched by
   `android/fetch_sdl.ps1`, not stored in this repository).
 - Slang shaders run through librashader by Ronny Chan (chyyran), Mozilla Public License 2.0

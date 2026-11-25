@@ -751,8 +751,18 @@ bool in_43_window(const MegaDrive& md, int col, int row) {
     return col >= L && col <= L + 22 && row >= Y && row <= Y + 15;
 }
 
+// An MD+ soundtrack's patch (soundtrack.h) takes the game's music requests over in its sound library: the start of a
+// sequence ($1E589A: jsr $1E57AC) and the stop-all's end ($1E5902: jmp $1E57E2) jump into its own code, which sends
+// the CD commands. A held boss tune is then started by the game's own code instead of queued for the driver directly
+// (boss_tune_held), so the pack plays it.
+bool sound_hooked(const MegaDrive& md) { return md.rom32(0x1E589C) != 0x001E57AC || md.rom32(0x1E5904) != 0x001E57E2; }
+constexpr uint32_t BOSS_TUNE_CALL = 0x1B6C64;   // the first handler's stop-all and start ($1B6C94: rts), as a subroutine
+constexpr uint32_t BOSS_STARTING = 0x40000000u; // a held entry whose start runs in the game's code (to the rts)
+
 // At a boss handler's stop-all (a5 = the object it spawned at its block: x = 16 col - 16, y = 16 row + 240)
 void boss_tune_spawned(MegaDrive& md, const BossHandler& h) {
+    for (int k = 0; k < MS_BOSS_N; k++)
+        if (md.module_state[MS_BOSS + k] & BOSS_STARTING) return;   // (boss_tune_held's call: it runs through)
     const uint32_t o = md.cpu.r[13] & 0xFFFFFF;
     const int col = ((int16_t)md.ram16(o + 2) + 16) >> 4, row = ((int16_t)md.ram16(o + 4) - 240) >> 4;
     if (o < OBJECTS || o >= OBJECTS + 32 * OBJ_SIZE || in_43_window(md, col, row)) return;   // (as the 4:3 game)
@@ -766,14 +776,28 @@ void boss_tune_spawned(MegaDrive& md, const BossHandler& h) {
 }
 
 // After the gameplay loop's streaming: a held tune whose block has come into the 4:3 window starts; one whose object is
-// gone (despawned, the level left) is dropped.
-void boss_tune_held(MegaDrive& md) {
+// gone (despawned, the level left) is dropped. With an MD+ soundtrack the start is the game's own code: the 68000 calls
+// the first handler's stop-all and start (BOSS_TUNE_CALL) from here and returns here, where the hook then lets it go
+// on (the entry, marked BOSS_STARTING meanwhile, is dropped). False: the hook goes on as usual.
+bool boss_tune_held(MegaDrive& md) {
+    for (int k = 0; k < MS_BOSS_N; k++)
+        if (md.module_state[MS_BOSS + k] & BOSS_STARTING) {   // (back from the call)
+            md.module_state[MS_BOSS + k] = 0;
+            return true;
+        }
     for (int k = 0; k < MS_BOSS_N; k++) {
         uint32_t& e = md.module_state[MS_BOSS + k];
         if (!e) continue;
         const uint32_t o = OBJECTS + ((e >> 24) & 0x1F) * OBJ_SIZE;
         if (!md.ram8(o) || !boss_type(md.ram8(o + 0x34))) { e = 0; continue; }
         if (!in_43_window(md, (int)(e & 0xFFFF), (int)((e >> 16) & 0xFF))) continue;
+        if (sound_hooked(md)) {
+            e |= BOSS_STARTING;
+            md.cpu.r[15] -= 4;
+            md.cpu.write32(md.cpu.r[15], md.cpu.pc & 0xFFFFFF);   // (jsr: back to this hook's PC)
+            md.cpu.pc = BOSS_TUNE_CALL;
+            return false;
+        }
         gems_command(md, {0x16});
         if (md.ram8(MUSIC_ON)) {
             gems_command(md, {0x12, BOSS_TUNE});
@@ -781,6 +805,7 @@ void boss_tune_held(MegaDrive& md) {
         }
         e = 0;
     }
+    return false;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -2214,7 +2239,7 @@ public:
             // After the streaming: held tunes and colours; the carpet at the idol's kill (carpet_due), else while a boss
             // framing is in force the band's outer columns (band_refresh)
             md.add_pc_hook(PC_STREAMED, [this](MegaDrive& m) {
-                boss_tune_held(m);
+                if (boss_tune_held(m)) return;   // (back from an MD+ boss tune's start: done for this frame)
                 if (!wide_rom()) return;
                 line2_moments(m);
                 if (!carpet_due(m, *wide_)) band_refresh(m, *wide_);
@@ -2565,6 +2590,18 @@ public:
     }
 
     void stop_sound(MegaDrive& md) override { gems_command(md, {0x16}); }
+
+    // A tune asked for as the game does (the boss handlers: pea id, jsr $1E58B8, jsr $1E589A), on the parked 68000 of
+    // jukebox_boot: an MD+ soundtrack's patch answers with its CD commands (the Music Player's map of its tracks).
+    bool music_request(MegaDrive& md, int id) override {
+        M68k& c = md.cpu;
+        const uint32_t sp = c.r[15];
+        c.r[15] = sp - 4;
+        c.write32(c.r[15], (uint32_t)id);
+        const bool ok = call_68k(md, 0x1E58B8) && call_68k(md, 0x1E589A);
+        c.r[15] = sp;
+        return ok;
+    }
 
 private:
     std::unique_ptr<Wide> wide_{new Wide};

@@ -81,6 +81,12 @@ public:
     // Writes to cartridge space ($000000-$3FFFFF): ignored by the ROM, seen by a cartridge device when set
     // (the MD+ audio overlay at $3F7FA / $3F7FE). size 1 or 2.
     std::function<void(MegaDrive&, uint32_t addr, uint16_t value, int size)> on_cart_write;
+    // The MD+ overlay (with a cartridge device attached, on_cart_write): $CD54 written to $3F7FA opens it, any other
+    // value closes it. While it is open its status word at $3F7FE reads 0 (ready for a command) instead of the ROM: the
+    // patches wait for it before each command. Closed at power-on; a save state doesn't hold it (the session keeps it
+    // with the soundtrack's state).
+    bool mdplus_overlay() const { return mdplus_overlay_; }
+    void set_mdplus_overlay(bool on);
     // Called at the start of each frame / at VBlank (line 224) / end of frame.
     std::function<void(MegaDrive&)> on_frame_start, on_vblank, on_frame_end;
 
@@ -117,6 +123,7 @@ public:
 
 private:
     std::vector<uint8_t> rom_orig;
+    bool mdplus_overlay_ = false;
     int64_t m68_clock = 0, z80_clock = 0, audio_clock = 0;
     int64_t line_start = 0;
     bool    in_z80 = false;

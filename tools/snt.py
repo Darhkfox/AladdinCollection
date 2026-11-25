@@ -129,6 +129,10 @@ _sig('snt_module_jukebox_boot', None, V)
 _sig('snt_module_play', None, V, I)
 _sig('snt_module_jukebox_frame', None, V)
 _sig('snt_module_ach', I, V, C.POINTER(C.c_int), I)
+if hasattr(_dll, 'snt_msu_open'):   # (an MSU-1 pack's chip)
+    _sig('snt_msu_open', None, V, C.c_char_p, C.c_float)
+    _sig('snt_msu_state', I, V, C.c_char_p, I)
+    _sig('snt_msu_set_state', None, V, C.c_char_p)
 
 
 def buttons(spec):
@@ -396,6 +400,20 @@ class SNES:
 
     def voice_env(self, v):
         return _dll.snt_voice_env(self.h, v)
+
+    # ---- MSU-1 (an MSU-1 pack: load the ROM patched for it, then attach its tracks)
+    def msu_open(self, base, gain=1.0):
+        """attach an MSU-1 chip playing <base>-N.pcm (None detaches); its music is mixed into run_audio at `gain`"""
+        _dll.snt_msu_open(self.h, (base or '').encode('utf-8'), gain)
+
+    def msu_state(self):
+        """'m<track>,<sample>,<flags 1 missing 2 playing 4 repeat>,<volume>,<data>,<latch>,<seek>' ('' without a chip)"""
+        buf = C.create_string_buffer(256)
+        _dll.snt_msu_state(self.h, buf, 256)
+        return buf.value.decode()
+
+    def msu_set_state(self, s):
+        _dll.snt_msu_set_state(self.h, s.encode())
 
     # ---- disassembly
     def dis1(self, pc, m=True, x=True):
