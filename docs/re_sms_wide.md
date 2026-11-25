@@ -419,8 +419,9 @@ story screens are now drawn wide where their picture allows it (`story_screen`, 
   Measured from the title (the user's state, 21:9 CRT, app): 19 frames of junk before, none after; headless the same,
   and the password screen 30 frames of the stage's map at its right edge before, pillarboxed throughout after. The other
   changes - scene to scene, scene to stage, stage to scene, the lamp's chamber, TRY AGAIN, game over, the ending to the
-  title - set the mode right before `$0913` (QA's whole-game replays at 21:9 CRT: the sides change with the 4:3
-  picture standing still only where a character walks in a side, as before).
+  title - set the mode right before `$0913` (QA's round-3 replays at 21:9 CRT, power-on to scene $11 and scene $23
+  through the ending to the title, before and after: the same but for the title's wait; the sides change under a
+  still 4:3 picture only where a character walks or flies in a side).
   Parked sprites: the title, password, game over and menus draw no extra sprites (`StorySprites::upload` draws them
   on a widened scene or the ending only, and a character's only once it has been on the 256 px since it was put
   there on the screen shown), so a non-gameplay screen's parked pieces stay hidden as in the original.
@@ -463,7 +464,7 @@ scene 3 at 102 differs in 76 of 954 (the characters in the sides).
 | slowdown | `r2_lag.py` (QA, round 2), every stage at 0 / 22 / 74 / 102, 3000 frames | section 3, "CPU time": near 4:3 everywhere |
 | left behind, fade-outs | stage 1 standing still and walking back, stage 8's wall; every auto-scrolling stage's exit, a death to TRY AGAIN | sections 2 and 5 |
 | story screens | every scene, the intro, title and ending at 74 and 102 (tool), the app at 21:9 CRT (before / after); `sms_rewind.py 74 102 --scenes .. --ending` | section 5a; rewind identical |
-| screen changes | GAME START and PASSWORD from the title, a password taken, game over (continue) at 21:9 CRT (tool, app); QA's whole-game replays (`r3_play_e74`, `r3_play_e74b`), frames where the sides change under a still 4:3 picture | section 5a "A wait before the fade": none but characters walking in a side |
+| screen changes | GAME START and PASSWORD from the title, a password taken, game over (continue) at 21:9 CRT (tool, app); QA's round-3 replays (`r3_play_e74`, `r3_play_e74b`: to scene $11, and scene $23 to the title), frames where the sides change under a still 4:3 picture | section 5a "A wait before the fade": none but characters walking in a side |
 | screens | `sms_wide_shots.py`, `sms_run_sheet.py` (whole stages 0 1 5 7 at 74 / 102), `sms_app_test.py` (16:9 and 21:9 CRT, 21:9 square) | reviewed: stages, ends, HUD, scenes |
 | high frame rate | `hfr_test.py sms` (attract mode, stages 0 1 5 7) | RAM and picture identical with and without; in-betweens between the frames, the sides with the 256 px (section 7a) |
 
