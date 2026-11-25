@@ -576,7 +576,7 @@ identical (also from near a level's end: its `state` argument).
   within 48 px of another left out, the first 8 frames after a level's start or a life left out), objects first seen
   more than 16 px inside the picture and outside the game's screen: 46: 4 -> 0, 106: 9 -> 0, 140: 12 -> 1 (the Market
   at Dusk's boss at 140: Jasmine, out early, holds three banks when the arena's sweep has deleted him, and he comes when
-  they free). Inside the game's screen, at every width as at 4:3: 7-11 (the original's own). The guard drawn below the
+  they free). Inside the game's screen: 8-11 at every width, 8 at 4:3 (the original's own). The guard drawn below the
   floor in the user's shot is a beaten guard (`$2D`) falling off the screen, as at 4:3.
 - **The sweep.** An event can delete every object (`$81:9D82`: the Market at Dusk's arena at camera `$400`, `$80:A176`;
   other levels' events). The delete (`$83:96E2`) clears an object's spawned bits unless it is once only (bit 7, from
