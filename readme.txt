@@ -281,7 +281,9 @@
                            Super Nintendo .. 468 x 224
                            Master System ... 404 x 192
                          Title screens, menus and cut-scenes keep their
-                         original shape.                 (default: 16:9)
+                         original shape (the Master System's story
+                         scenes, intro, title and ending are drawn wide
+                         too).                           (default: 16:9)
      Re-anchor HUD ..... In widescreen, moves the status bar items out to
                          the screen edges.               (default: ON)
      Pixel Aspect ...... CRT (4:3 TV): each console's pixels as a 4:3
@@ -539,6 +541,14 @@
   Mega Drive's bonus rounds and the SNES staff roll. Where such a screen's
   background is one plain colour, it fills the width in that colour. The
   SNES STAGE CLEAR screen fills the width with its purple background.
+
+  Master System story screens are drawn wide: each story scene carries
+  its own picture on into the sides (characters, text and framed
+  pictures stay where the game puts them; a character who walks off goes
+  on into the side), the Genie's intro and the title fill the width with
+  their background, and the ending's stars and sea run the whole width.
+  Five scenes whose picture is cut off at its edges stay in their
+  original shape, with black bars.
 
   Narrow climbs: where an SNES level is a tower one screen wide (Inside
   the Lamp 3), the view is centred on it. Both sides show the sky and

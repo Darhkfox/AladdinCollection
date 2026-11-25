@@ -43,7 +43,12 @@ bool in_stage(const Sms& s) { return stage_mode(s.ram8(MODE)) && s.ram8(STAGE) <
 constexpr int MS_SHOWN = 6, SHOWN_STAGE_SHIFT = 24;
 constexpr uint32_t SHOWN_STAGE_BITS = 0xFu << SHOWN_STAGE_SHIFT, FADING = 1u << 28;
 bool fading(const Sms& s) { return (s.module_state[MS_SHOWN] & FADING) != 0 && s.vdp.ext > 0; }
-bool shows_stage(const Sms& s) { return fading(s) || in_stage(s); }
+// Any other screen fading out after the next mode is set (a story scene into its stage, the title into a scene, a
+// password into its stage...): module_state[6] bits 29-31, the kind of screen still shown (story screens, below).
+constexpr int STORY_FADE_SHIFT = 29;
+constexpr uint32_t STORY_FADE_BITS = 7u << STORY_FADE_SHIFT;
+int story_fade(const Sms& s) { return s.vdp.ext > 0 ? (int)((s.module_state[MS_SHOWN] & STORY_FADE_BITS) >> STORY_FADE_SHIFT) : 0; }
+bool shows_stage(const Sms& s) { return fading(s) || (in_stage(s) && !story_fade(s)); }
 int shown_stage(const Sms& s) {
     return fading(s) ? (int)((s.module_state[MS_SHOWN] & SHOWN_STAGE_BITS) >> SHOWN_STAGE_SHIFT) : s.ram8(STAGE);
 }
@@ -720,6 +725,279 @@ bool off_screen_vertically(const Sms& s, uint16_t o) {
 // A sprite table entry's 256-px page (module_state[0..3], see sprite_x)
 enum : uint8_t { PAGE_0 = 0, PAGE_RIGHT = 1, PAGE_LEFT = 2, PAGE_HIDDEN = 3 };
 
+// ---- story screens: the cut scenes, the intro and title, the ending (docs/re_sms_wide.md section 5a) ------------------
+// Everything but the ten stage modes used to be pillarboxed. The story screens are widened where their picture allows:
+// * Story scenes (mode $13, scene $C11F = 0..$23, script table $5F42): a 256x160 picture of its own, 16x10 metatiles
+//   ($4E92: bank $1C $8000 holds a word per scene, metatile bank << 8 | map bank; the scene's map pointer at ($C48F) +
+//   2 * scene in the map bank, rows 16 bytes apart; metatiles at ($C49D)), copied to table rows 0-19 with the hardware
+//   scroll at 0 (a shake moves it by 2 px), characters as sprites and some drawn into the table (framed pictures, the
+//   Genie, Jafar's snake), the text box on rows 20-23 (blank entry $11BF). The sides repeat part of the scene's own map
+//   from ROM (kSceneRules: per band of rows a range of source columns for each side - the whole picture where its
+//   edges meet, a stretch of sky, wall or floor elsewhere), so nothing the game draws into the table is repeated. The
+//   scenes whose edges can't be carried on (a rock, rock walls, a roof's slope or a lit cave cut by them) stay 4:3.
+// * The intro (the Genie with his framed pictures), the title and its menu (mode 0): table entry 0 at every edge
+//   column, a plain background: the sides are entry 0.
+// * The ending (mode $12): the stars are sprites (buffer slots 20-42, 1 px left every 4 frames, $7686: they wrap at 256
+//   px), the sea's rows 16-21 repeat every 32 px (scrolled per line), the credits are written on rows 6-13. The sides
+//   show the table's own wrap but blank ($0100) on the text rows 2-15, and every star again 256 px left and right.
+// The characters of a scene and the ending's carpet come from the game's sprite writers ($23C2, $3C63, $50D4), which
+// park a piece at X = 0 when its 16-bit X is off the 256 px. On a widened screen those pieces are drawn at their true X
+// as extra sprites (and the parked entries hidden), so the game's sprite table - its RAM - stays as it is.
+// A screen still fades out after the next mode is set ($0913): the kind of screen is kept for the fade (STORY_FADE).
+enum StoryKind { STORY_NONE = 0, STORY_SCENE = 1, STORY_TITLE = 2, STORY_ENDING = 3, STORY_OTHER = 4 };
+constexpr int M_ENDING = 0x12;
+constexpr uint16_t SCENE_SELECT = 0xC120, SCENE_RUNNING = 0xCF2E;   // (developers' scene select; set by $601B)
+constexpr int SCENES = 0x24, SCENE_ROWS = 20;
+constexpr uint16_t SCENE_BLANK = 0x11BF, ENDING_BLANK = 0x0100;
+constexpr uint16_t SAT_Y = 0xC300;
+// a band of a scene's cell rows [r0, r1): the left side repeats source columns [la, lb) (the one next to the picture's
+// edge is lb - 1), the right side [ra, rb) (ra next to the edge); a rule without bands: the scene stays 4:3
+struct SceneBand { uint8_t r0, r1, la, lb, ra, rb; };
+struct SceneRule { uint8_t n; SceneBand band[3]; };
+constexpr SceneBand WHOLE = {0, 20, 0, 32, 0, 32};   // the picture repeated: its edges meet
+const SceneRule kSceneRules[SCENES] = {
+    {1, {WHOLE}},   // 0 the market: Aladdin takes the bread
+    {1, {WHOLE}},   // 1 the market: the guard and Jasmine (stalls meet across the edges)
+    {1, {WHOLE}},   // 2 the rooftops: Aladdin and Jasmine run (the tower repeats)
+    {1, {WHOLE}},   // 3 the rooftops: the pole vault
+    {1, {WHOLE}},   // 4 the desert hills over Agrabah
+    {1, {WHOLE}},   // 5 the palace wall: the guards take Aladdin
+    {1, {WHOLE}},   // 6 the palace: Jafar and Jasmine (pillars and windows)
+    {1, {WHOLE}},   // 7 the dungeon
+    {0, {}},        // 8 night by the sea: a rock cut by the right edge
+    {1, {WHOLE}},   // 9 the treasure room
+    {2, {{0, 16, 8, 16, 4, 32}, {16, 20, 27, 30, 4, 32}}},   // $A the lamp's cave: the claw at the left edge isn't repeated
+    {1, {WHOLE}},   // $B the escape: the lava's drips
+    {0, {}},        // $C, $D the fall: rock walls cut by the edges
+    {0, {}},
+    {1, {WHOLE}},   // $E the Genie appears (hills at both edges)
+    {1, {WHOLE}},   // $F the Genie in the oasis
+    {1, {{0, 20, 0, 9, 0, 28}}},   // $10 the throne room: pillars on the left (not the throne), the room on the right
+    {3, {{0, 6, 0, 13, 0, 13}, {6, 8, 0, 13, 24, 32}, {8, 20, 0, 13, 28, 32}}},   // $11 night: sky, the balcony carries on
+    {1, {{0, 20, 0, 16, 0, 16}}},   // $12 the roof at night: sky and railing
+    {3, {{0, 6, 0, 13, 0, 13}, {6, 8, 0, 13, 24, 32}, {8, 20, 0, 13, 28, 32}}},   // $13 = $11's map
+    {0, {}},        // $14 the garden at night: a roof's slope cut by the left edge
+    {2, {{0, 8, 0, 13, 0, 13}, {8, 20, 0, 13, 24, 32}}},   // $15 the cliff at night: sky, the cliff carries on
+    {0, {}},        // $16 the Genie's cave: lit from the middle, rock at the right edge
+    {2, {{0, 8, 0, 13, 0, 13}, {8, 20, 0, 13, 24, 32}}},   // $17 = $15's map
+    {1, {{0, 20, 0, 9, 0, 28}}},   // $18 = $10's map
+    {1, {WHOLE}},   // $19 the palace hall (posts)
+    {1, {{0, 20, 0, 9, 0, 28}}},   // $1A = $10's map
+    {1, {WHOLE}},   // $1B the Sultan's room
+    {2, {{0, 14, 0, 1, 0, 1}, {14, 20, 0, 1, 28, 32}}},   // $1C the balcony by day: sky, the balcony carries on
+    {1, {WHOLE}},   // $1D the sky over the hills
+    {1, {{0, 20, 0, 16, 0, 16}}},   // $1E Jafar's room: the throne at the right edge isn't repeated
+    {1, {{0, 20, 0, 8, 24, 32}}},   // $1F Jafar's room: the hourglass
+    {1, {WHOLE}},   // $20 Jafar's room: the snake (the floor)
+    {1, {WHOLE}},   // $21 Jafar the genie
+    {1, {WHOLE}},   // $22 Jafar's room, red
+    {1, {WHOLE}},   // $23 the palace balcony: the end (towers)
+};
+const SceneRule* scene_rule(int sc) { return sc >= 0 && sc < SCENES && kSceneRules[sc].n ? &kSceneRules[sc] : nullptr; }
+
+// The screen shown, as far as widening it goes (not a stage: STORY_NONE)
+int story_screen(const Sms& s) {
+    if (shows_stage(s)) return STORY_NONE;
+    if (const int k = story_fade(s)) return k;
+    const int m = s.ram8(MODE);
+    if (m == M_SCENE) return s.ram8(SCENE_SELECT) && !s.ram8(SCENE_RUNNING) ? STORY_OTHER : STORY_SCENE;
+    if (m == 0) return STORY_TITLE;
+    if (m == M_ENDING) return STORY_ENDING;
+    return STORY_OTHER;
+}
+// ... and whether it is widened
+int story_wide(const Sms& s) {
+    if (s.vdp.ext == 0) return STORY_NONE;
+    const int k = story_screen(s);
+    if (k == STORY_SCENE) return scene_rule(s.ram8(SCENE)) ? k : STORY_NONE;
+    return k == STORY_TITLE || k == STORY_ENDING ? k : STORY_NONE;
+}
+
+// A fade-out ($0913) begins with the next mode set: the screen it fades, by the caller (the return address). The
+// stages' own (FADING) are told apart before this.
+void story_fade_begin(Sms& m, uint16_t ret) {
+    int k = STORY_OTHER;   // (password, game over, menus, the end of a demo: pillarboxed)
+    if (ret == 0x66F7) k = STORY_SCENE;                       // $66D7: a scene's end (its stage, the ending)
+    else if (ret == 0x4BD2 || ret == 0x4BF4 || ret == 0x1101) k = STORY_TITLE;   // the title: GAME START, PASSWORD, a
+                                                              // demo; a pad code entered on it ($10DC)
+    else if (ret == 0x75EC) k = STORY_ENDING;                 // the ending, back to the title
+    else if (ret == 0x1059) k = STORY_NONE;                   // ($1055 sets the mode after the fade: the screen's own)
+    m.module_state[MS_SHOWN] = (m.module_state[MS_SHOWN] & ~STORY_FADE_BITS) | ((uint32_t)k << STORY_FADE_SHIFT);
+}
+
+// A cell of scene `sc`'s picture from ROM (as $4E92 builds it): column 0..31, row 0..19
+int scene_cell(const Sms& s, int sc, int col, int row) {
+    const uint16_t w = bank_rd16(s, 0x1C, (uint16_t)(0x8000 + 2 * sc));
+    const int map_bank = w & 0xFF, mt_bank = w >> 8;
+    const uint16_t map = bank_rd16(s, map_bank, (uint16_t)(s.ram16(MAP) + 2 * sc));
+    const uint8_t mt = bank_rd8(s, map_bank, (uint16_t)(map + (col >> 1) + (row >> 1) * 16));
+    return bank_rd16(s, mt_bank, (uint16_t)(s.ram16(METATILES) + mt * 8 + (row & 1) * 4 + (col & 1) * 2)) & 0x1FFF;
+}
+
+// The background beyond the 256-px table on a story screen: the entry, or -1 for the table's own (wrapped)
+int story_bg_entry(const Sms& s, int vcol, int vrow) {
+    if (vcol >= 0 && vcol < 32) return -1;   // (the table: also the column the hardware blanks)
+    switch (story_wide(s)) {
+    case STORY_TITLE:
+        return 0;
+    case STORY_ENDING:
+        vrow %= 28;
+        return vrow >= 2 && vrow < 16 ? ENDING_BLANK : -1;   // (no credits in the sides; stars are sprites)
+    case STORY_SCENE: {
+        vrow %= 28;
+        if (vrow >= 24) return -1;
+        if (vrow >= SCENE_ROWS) return SCENE_BLANK;   // the text box's rows
+        const int sc = s.ram8(SCENE);
+        const SceneRule& r = *scene_rule(sc);
+        for (int i = 0; i < r.n; i++) {
+            const SceneBand& b = r.band[i];
+            if (vrow < b.r0 || vrow >= b.r1) continue;
+            int col;
+            if (vcol < 0) col = b.lb - 1 - ((-1 - vcol) % (b.lb - b.la));
+            else col = b.ra + ((vcol - 32) % (b.rb - b.ra));
+            return scene_cell(s, sc, col, vrow);
+        }
+        return SCENE_BLANK;
+    }
+    default:
+        return -1;
+    }
+}
+
+// The sprites of a widened story screen. The writers' pieces (hooks before their "off screen" test: hl = the piece's
+// 16-bit X, bc = its character's) are kept per slot of the sprite table buffer with the slot's contents as uploaded:
+// the scenes run their writers on some frames only (not while text is written), so a piece stays as it was while its
+// slot does. A scene keeps characters waiting off the screen for their cue (a guard at x -48 for 550 frames, Aladdin
+// at -16 for 1000): a character is drawn beyond the 256 px only once it has been on them (its X within 0..255) since
+// it was put where it is (a jump of more than 16 px) - one leaving walks on into the side, one waiting stays unseen.
+struct StorySprites {
+    static constexpr int16_t NONE = INT16_MIN;
+    static constexpr int CHARS = 9;   // Aladdin's writer ($2390), the second figure ($3C13), the scene's list ($5099, 7)
+    int16_t x[64];          // the piece's 16-bit X as written, or NONE
+    uint8_t who[64];        // its character
+    uint8_t fresh[64];      // written since the last upload
+    uint8_t snap[64][3];    // the slot's Y, X, pattern at the upload after it was written
+    uint8_t valid[64];      // (and unchanged since)
+    int16_t at[CHARS];      // each character's X when last drawn (NONE: not yet)
+    uint8_t seen[CHARS];    // it has been on the 256 px since
+    uint16_t shown = 0;     // the screen they belong to (kind << 8 | scene): another one starts them afresh
+    StorySprites() { clear(); }
+    void clear() {
+        for (int i = 0; i < 64; i++) { x[i] = NONE; who[i] = fresh[i] = valid[i] = 0; snap[i][0] = snap[i][1] = snap[i][2] = 0; }
+        forget();
+        shown = 0;
+    }
+    void forget() { for (int c = 0; c < CHARS; c++) { at[c] = NONE; seen[c] = 0; } }
+    void piece(const Sms& m, int slot, int c) {
+        if (slot < 0 || slot >= 64 || c < 0 || c >= CHARS) return;
+        x[slot] = (int16_t)m.z80.hl;
+        who[slot] = (uint8_t)c;
+        fresh[slot] = 1;
+        const int cx = (int16_t)m.z80.bc;
+        if (at[c] == NONE || std::abs(cx - at[c]) > 16) seen[c] = 0;
+        if (cx >= 0 && cx < 256) seen[c] = 1;
+        at[c] = (int16_t)cx;
+    }
+    // the list's character whose X ($CF37 + 4k + 2) the writer at $50D4 adds ($CF33 points at it)
+    static int list_char(const Sms& m) { return 2 + std::clamp((m.ram16(0xCF33) - 0xCF39) / 4, 0, 6); }
+    // At the VBlank's table upload ($02D9): which entries are parked pieces (hidden: module_state[0..3]), and the extra
+    // sprites (true X) for those in the view; on the ending also the stars again 256 px left and right.
+    void upload(Sms& m) {
+        SmsVdp& v = m.vdp;
+        v.extra_count = 0;
+        const int kind = story_wide(m);
+        const uint16_t now = (uint16_t)(story_screen(m) << 8 | m.ram8(SCENE));   // (kept through a screen's fade-out)
+        if (now != shown) { forget(); shown = now; }
+        for (int slot = 0; slot < 64; slot++) {   // (follow the slots on every screen: a widened one may come next)
+            const uint8_t cur[3] = {m.ram8((uint16_t)(SAT_Y + slot)), m.ram8((uint16_t)(SAT_XT + 2 * slot)),
+                                    m.ram8((uint16_t)(SAT_XT + 2 * slot + 1))};
+            if (fresh[slot]) {
+                std::memcpy(snap[slot], cur, 3);
+                valid[slot] = 1;
+                fresh[slot] = 0;
+            } else if (valid[slot] && std::memcmp(snap[slot], cur, 3) != 0) {
+                valid[slot] = 0;
+            }
+        }
+        if (kind != STORY_SCENE && kind != STORY_ENDING) return;
+        const bool rev = m.ram8(FRAMES) & 1;   // (the upload's order: reversed on odd frames)
+        const int E = v.ext, shift = (v.reg[0] & 0x08) ? 8 : 0;
+        auto add = [&](int sx, uint8_t y, uint8_t pat) {
+            if (y >= 0xBF && y < 0xE0) return;   // (below the picture: the writers' hidden pieces, $C0 - 1)
+            if (sx <= -8 - E || sx >= 256 + E || v.extra_count >= SmsVdp::kMaxExtra) return;
+            v.extra[v.extra_count++] = {(int16_t)sx, y, pat};
+        };
+        for (int w = 0; w < 4; w++) m.module_state[w] = 0;
+        for (int i = 0; i < 64; i++) {
+            const int slot = rev ? 63 - i : i;
+            if (!valid[slot] || x[slot] == NONE || (x[slot] >= 0 && x[slot] < 256)) continue;
+            m.module_state[i >> 4] |= (uint32_t)PAGE_HIDDEN << ((i & 15) * 2);
+            if (seen[who[slot]]) add(x[slot] - shift, snap[slot][0], snap[slot][2]);
+        }
+        if (kind == STORY_ENDING) {
+            for (int slot = 20; slot <= 42; slot++) {
+                const uint8_t y = m.ram8((uint16_t)(SAT_Y + slot));
+                if (y == 0xD0) break;
+                const int sx = m.ram8((uint16_t)(SAT_XT + 2 * slot)) - shift;
+                const uint8_t pat = m.ram8((uint16_t)(SAT_XT + 2 * slot + 1));
+                add(sx - 256, y, pat);
+                add(sx + 256, y, pat);
+            }
+        }
+    }
+    // save states: the slots' and characters' records (version 1)
+    static constexpr uint8_t TAG = 'S', VERSION = 1;
+    static constexpr size_t SIZE = 2 + 64 * 8 + CHARS * 3 + 2;
+    void save(std::vector<uint8_t>& d) const {
+        d.push_back(TAG);
+        d.push_back(VERSION);
+        for (int i = 0; i < 64; i++)
+            d.insert(d.end(), {(uint8_t)x[i], (uint8_t)((uint16_t)x[i] >> 8), who[i], fresh[i], valid[i], snap[i][0], snap[i][1], snap[i][2]});
+        for (int c = 0; c < CHARS; c++) d.insert(d.end(), {(uint8_t)at[c], (uint8_t)((uint16_t)at[c] >> 8), seen[c]});
+        d.insert(d.end(), {(uint8_t)shown, (uint8_t)(shown >> 8)});
+    }
+    bool load(const uint8_t* d, size_t n) {
+        clear();
+        if (n < SIZE || d[0] != TAG || d[1] != VERSION) return false;
+        for (int i = 0; i < 64; i++) {
+            const uint8_t* e = d + 2 + 8 * i;
+            x[i] = (int16_t)(e[0] | (e[1] << 8));
+            who[i] = (uint8_t)std::min<int>(e[2], CHARS - 1);
+            fresh[i] = e[3];
+            valid[i] = e[4];
+            std::memcpy(snap[i], e + 5, 3);
+        }
+        for (int c = 0; c < CHARS; c++) {
+            const uint8_t* e = d + 2 + 64 * 8 + 3 * c;
+            at[c] = (int16_t)(e[0] | (e[1] << 8));
+            seen[c] = e[2];
+        }
+        shown = (uint16_t)(d[SIZE - 2] | (d[SIZE - 1] << 8));
+        return true;
+    }
+};
+
+// A sprite of a widened story screen: the parked pieces are hidden (their extra sprites stand in)
+int story_sprite_x(const Sms& s, int index, int x) {
+    const int k = story_wide(s);
+    if (k != STORY_SCENE && k != STORY_ENDING) return x;
+    return ((s.module_state[index >> 4] >> ((index & 15) * 2)) & 3) == PAGE_HIDDEN ? -4096 : x;
+}
+
+// A line of a story screen after its layers are drawn: the blanked left column. Widened scenes and the ending show the
+// table's column there (part of the picture) with its sprites (the parked ones are hidden); the title shows the plain
+// background without sprites; screens that stay 4:3 the backdrop colour, as the hardware.
+void story_line_hook(const Sms& s, uint8_t* bg, uint8_t* spr) {
+    const SmsVdp& v = s.vdp;
+    if (!(v.reg[0] & 0x20)) return;
+    const int E = v.ext, k = story_wide(s);
+    if (k == STORY_SCENE || k == STORY_ENDING) return;
+    for (int i = E; i < E + 8; i++) {
+        if (k != STORY_TITLE) bg[i] = (uint8_t)(0x10 | (v.reg[7] & 0x0F));
+        spr[i] = 0;
+    }
+}
+
 class SmsAladdin : public SmsModule {
 public:
     const char* id() const override { return "sms"; }
@@ -859,11 +1137,12 @@ public:
             v.extra_count = 0;
             std::memset(page_, 0, sizeof(page_));
         }
+        if (!wide || !wide_) story_.clear();
         wide_ = wide;
         if (!wide) {
             s.module_state[MS_PLACEMENT] &= ~(SLOT_START | SLOT_PARITY | SLOT_OPEN | SLOT_FREE);
             set_behind(s, 0);
-            s.module_state[MS_SHOWN] &= ~FADING;
+            s.module_state[MS_SHOWN] &= ~(FADING | STORY_FADE_BITS);
             return;
         }
         // (until the next VBlank: the camera of the frame just drawn)
@@ -878,8 +1157,16 @@ public:
         s.add_pc_hook(0x23C2, [this](Sms& m) {
             m.z80.hl = (uint16_t)(m.z80.hl - behind(m));   // (left behind by the scroll: see push_left)
             piece_x(m, (m.z80.de - SAT_XT) >> 1);
+            if (!in_stage(m)) story_.piece(m, (m.z80.de - SAT_XT) >> 1, 0);   // (story screens: StorySprites)
         });
-        s.add_pc_hook(0x3C63, [this](Sms& m) { piece_x(m, (m.z80.de - SAT_XT) >> 1); });
+        s.add_pc_hook(0x3C63, [this](Sms& m) {
+            piece_x(m, (m.z80.de - SAT_XT) >> 1);
+            if (!in_stage(m)) story_.piece(m, (m.z80.de - SAT_XT) >> 1, 1);
+        });
+        // (the story scenes' other characters, $5099: the table pointer on the stack)
+        s.add_pc_hook(0x50D4, [this](Sms& m) {
+            story_.piece(m, ((m.peek(m.z80.sp) | (m.peek((uint16_t)(m.z80.sp + 1)) << 8)) - SAT_XT) >> 1, StorySprites::list_char(m));
+        });
         s.add_pc_hook(0x0C99, [this](Sms& m) {
             // stack: the piece's table pointer, two counters, the object ($0C45 pushed ix)
             auto word = [&](int o) { return (uint16_t)(m.peek((uint16_t)(m.z80.sp + o)) | (m.peek((uint16_t)(m.z80.sp + o + 1)) << 8)); };
@@ -920,7 +1207,7 @@ public:
         s.add_pc_hook(0x3CBC, [](Sms& m) { slot_begin(m, false); });
         s.add_pc_hook(0x3CE4, [](Sms& m) { slot_end(m); });
         // a stage fading out after its end (the next mode set: a story scene, the next stage, TRY AGAIN): still the
-        // stage's picture, wide, until the fade ($0913) is over
+        // stage's picture, wide, until the fade ($0913) is over; any other screen likewise its own (story_fade_begin)
         s.add_pc_hook(0x0913, [](Sms& m) {
             static const uint16_t ends[] = {0x1523, 0x167B, 0x35D7},   // (the stage's exits: the stage number is up)
                 lost[] = {0x1503, 0x1652, 0x1C44, 0x20DC, 0x34F7, 0x36A9, 0x37BF, 0x394B, 0x2794};   // (TRY AGAIN, Jafar)
@@ -928,10 +1215,15 @@ public:
             int st = -1;
             for (uint16_t a : ends) if (ret == a) st = m.ram8(STAGE) - 1;
             for (uint16_t a : lost) if (ret == a) st = m.ram8(STAGE);
-            if (st < 0 || st > 9 || demo_playing(m)) return;
+            // (the lamp's chamber into its scene, $351E: the stage number is up; a demo's end there goes to the title)
+            if (ret == 0x3536 && m.ram8(MODE) == M_SCENE) st = m.ram8(STAGE) - 1;
+            if (st < 0 || st > 9 || demo_playing(m)) {
+                story_fade_begin(m, ret);
+                return;
+            }
             m.module_state[MS_SHOWN] = (m.module_state[MS_SHOWN] & ~SHOWN_STAGE_BITS) | FADING | ((uint32_t)st << SHOWN_STAGE_SHIFT);
         });
-        s.add_pc_hook(0x092D, [](Sms& m) { m.module_state[MS_SHOWN] &= ~FADING; });
+        s.add_pc_hook(0x092D, [](Sms& m) { m.module_state[MS_SHOWN] &= ~(FADING | STORY_FADE_BITS); });
         // left behind by the scroll: lost at the view's left edge
         s.add_pc_hook(0x34A5, [](Sms& m) { push_left_frame(m); });
         s.add_pc_hook(0x34B4, [](Sms& m) { push_left(m); });
@@ -946,14 +1238,18 @@ public:
             for (int i = 0; i < 64; i++)
                 m.module_state[i >> 4] |= (uint32_t)page_[rev ? 63 - i : i] << ((i & 15) * 2);
             if (shows_stage(m)) extra_sprites(m);
-            else m.vdp.extra_count = 0;
+            else story_.upload(m);   // (a story screen: its own extra sprites and hidden entries)
         });
     }
 
     void post_frame(Sms& s, const GameConfig& cfg, FrameInfo& info) override {
         const int E = cfg.ext;
         info.gameplay = shows_stage(s);
-        if (!info.gameplay || E == 0) return;
+        if (!info.gameplay) {
+            info.gameplay = story_wide(s) != STORY_NONE;   // (a widened story screen: no masks)
+            return;
+        }
+        if (E == 0) return;
         // What lies outside the level: only where it is narrower than the view (view_slide centres it), and the sides
         // of Jafar's room (shown dimmed)
         const int cam = shown_cam(s), view = cam - E + view_slide(s, cam, E);
@@ -986,6 +1282,7 @@ public:
             const SmsVdp::ExtraSprite& e = v.extra[i];
             d.insert(d.end(), {(uint8_t)e.x, (uint8_t)(e.x >> 8), e.y, e.pattern});
         }
+        story_.save(d);   // (after the stage's part: the story screens' sprite records)
         return d;
     }
 
@@ -997,6 +1294,7 @@ public:
             // (a state without them: as after a width change)
             std::memset(page_, 0, sizeof(page_));
             v.extra_count = 0;
+            story_.clear();
             return;
         }
         std::memcpy(page_, d + 1, 64);
@@ -1006,6 +1304,8 @@ public:
             const uint8_t* e = d + 67 + 4 * i;
             v.extra[i] = {(int16_t)(e[0] | (e[1] << 8)), e[2], e[3]};
         }
+        const size_t at = 67u + 4u * d[66];
+        story_.load(d + at, n - at);   // (none in older states: cleared)
     }
 
     std::vector<CheatEntry> cheats() const override {
@@ -1196,6 +1496,7 @@ private:
     bool hud_anchor_ = true;
     static constexpr uint8_t EXT_VERSION = 1;   // (save_ext's layout)
     uint8_t page_[64] = {};   // each sprite table buffer entry's page as the writers left it (uploaded at the VBlank)
+    StorySprites story_;      // the story screens' sprite pieces (story_.upload at the VBlank)
     SectionTiles s7_;    // stage 7's sections' reloaded tiles (made from ROM when first needed)
     CamTiles cam_tiles_;   // stages 0 and 1's camera-animated tiles by phase, and their walls (made when first needed)
     uint8_t anim_buf_[ANIM_TILES * 32] = {};   // the frame's tiles 257-273 for the VDP (anim_tiles)
@@ -1357,7 +1658,7 @@ private:
         (void)line;
         const Sms& s = *((SmsAladdin*)host)->sms_;
         const SmsVdp& v = s.vdp;
-        if (!shows_stage(s)) return -1;
+        if (!shows_stage(s)) return story_bg_entry(s, vcol, vrow);
         // (the table's 28 rows wrap: Jafar's turn into the snake shakes the screen with the vertical scroll, 222 / 224)
         vrow %= 28;
         // the status bar (rows 0-1): blank beyond the 256 px; below the playfield: see line_hook
@@ -1396,7 +1697,7 @@ private:
     static int sprite_x(void* host, int index, int x, int y, int pattern) {
         (void)y; (void)pattern;
         const Sms& s = *((SmsAladdin*)host)->sms_;
-        if (!shows_stage(s)) return x;
+        if (!shows_stage(s)) return story_sprite_x(s, index, x);
         switch ((s.module_state[index >> 4] >> ((index & 15) * 2)) & 3) {
         case PAGE_RIGHT: return x + 256;
         case PAGE_LEFT: return x - 256;
@@ -1411,10 +1712,7 @@ private:
         const SmsVdp& v = s.vdp;
         const int E = v.ext;
         if (!shows_stage(s)) {
-            // pillarboxed screens: the blanked left column as the hardware shows it
-            if (v.reg[0] & 0x20) {
-                for (int i = E; i < E + 8; i++) { bg[i] = (uint8_t)(0x10 | (v.reg[7] & 0x0F)); spr[i] = 0; }
-            }
+            story_line_hook(s, bg, spr);   // (the blanked left column of the other screens)
             return;
         }
         // Below the playfield (lines 176-191) the stages show blank rows (black, Jafar's room red: in either palette's

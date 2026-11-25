@@ -27,8 +27,12 @@ sms_end` for states near the auto-run stages' ends). Widths: 6/22/40/74 (CRT pix
    objects the 64-entry table has no room for are drawn as extra sprites by the VDP.
 4. Status bar (rows 0-1): the stone counter moves to the right edge (`line_hook`), the gems stay centred; neither
    moves with the slide.
-5. Not gameplay (every mode but the ten stage modes 2..$B): pillarboxed, the blanked left column drawn as the
-   hardware does. In the stages, lines 176-191 (blank border / a story moment's text box) get colour 0 at the sides.
+5. The story screens are wide where their picture allows (section 5a): 31 of the 36 story scenes carry their own
+   picture on from ROM (characters walking off go on into the sides), the intro and title fill the width with their
+   plain background, the ending carries its sprite starfield and sea on. Five scenes, menus, password, game over and
+   the attract demos are pillarboxed, the blanked left column drawn as the hardware does. A screen fading out after
+   the next mode is set is still drawn as itself. In the stages, lines 176-191 (blank border / a story moment's text
+   box) get colour 0 at the sides.
 6. Save states and rewind carry what the hooks keep from one frame to the next (`save_ext`, section 6).
 7. The attract demos run on the original ROM and are shown at 4:3: they play exactly as at 4:3 (section 3).
 8. The objects' extra work in a wide view takes no CPU time (the clock stops for it): no slowdown the original
@@ -327,9 +331,10 @@ module only steps in beyond the tables' reach).
 * Rows 0-1, fixed (reg 0 bit 6): gems at columns 15-17, the stone counter (stages 2 3 4 6) at 26-29, PAUSE in row
   0. With `hud_anchor` the line hook moves x 192..255 of lines 0-15 to the right edge; the gems and PAUSE stay in
   the middle. There are no status sprites. The slide leaves lines 0-15 alone.
-* `FrameInfo.gameplay` = modes 2..$B but the attract demos (shown at 4:3), and a stage fading out; title, password, game over, the story
-  scenes (mode $13), the menus and the ending are pillarboxed. With the core ignoring reg 0 bit 5 in widescreen,
-  the line hook draws the blanked column (backdrop colour, no sprites) on those screens.
+* `FrameInfo.gameplay` = modes 2..$B but the attract demos (shown at 4:3), and a stage fading out; also the widened
+  story screens (section 5a). Password, game over, the menus, the scenes kept 4:3 and the demos are pillarboxed. With
+  the core ignoring reg 0 bit 5 in widescreen, the line hook draws the blanked column (backdrop colour, no sprites)
+  on those screens.
 * A stage's fade-out: the game sets the next mode (and at an exit the next stage number, `$35B8`, `$1504`) before
   it fades the stage out (`ld ($C200),a; call $0913`), so the picture dropped to 4:3 bars for about 0.8 s at full
   brightness and then faded. A hook at `$0913` tells the caller by its return address (the exits `$1523`, `$167B`,
@@ -343,20 +348,83 @@ module only steps in beyond the tables' reach).
   other story moments put a text box: the line hook gives the sides colour 0, so the box stays 256 px wide in the
   middle and the border runs the whole width (sprites crossing it are kept).
 
+## 5a. Story screens: the scenes, the intro and title, the ending
+
+Every mode but the ten stage modes used to be pillarboxed (the app fills the bars with a plain edge's colour). The
+story screens are now drawn wide where their picture allows it (`story_screen`, `story_wide`; the module's section
+"story screens").
+
+* **Story scenes** (mode $13, scene `$C11F` = 0..$23, scripts `$5F42`; scenes 2-8, $A-$B, $C-$F, $12-$18, $19-$1C,
+  $1D-$1F and $20-$23 run on into each other, `$6697`). Each is a 256x160 picture of its own: `$4E92` builds 16x10
+  metatiles into `$D000` and copies it to table rows 0-19 (bank `$1C` `$8000`: a word per scene, metatile bank << 8 |
+  map bank; the map pointers at (`$C48F`) = `$8048` + 2 * scene in the map bank, rows 16 bytes apart; the metatiles at
+  (`$C49D`), from the scene's table `$5A91` via `$11E4`). Only a few match a stage's map in part (scene $A is stage
+  4's first screen, $6 is stage 6's at x 144), none with room to go on at both ends. The scroll is 0 but for a shake
+  of 2 px (`$5205`: scenes 8 $A $C $1C horizontally, $B $D vertically) and scene $20's band (Jafar's snake, rows
+  14-16, a line interrupt at reg 10 = `$47`). Characters are sprites: Aladdin's writer (`$2379`, entries 0-16), the
+  second figure's (`$3C13`, 20-36) and the scene's list (`$5099`, entries from `$BE94`, X at `$CF37` + 4k + 2); some
+  are drawn into the table (the framed pictures, the Genie in $E/$F/$16/$17/$1C/$22/$23, Jafar's snake in $20).
+  Rows 20-23 are the text box (portrait at column 2, the blank entry `$11BF` everywhere else: `$05C7` fills the
+  table with it first). Both buttons skip a scene (`$66B7`).
+  The sides repeat part of the scene's own map, from ROM (`kSceneRules`: per band of cell rows, a range of source
+  columns for each side, `scene_cell`), so what the game draws into the table is never repeated; the text box's rows
+  are `$11BF` at the sides, the hidden column 0 shows the table's own. Rules: the whole picture (its edges meet: the
+  stalls, rooftops, hills, pillars and towers of 0-7, 9, $B, $E, $F, $19, $1B, $1D, $20-$23); $A without the claw at its
+  left edge (columns 8-15 above, 27-29 for the water; on the right 4-31); $10 / $18 / $1A pillars on the left (0-8,
+  not the throne), the room on the right (0-27); $11 / $13 and $15 / $17 stars on the left (0-12), the balcony / cliff
+  carried on on the right (24-31 or 28-31); $12 and $1E sky, railing or floor (0-15); $1C plain sky and the balcony
+  (28-31); $1F the floor around the hourglass (0-7 / 24-31). Kept 4:3, with black bars: 8 (a rock cut by the right
+  edge), $C and $D (rock walls cut by both edges), $14 (a roof's slope cut by the left edge), $16 (the Genie's cave,
+  lit from the middle, black rock at the right edge). Chosen with an offline model of the rules for every scene, then
+  checked in the module at 74 and 102 and in the app.
+* **Characters at the sides**: the writers park a piece whose 16-bit X is off the 256 px at X = 0 (under the blanked
+  column). PC hooks before their "off screen" test (`$23C2`, `$3C63`, `$50D4`: hl = the piece's X, bc = its
+  character's) record each piece by slot of the sprite table buffer; at the VBlank's upload (`$02D9`) the slot's Y /
+  X / pattern are taken with it, and while they stay as they were the record holds (the scenes run their writers on
+  some frames only: not while text is written - 289 to 1315 of ~1400 uploads in a scene have no writer pass before
+  them). Parked entries are hidden (module_state[0..3], `sprite_x`) and the pieces in reach drawn as extra sprites at
+  their true X: the game's sprite table, its RAM, stays as it is. Scenes keep characters waiting off the screen for
+  their cue (scene 0's second guard at x -48 for 557 frames, Aladdin at -16 for 1009 frames in $18, a figure at -36 in 4):
+  a character is drawn beyond the 256 px only once it has been on them (X within 0..255) since it was put where it is
+  (a jump of more than 16 px, or another scene). So one leaving walks on into the side (and stays there if it stops
+  there, as Abu does in scene 1 at x 331 during the dialogue: in view at 21:9 with square pixels), one waiting stays unseen and
+  enters at the 4:3 picture's edge as in the original.
+* **Intro, title and menu** (mode 0, script `$CF01`): the Genie and his framed pictures, the logo and the menu on
+  a plain background, table entry 0 at every edge column in every state: the sides are entry 0, the blanked column
+  the plain background without sprites. The attract mode passes through it (its RAM untouched).
+* **Ending** (mode $12, 8532 frames, then the title): the stars are sprites (buffer slots 20-42, pattern 131, moved
+  1 px left every 4 frames by `$7686`: they wrap at 256), the sea (rows 16-21, a 32-px pattern) scrolls per line, the
+  credits are written on rows 6-13 and "The End" is drawn there. The sides show the table's wrap but `$0100` (blank)
+  on rows 2-15, every star again 256 px left and right, and the carpet (Aladdin's writer) at its true X when it flies
+  off.
+* **Fades**: a screen's end sets the next mode and then fades out (`$0913`), so for about a second the old picture is
+  shown with the new mode - a scene's (`$66D7`, return `$66F7`) with its stage's mode, the title's (`$4BD2`, `$4BF4`,
+  a pad code `$1101`) with mode $13, $F or a demo's, the ending's (`$75EC`), the password's and game over's with a
+  stage's mode. Before, a scene fading into its stage was taken for the stage: masked sides, and the sprites parked
+  under the blanked column showed in the picture's left column. The `$0913` hook now keeps the kind of screen fading
+  (module_state[6] bits 29-31, cleared at `$092D`): it is drawn as itself, and a stage's mode doesn't count as a
+  stage meanwhile (`shows_stage`). The lamp's chamber into scene $A (`$351E`, return `$3536` with mode $13) is a
+  stage's end like the others: the stage stays wide through its fade (it dropped to 4:3 at once).
+* What doesn't change: Jafar's snake (scene $20) grows out of the 4:3 picture's right edge, as the game only writes
+  the part on the original screen into the table. Characters entering from a side appear at the 4:3 edge.
+
 ## 6. Save states and rewind
 
 module_state (in the core's state) holds the displayed sprite pages, the cameras (with the frame counter), the
-undrawn objects ([6] bits 0-15) with how far Aladdin is left behind (bits 16-23) and the stage fading out (bits
-24-28), and the placement flag ([7] bit 30) with the queue loop's slot being timed (bits 0-22). The rest the hooks keep between frames is in
+undrawn objects ([6] bits 0-15) with how far Aladdin is left behind (bits 16-23), the stage fading out (bits
+24-28) and another screen fading out (bits 29-31, section 5a), and the placement flag ([7] bit 30) with the queue loop's slot being timed (bits 0-22). The rest the hooks keep between frames is in
 `save_ext` (version 1): the pages the writers left for the next table upload (the game's logic runs across the
 frame's end, so a state taken there has part of the next table written), the extra sprites made at the last VBlank
 for the frame being drawn, and the frame counter at stage 1's last camera move. The camera of the frame before
 comes from module_state. A reconfigure at the same width inside a stage keeps them; a state without them (older
-states, or from another width) starts them empty.
+states, or from another width) starts them empty. After them comes the story screens' record (tag 'S', version 1:
+each slot's piece, character and contents, each character's X and whether it has been on the screen, section 5a).
 
 `sms_rewind.py` steps back as the app does (load a state, one frame, compare its picture with the forward run's):
 stages 0 1 5 7 8 at E = 74 and 102, 2000 frames each, 1000 states: every picture identical; loading the core's state
-alone (`--no-ext`) gives wrong extra sprites for a frame (stage 5 at 102: 17 of 300).
+alone (`--no-ext`) gives wrong extra sprites for a frame (stage 5 at 102: 17 of 300). `--scenes` / `--ending` do the
+same in story scenes (through their fade-out into the next mode) and the ending: identical; without the module's part
+scene 3 at 102 differs in 76 of 954 (the characters in the sides).
 
 ## 7. Verification
 
@@ -375,6 +443,7 @@ alone (`--no-ext`) gives wrong extra sprites for a frame (stage 5 at 102: 17 of 
 | width changes | E 0 → 102 → 40 in stage 5 | waiting objects wake for the current E |
 | slowdown | `r2_lag.py` (QA, round 2), every stage at 0 / 22 / 74 / 102, 3000 frames | section 3, "CPU time": near 4:3 everywhere |
 | left behind, fade-outs | stage 1 standing still and walking back, stage 8's wall; every auto-scrolling stage's exit, a death to TRY AGAIN | sections 2 and 5 |
+| story screens | every scene, the intro, title and ending at 74 and 102 (tool), the app at 21:9 CRT (before / after); `sms_rewind.py 74 102 --scenes .. --ending` | section 5a; rewind identical |
 | screens | `sms_wide_shots.py`, `sms_run_sheet.py` (whole stages 0 1 5 7 at 74 / 102), `sms_app_test.py` (16:9 and 21:9 CRT, 21:9 square) | reviewed: stages, ends, HUD, scenes |
 | high frame rate | `hfr_test.py sms` (attract mode, stages 0 1 5 7) | RAM and picture identical with and without; in-betweens between the frames, the sides with the 256 px (section 7a) |
 
@@ -403,3 +472,7 @@ another width, name or sprite table, a loaded state. The status bits stay the fr
 * Left behind by the scroll Aladdin is lost at the view's edge (section 2), and can walk back in until then: a
   wider view gives him more time than the original.
 * With the sprite limit on ("Remove Sprite Flicker" off), sprites in the sides count towards the 8 per line.
+* Story scenes 8, $C, $D, $14 and $16 stay 4:3 (black bars): their picture is cut by its edges (a rock, rock walls, a
+  roof's slope, a cave lit from the middle) and can't be carried on. In the widened scenes a character coming in
+  from a side appears at the 4:3 picture's edge, as in the original (the game keeps them waiting off the screen),
+  and Jafar's snake grows out of it; one that walks off and stops in a side stays there.
