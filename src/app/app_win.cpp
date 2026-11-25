@@ -405,6 +405,18 @@ void App::stop_recording() {
 
 // One displayed frame of trailer footage (and its audio).
 void App::record_frame() {
+    if (rec_audio_only_) {   // (as below, without the pictures)
+        fwrite(audio_buf_.data(), 2, audio_buf_.size(), rec_pcm_);
+        rec_frames_++;
+        rec_samples_ += audio_buf_.size() / 2;
+        const uint64_t due = (uint64_t)(rec_frames_ * 48000.0 / kEmuFps);
+        if (rec_samples_ + 801 < due) {
+            std::vector<int16_t> z((size_t)(due - rec_samples_) * 2, 0);
+            fwrite(z.data(), 2, z.size(), rec_pcm_);
+            rec_samples_ = due;
+        }
+        return;
+    }
     std::vector<uint32_t> px;
     int w, h;
     if (rec_frames_ == 0 && video_.capture(px, w, h) && !start_ffmpeg(w, h))
@@ -430,8 +442,9 @@ void App::record_frame() {
     }
 }
 
-void App::start_recording(const std::string& name) {
+void App::start_recording(const std::string& name, bool audio_only) {
     stop_recording();
+    rec_audio_only_ = audio_only;
     rec_name_ = autotest_dir_ + L"\\" + from_utf8(name);
     rec_pcm_ = _wfopen((rec_name_ + L".pcm").c_str(), L"wb");
     recording_ = rec_pcm_ != nullptr;

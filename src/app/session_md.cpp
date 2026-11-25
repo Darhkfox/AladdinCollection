@@ -34,6 +34,7 @@ public:
     }
 
     bool attach_soundtrack(const SoundtrackPack& pack, std::string& error) override {
+        if (pack.kind != SoundtrackKind::MdPlus) { error = "it isn't an MD+ pack"; return false; }
         std::unique_ptr<MdPlus> p(new MdPlus);
         if (!p->load(pack, error)) return false;
         mdplus_ = std::move(p);
@@ -116,7 +117,11 @@ protected:
     std::vector<uint8_t> core_save() override { return md_->save_state(); }
     bool core_load_state(const std::vector<uint8_t>& data) override { return md_->load_state(data); }
     std::string soundtrack_state() override { return mdplus_ ? mdplus_->state() : std::string(); }
-    void set_soundtrack_state(const std::string& s) override { if (mdplus_) mdplus_->set_state(s); }
+    void set_soundtrack_state(const std::string& s) override {
+        if (!mdplus_) return;
+        mdplus_->set_state(s);
+        md_->set_mdplus_overlay(mdplus_->unlocked());   // (the cartridge's overlay as the state left it)
+    }
     void mix_extra(int16_t* out, int frames) override {
         if (mdplus_) mdplus_->mix(out, frames, out_rate_, soundtrack_gain_);
     }

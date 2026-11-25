@@ -223,6 +223,29 @@ Jukebox (module): power-on, 40 frames (the SEGA logo), `freeze_68k`, then comman
 a tune = stop all + start; an effect = stop it + start; stop = `$16`. Loudness matches Castle of Illusion /
 QuackShot in the same core (music RMS about 2600-3000 vs. 2400-3600), so `audio_gain` stays 1.
 
+### 4.1 MD+ soundtrack packs (`soundtrack.cpp`, `session_md.cpp`; `tools/re/md_mdplus.py`)
+
+The MD+ cartridge overlay: `$CD54` written to `$3F7FA` opens it, a command word goes to `$3F7FE` (`$11xx` play track
+xx, `$12xx` play it looped, `$13xx` pause with a fade of xx/75 s, `$14xx` resume, `$15xx` volume), `0` to `$3F7FA`
+closes it. While it is open `$3F7FE` reads 0 (ready): the patches poll it (`tst.b $3F7FE / bne`) before each command,
+so the core answers that (`MegaDrive::set_mdplus_overlay`; a ROM read before, the *Aladdin CD - MD+* patch hung in its
+boot code at `$20006E` - the existing MD+ support had never run it).
+
+*Aladdin CD - MD+* (ArcadeTV, BPS for `ED427EA9`, 2 MB -> 4 MB, result CRC `4A7C033C`) changes: the reset vector
+(`$200000`: an "MD+ SOUND ENABLED" screen, ~430 frames, then `jmp $21A`), the HBlank / VBlank vectors (`$200258` /
+`$200276`: its screen's handlers while `$FF0014` = `$B0BB1B0B`, else `jmp $1B249C` / `$1B246E`), the checksum and ROM
+end, `$1E589A` (the start of a sequence: `jmp $2050D8`, a table of the game's tunes -> CD tracks, the rest to GEMS as
+before), `$1E5902` (the stop-all's end: `$1300` first), `$1A91EA` / `$1A92C0` (the pause's start / end: `$1300` /
+`$1400`), `$1AC9D8` (an animation's sound 2: track 21, which the pack doesn't have) and `$125F65` (an animation's sound
+`$2D` -> `$02`). The app skips the boot screen (the original reset vector: the screen only delays the game, and the
+level select's RAM writes at frame 30 were lost to the game's own start-up after it) and corrects the table's boss tune
+/ bonus jingle swap (`$205101` / `$205141`). Commands seen (`md_mdplus.py levels`): each level's title card `NENAW`,
+then the level's tune; `$1300` wherever the original stops the music; the same frames as the GEMS commands of the
+original ROM. The held boss tune (*Boss tune* in `re_md_wide.md`) is started through the game's own code when the
+sequence start is hooked (`sound_hooked`: the 68000 calls the first boss handler's stop-all and start, `$1B6C64`, from
+the streaming hook and returns there), so the pack plays it; queued straight into the GEMS FIFO, the FM boss tune had
+played over the level's CD track.
+
 ## 5. Achievements (`achievement_frame`, RAM only; `tools/re/md_ach.py`)
 
 * Level over: the rising edge of `$F0E9` with the level in `$7E26`; when `$F158` (paused) is set on either frame it

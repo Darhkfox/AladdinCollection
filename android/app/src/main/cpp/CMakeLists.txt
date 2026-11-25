@@ -27,6 +27,7 @@ add_library(main SHARED
   ${SRC}/core/ppu.cpp
   ${SRC}/core/hfr_match.cpp
   ${SRC}/core/snes.cpp
+  ${SRC}/core/msu1.cpp
   ${SRC}/core/disasm.cpp
   ${SRC}/core/z80.cpp
   ${SRC}/core/psg.cpp

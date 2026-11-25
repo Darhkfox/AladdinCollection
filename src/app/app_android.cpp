@@ -276,7 +276,7 @@ void App::poll_soundtrack() {
         for (const SoundtrackPack& q : before) old = old || q.dir == p.dir;
         if (!old) added = &p;
     }
-    if (!added) { menu_.toast("No MD+ soundtrack in that folder (a .cue sheet and a .bps patch)", 4.0f); return; }
+    if (!added) { menu_.toast("No soundtrack in that folder (MD+: a .cue sheet and a .bps patch; MSU-1: .pcm tracks and a patch or patched ROM)", 4.0f); return; }
     std::string game = added->game_id;
     for (auto& g : games_) if (added->game_id == g.module->id()) game = g.module->title();
     menu_.toast("Soundtrack added for " + game + ": choose it under Soundtracks", 4.0f);
@@ -320,7 +320,7 @@ void App::apply_slang() {}
 MenuPage App::slang_page() { return MenuPage(); }
 
 // Trailer recording is a Windows test feature.
-void App::start_recording(const std::string&) {}
+void App::start_recording(const std::string&, bool) {}
 void App::record_frame() {}
 void App::stop_recording() {}
 

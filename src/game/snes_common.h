@@ -26,6 +26,8 @@ int apply_patches(Snes& s, const std::vector<RomPatch>& patches);
 // no byte that would change may be at the PC or behind a possible return address on the stack. A width or cheat
 // change made while the game runs patched code waits (Session) until this holds.
 bool patches_safe(const Snes& s, const std::vector<RomPatch>& patches);
+// The same test for ROM offsets that would change (sorted): a whole ROM swapped (a soundtrack pack switched in a game).
+bool rom_change_safe(const Snes& s, const std::vector<long>& changed);
 
 // Scripted-input helpers for level select / jukebox boots (run headless, as fast as possible).
 bool run_until(Snes& s, const std::function<bool()>& cond, int max_frames);

@@ -360,7 +360,8 @@ MenuPage App::audio_page() {
                                            [this]() { return settings_.interpolation; },
                                            [this, changed](int v) { settings_.interpolation = v; changed(); },
                                            "SNES: how the sound chip smooths its samples. Original is the console's own."));
-    // MD+ soundtracks found in the soundtracks folder: per game (in a game, only its own)
+    // Soundtracks found (MD+ packs in the soundtracks folder, MSU-1 packs in the msu folder): per game (in a game, only
+    // its own)
     scan_soundtracks();
     bool any = false;
     for (int g = 0; g < kGameCount; g++) {
@@ -369,8 +370,7 @@ MenuPage App::audio_page() {
         std::vector<std::string> labels = {"Original"}, names = {""};
         for (const SoundtrackPack& pk : soundtracks_)
             if (pk.game_id == id) {
-                const std::string l = soundtrack_label(pk.name);
-                labels.push_back(l.find("MD+") == std::string::npos ? "MD+ " + l : l);
+                labels.push_back(soundtrack_label(pk));
                 names.push_back(pk.name);
             }
         if (names.size() < 2) continue;
@@ -384,17 +384,36 @@ MenuPage App::audio_page() {
             },
             [this, id, names, in_game](int v) {
                 settings_.soundtrack[id] = names[v];
-                if (in_game) menu_.toast("The soundtrack changes at the next Reset Game", 3.0f);
+                if (in_game) switch_soundtrack();
             },
-            "CD-quality music from an MD+ pack in the soundtracks folder. Starts with the game (or Reset Game)."));
+            games_[g].module->system() == System::Snes
+                ? "CD-quality music from an MSU-1 pack in the msu folder (its tracks and its patch, or a ROM patched for "
+                  "them). Changes at once in a game: the song playing starts again in the new music."
+                : "CD-quality music from an MD+ pack in the soundtracks folder. Starts with the game (or Reset Game)."));
     }
     if (any)
         p.items.push_back(MenuItem::slider("Soundtrack Volume", 0, 100, 5, [this]() { return settings_.soundtrack_volume; },
                                            [this, changed](int v) { settings_.soundtrack_volume = v; changed(); }, pct));
+#ifndef __ANDROID__
+    if (!in_game) {
+        if (!any) p.items.push_back(MenuItem::header("Soundtracks"));
+        any = true;
+        for (const wchar_t* folder : {L"soundtracks", L"msu"}) {
+            const std::wstring dir = path_join(data_dir(), folder);
+            const bool msu = folder[0] == L'm';
+            p.items.push_back(MenuItem::action(msu ? "Open MSU-1 Folder" : "Open Soundtracks Folder", [this, dir]() {
+                make_dir(dir);
+                if (!autotest_) open_url(to_utf8(dir).c_str());
+            }, msu ? "SNES: put each MSU-1 pack's folder here (its .pcm tracks with its .bps / .ips patch or its patched .sfc)."
+                   : "Mega Drive: put each MD+ pack's folder here (its .cue sheet, .bps patch and .wav music)."));
+        }
+    }
+#endif
 #ifdef __ANDROID__
     if (!any) p.items.push_back(MenuItem::header("Soundtracks"));
     p.items.push_back(MenuItem::action("Add Soundtrack\xE2\x80\xA6", [this]() { pick_soundtrack(); },
-                                       "Pick an MD+ pack's folder (a .cue sheet, a .bps patch and the music): it is copied in."));
+                                       "Pick a pack's folder: MD+ (a .cue sheet, a .bps patch and the music) or MSU-1 (the "
+                                       ".pcm tracks with their patch or patched ROM). It is copied in."));
 #endif
     p.on_back = [this]() { save_settings(); };
     return p;

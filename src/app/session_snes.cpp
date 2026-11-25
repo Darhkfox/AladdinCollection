@@ -1,7 +1,9 @@
-// The SNES half of a session: the core, its game module (execution hooks), colours per master brightness, sound.
+// The SNES half of a session: the core, its game module (execution hooks), colours per master brightness, sound and
+// MSU-1 soundtracks.
 #include "session.h"
 #include "palette.h"
 #include "../core/snes.h"
+#include "../game/snes_common.h"
 #include <algorithm>
 
 namespace {
@@ -33,6 +35,28 @@ public:
     }
     float channel_level(int ch) const override { return ch >= 0 && ch < 8 ? levels_[ch] : 0.0f; }
 
+    // An MSU-1 pack: the chip, playing its tracks (the ROM was patched for it before open()).
+    bool attach_soundtrack(const SoundtrackPack& pack, std::string& error) override {
+        if (pack.kind != SoundtrackKind::Msu1) { error = "it isn't an MSU-1 pack"; return false; }
+        if (pack.msu_base.empty()) { error = "it has no tracks"; return false; }
+        snes_->msu.reset(new Msu1);
+        snes_->msu->open(pack.msu_base);
+        return true;
+    }
+    void detach_soundtrack() override { snes_->msu.reset(); }
+    bool switch_soundtrack(const std::vector<uint8_t>& rom, const SoundtrackPack* pack, std::string& error) override {
+        std::vector<uint8_t> r(rom.begin() + ((rom.size() & 0x3FF) == 0x200 ? 0x200 : 0), rom.end());
+        if (r.size() != snes_->romSize()) { error = "its ROM is another size"; return false; }
+        if (pack && (pack->kind != SoundtrackKind::Msu1 || pack->msu_base.empty())) { error = "it isn't an MSU-1 pack"; return false; }
+        swap_rom_ = std::move(r);
+        swap_base_ = pack ? pack->msu_base : std::wstring();
+        swap_pending_ = true;
+        try_swap();
+        return true;
+    }
+    bool has_soundtrack() const override { return snes_->msu != nullptr; }
+    Msu1* msu() override { return snes_->msu.get(); }
+
 protected:
     SnesModule* mod() const { return static_cast<SnesModule*>(module_); }
 
@@ -40,8 +64,12 @@ protected:
         GameModule* m = create_module(proto->id());
         return m && m->system() == System::Snes ? m : (delete m, nullptr);
     }
-    bool core_load(const std::vector<uint8_t>& rom) override { return snes_->loadRom(rom); }
+    bool core_load(const std::vector<uint8_t>& rom) override {
+        snes_->msu.reset();
+        return snes_->loadRom(rom);
+    }
     void core_power_on() override {
+        if (swap_pending_) try_swap(true);
         snes_->reset(true);
         snes_->apu.samples.clear();
         freeze_ = 0;
@@ -60,6 +88,9 @@ protected:
         }
         snes_->ppu.noSpriteLimit = s.no_sprite_limit;
         snes_->apu.dsp.interpMode = s.interpolation;
+        // An MSU-1 pack's music at the Soundtrack Volume of the output (as an MD+ pack's): its share of the console's
+        // mix before the console's gain (core_audio_gain, the module's audio_gain) and the volume, which the mixer applies.
+        msu_gain_ = s.soundtrack_volume / 100.0f / (core_audio_gain() * (module_ ? module_->audio_gain() : 1.0f));
     }
     void core_configure(const GameConfig& c) override {
         snes_->ppu.setExt(c.ext, c.ext);
@@ -69,6 +100,7 @@ protected:
     }
     bool core_can_configure(const GameConfig& c) override { return !mod() || mod()->can_configure(*snes_, c); }
     bool core_start_level(const GameConfig& c, int index, int variant) override {
+        if (swap_pending_) try_swap(true);   // (the level select starts from power-on)
         const bool ok = mod() && mod()->start_level(*snes_, c, index, variant);
         snes_->apu.samples.clear();
         return ok;
@@ -85,11 +117,14 @@ protected:
         if (snes_->nmiHold || snes_->vblankHeld) freeze_ = 3;
         else if (freeze_ > 0) freeze_--;
         if (mod()) mod()->post_frame(*snes_, c, info);
+        if (swap_pending_) try_swap();
         // the frame's audio, as the mixer takes it
         const std::vector<int16_t>& a = snes_->apu.samples;
         audio_.resize(a.size());
         for (size_t i = 0; i < a.size(); i++) audio_[i] = a[i];
         audio_frames_ = (int)a.size() / 2;
+        // an MSU-1 pack's music, with the frame's own samples: it keeps the game's time (fast forward, rewind)
+        if (snes_->msu) snes_->msu->mix(audio_.data(), (size_t)audio_frames_, Snes::kSampleRate, msu_gain_);
         // channel meters: each voice's peak
         for (int v = 0; v < 8; v++) levels_[v] = snes_->apu.dsp.takePeak(v) / 12000.0f;
         snes_->apu.samples.clear();
@@ -144,8 +179,47 @@ protected:
         freeze_ = 0;
         return true;
     }
+    // The MSU-1's registers, track and place travel with save states and rewind (in the state's tag)
+    std::string soundtrack_state() override { return snes_->msu ? snes_->msu->state() : std::string(); }
+    // A state saved with an MSU-1 pack loaded without it, or the other way round: the console's sound driver holds the
+    // other ROM's song (the pack's patch uploads songs misplaced, to mute them), so it starts afresh and the song is asked
+    // for again (in a level: replay_music), as for a pack switched there.
+    void set_soundtrack_state(const std::string& s) override {
+        if (snes_->msu) snes_->msu->setState(s);
+        const bool saved_with = !s.empty() && s[0] == 'm';
+        if (saved_with != (snes_->msu != nullptr) && mod()) mod()->replay_music(*snes_);
+    }
 
 private:
+    // A soundtrack switched in a game (switch_soundtrack): the ROM swapped (its patch code kept: the module writes it)
+    // and the chip attached or removed between frames, once no changed byte is at the PC or behind a return address;
+    // then the module asks for the song again.
+    // (`starting`: the console is about to start from its reset vector: always safe, and no song to ask for again)
+    void try_swap(bool starting = false) {
+        std::vector<long> changed;
+        const std::vector<uint8_t>& now = snes_->romPristine;
+        for (size_t i = 0; i < swap_rom_.size() && i < now.size(); i++)
+            if (now[i] != swap_rom_[i]) changed.push_back((long)i);
+        if (!starting && !snes_game::rom_change_safe(*snes_, changed)) return;
+        const std::vector<uint8_t> patch = snes_->patchRom;
+        snes_->loadRom(swap_rom_);
+        snes_->patchRom = patch;
+        if (swap_base_.empty()) snes_->msu.reset();
+        else {
+            snes_->msu.reset(new Msu1);
+            snes_->msu->open(swap_base_);
+        }
+        if (!starting) {
+            core_configure(config());
+            if (mod()) mod()->replay_music(*snes_);
+        }
+        swap_pending_ = false;
+        swap_rom_.clear();
+    }
+    bool swap_pending_ = false;
+    std::vector<uint8_t> swap_rom_;
+    std::wstring swap_base_;
+
     std::unique_ptr<Snes> snes_;
     ColorProfile profile_;
     // Colour lookup per master brightness (0-15), built on first use after a profile change.
@@ -155,6 +229,7 @@ private:
     std::vector<int32_t> audio_;
     int audio_frames_ = 0;
     float levels_[8] = {};
+    float msu_gain_ = 0.4f;
 };
 
 }  // namespace
