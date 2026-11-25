@@ -457,7 +457,9 @@ gradlew assembleDebug
   earlier as the extra width takes the camera to cover (and A Whole New World's birds from the left start
   correspondingly earlier) - in the Market the barrels that trip the guard chasing Aladdin roll that much earlier,
   so he is tripped earlier too, and in a wide view he shows trailing behind for a couple of seconds where the 4:3
-  screen loses him. The walls the game draws in perspective (the Market's sky gaps, the Rooftops' roof ends) have
+  screen loses him. The caves' and the Sultan's Palace's fixed hazards (falling and rolling boulders, geysers,
+  spikes, crumbling ledges) are the exception: they act, and are put back, at the moment the 4:3 game has them, so one put
+  back just past the original screen (a fallen boulder back at the ceiling) can be seen doing so at a side's far end. The walls the game draws in perspective (the Market's sky gaps, the Rooftops' roof ends) have
   no look of their own off the original screen: at the sides they show the nearest look the game has for them. In a wide view
   Aladdin left behind by the scrolling (or pushed back by a wall) is lost only at the picture's edge, not at the
   4:3 screen's, and can still walk back in until then.

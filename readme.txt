@@ -614,6 +614,13 @@
   Five scenes whose picture is cut off at its edges stay in their
   original shape, with black bars.
 
+  Master System traps (the caves' falling and rolling boulders, the
+  geysers, spikes and crumbling ledges, and what drops from the Sultan's
+  Palace's ceiling) keep the original's timing at every width: they spring,
+  and are set again, when the original would set them off as Aladdin
+  comes near - one being set again just past the original screen can be
+  seen doing so at the far end of a side.
+
   Narrow climbs: where an SNES level is a tower one screen wide (Inside
   the Lamp 3), the view is centred on it. Its gold pillars go on into
   both sides as a solid gold wall, so the tower reads as a shaft in the
