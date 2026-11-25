@@ -70,7 +70,8 @@ Bluetooth / USB controller.
 - The view stays inside the level: near a level's ends the picture slides, so the extra width shows more of the
   level instead of black (the game's own camera, and so how Aladdin moves, is untouched). The HUD is re-anchored to
   the screen edges (can be switched off). Title screens, menus and cut-scenes keep their original shape
-  automatically; where such a screen's background is one plain colour, it fills the width in that colour.
+  automatically; where such a screen's background is one plain colour, it fills the width in that colour. The
+  Master System's story scenes, intro, title and ending are drawn wide too (see below).
 - The width (and cheats) can be changed at any time, also mid-level; save states remember the width they were
   made at.
 
@@ -228,9 +229,12 @@ achievements of its own: *A Whole New World* (defeat Jafar in all three versions
   width at their true positions past the hardware's 256-pixel sprite limit; objects that no longer fit in the
   console's 64-entry sprite table are drawn as extra sprites. Near a stage's ends the picture slides instead of
   showing black, with the parallax bands holding still with the level; Jafar's room carries its pillars on past
-  its ends (dimmed); the stone counter moves to the right edge. Title, menus, story scenes, game
-  over and the ending stay in their original shape, and so do the attract demos, which play exactly as recorded at
-  every width.
+  its ends (dimmed); the stone counter moves to the right edge. The story scenes are wide too: each carries its
+  own picture on into the sides (31 of the 36; the framed pictures, text and characters stay where the game puts
+  them, and characters who walk off go on into the sides), the Genie's intro and the title fill the width with
+  their background, and the ending's starfield and sea run the whole width. Menus, password, game over and the
+  five scenes whose picture can't be carried on stay in their original shape, and so do the attract demos, which
+  play exactly as recorded at every width.
 - **Level select**: all 10 stages, numbered as the developers' TEST MODE numbers them (1-1 to 7), entered through
   the password screen as a player would.
 - **Cheats**: invincibility (the game's own, as the developers' password AIQY gives it, extended to the palace
@@ -349,7 +353,12 @@ gradlew assembleDebug
   Infinite Health keeps the gems, but the guards' grabs, the carpet's crashes, pits and lava still cost a life;
   Invincibility covers all but pits and lava. With Remove Sprite Flicker off, sprites in the sides count towards
   the 8-per-line limit. The attract demos play at 4:3: they replay recorded input, which only stays on its path
-  with the original code.
+  with the original code. Five story scenes stay 4:3 with black bars, as their picture is cut off by its edges
+  and can't be carried on: night by the sea (a rock at the right edge), the two falls through the collapsing cave
+  (rock walls), the palace garden at night (a roof's slope) and the Genie's cave (lit from the middle). In the
+  wide scenes a character coming in from a side appears at the 4:3 picture's edge as in the original (the game
+  keeps them waiting just off its screen, where the wider view would show them standing), Jafar's snake grows out
+  of the 4:3 picture's right edge, and a character who walks off and stops nearby stays visible in the side.
 - SNES: the attract demos play at 4:3 and without Remove Slowdown or cheats: they replay recorded input (lag frames
   included), which only stays on its path with the original code. Invincibility and infinite health don't prevent
   pits, crushes or being left behind by the scrolling. Infinite Gems keeps the counter at 99, so every gem completes

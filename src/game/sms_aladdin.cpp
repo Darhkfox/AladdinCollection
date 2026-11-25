@@ -725,7 +725,7 @@ bool off_screen_vertically(const Sms& s, uint16_t o) {
 // A sprite table entry's 256-px page (module_state[0..3], see sprite_x)
 enum : uint8_t { PAGE_0 = 0, PAGE_RIGHT = 1, PAGE_LEFT = 2, PAGE_HIDDEN = 3 };
 
-// ---- story screens: the cut scenes, the intro and title, the ending (docs/re_sms_wide.md section 9) ------------------
+// ---- story screens: the cut scenes, the intro and title, the ending (docs/re_sms_wide.md section 5a) ------------------
 // Everything but the ten stage modes used to be pillarboxed. The story screens are widened where their picture allows:
 // * Story scenes (mode $13, scene $C11F = 0..$23, script table $5F42): a 256x160 picture of its own, 16x10 metatiles
 //   ($4E92: bank $1C $8000 holds a word per scene, metatile bank << 8 | map bank; the scene's map pointer at ($C48F) +
@@ -734,7 +734,7 @@ enum : uint8_t { PAGE_0 = 0, PAGE_RIGHT = 1, PAGE_LEFT = 2, PAGE_HIDDEN = 3 };
 //   Genie, Jafar's snake), the text box on rows 20-23 (blank entry $11BF). The sides repeat part of the scene's own map
 //   from ROM (kSceneRules: per band of rows a range of source columns for each side - the whole picture where its
 //   edges meet, a stretch of sky, wall or floor elsewhere), so nothing the game draws into the table is repeated. The
-//   scenes whose edge can't be carried on (a rock, a cliff or a lit cave cut by it) stay 4:3.
+//   scenes whose edges can't be carried on (a rock, rock walls, a roof's slope or a lit cave cut by them) stay 4:3.
 // * The intro (the Genie with his framed pictures), the title and its menu (mode 0): table entry 0 at every edge
 //   column, a plain background: the sides are entry 0.
 // * The ending (mode $12): the stars are sprites (buffer slots 20-42, 1 px left every 4 frames, $7686: they wrap at 256
@@ -751,7 +751,7 @@ constexpr int SCENES = 0x24, SCENE_ROWS = 20;
 constexpr uint16_t SCENE_BLANK = 0x11BF, ENDING_BLANK = 0x0100;
 constexpr uint16_t SAT_Y = 0xC300;
 // a band of a scene's cell rows [r0, r1): the left side repeats source columns [la, lb) (the one next to the picture's
-// edge is lb - 1), the right side [ra, rb) (ra next to the edge); la == lb: not widened
+// edge is lb - 1), the right side [ra, rb) (ra next to the edge); a rule without bands: the scene stays 4:3
 struct SceneBand { uint8_t r0, r1, la, lb, ra, rb; };
 struct SceneRule { uint8_t n; SceneBand band[3]; };
 constexpr SceneBand WHOLE = {0, 20, 0, 32, 0, 32};   // the picture repeated: its edges meet

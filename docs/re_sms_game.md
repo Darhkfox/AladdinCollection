@@ -66,8 +66,9 @@ A demo ends after `$500` frames, on a button, or when Aladdin is lost (`$C438` =
 it never does in the original. The game's random numbers add the Z80's R register (`$09B8`, `$0A0E`, `$0A64` →
 `$C204`), so they depend on the exact number of instructions run: a demo stays on its path only on unchanged code.
 
-Story scenes (`$13`) scroll their own picture with a text box on lines 176-191. Pressing both buttons at once
-(`$66B7`: `$C207 & $30 = $30` sets `$CF92`) skips a scene `0-$1F`.
+Story scenes (`$13`) show a 256x160 picture of their own (16x10 metatiles from bank `$1C`, built by `$4E92`; only shaken
+by 2 px at times, scene $20 scrolls a band) with a text box on lines 160-191 (re_sms_wide.md section 5a). Pressing
+both buttons at once (`$66B7`: `$C207 & $30 = $30` sets `$CF92`) skips a scene `0-$1F`.
 
 ## 2. RAM map ($C000-$DFFF)
 
