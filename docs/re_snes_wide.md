@@ -288,11 +288,23 @@ Sultan's Dungeon 2 and Jafar's Palace 2. None has a strip (BG2 mirrored about th
   / 31.5 (64.5 / 66.5 before; the game's screen 43.5 both ways), back to 64.5 / 66.5 over the 16 frames from the frame
   the limit opens, 2-3 levels a frame; the run's events on the same frames as before. Jafar's Palace 3's fight is
   unchanged, pixel for pixel (the fade-in from the event and the fade-out after Jafar, at 106 and 140).
-- **The other held fights**, by the same measure: the Market at Dusk's boss (zone limits `$1A40` = `$1A42` = `$500`,
+- **Jafar's fight** (level `$11`, the user's request at 21:9 after the fight was centred: "i think it's best to dim
+  them because it's a 4:3 view and the player can't escape that area"). The third `kBossFights` entry: the fight is
+  on while the room is grown for it (`$1A04` = `$200`, from `$100` as the camera is held) and the camera is held in x
+  (`$1A10`); the zone's limits don't change in this level (`$1A40` = 0, `$1A42` = `$7F00` throughout), so the table
+  now names the word that marks each fight (`kZoneMaxX` for the other two, `kCamMaxX` here). The dim fades in over 16
+  frames from the frame the camera is held (the event's 85-frame pan into the arena) and holds through the sorcerer,
+  the cobra and a death's fall (`$1A12` set too: `$1A10` stays). There is no undim: the cobra beaten, the game fades
+  the screen out (INIDISP 15 to 0, the sides dimmed by the same 32nds through it) and leaves the level (`$39`, the
+  ending) with the screen black, which clears the dim; a death fades out the same way and restarts the level with the
+  screen black (`$1A10` = 0, `$1A04` = `$100`: the dim's 16 frames fade out under the black, some 80 frames). The
+  fire's white flash and the cobra's hit and death flashes are palette changes: they show in the sides at the dim's
+  half brightness (the flash's cream as a grey-olive band, the flames' white as grey). Same strength as the other two
+  (`fight_dim_`, `wideDimAmt` 16 at most, the bar spared); the same saved byte, no new version (a state of an older
+  version from the fight opens with the dim fading in). The sides' content: **Jafar's fight** below.
+- **The other held fight**, by the same measure: the Market at Dusk's boss (zone limits `$1A40` = `$1A42` = `$500`,
   no hold; once the boss is beaten the camera is let go only as Aladdin reaches the arena's right wall, and the game
-  then walks him on to Jasmine with no input: no way on for the player to find), Jafar (level `$11`: an arena, `$1A10`
-  set and `$1A12` clear, then the cobra and its fire floor; the level ends with him, no exit to walk to). They keep
-  their sides bright (Jafar's: **Jafar's fight** below).
+  then walks him on to Jasmine with no input: no way on for the player to find). It keeps its sides bright.
 - Everywhere else the margins show the level as stored, at full brightness, also where the game's camera can't go now:
   a zone's camera limits (`$1A40` / `$1A42`: the Market at Dusk's wait at `$400` and its boss at `$500`, the waits
   before Sultan's Dungeon 3's boss at `$900` and at the end of Jafar's Palace 3 at `$10A0`), an arena (the Cave of Wonders' end, Jafar's
@@ -337,7 +349,8 @@ at all for the boss fight").
   room's layers come from its data (BG2 in the sorcerer's part, BG1 from the BG2 struct once the game points BG1 at
   the room) and are mirrored tile by tile past the room's ends (`LineLayer::lo / hi` = the level's extent, 0-768): the
   right side is the room's arched panels and floor going on; the left side is the room as stored, its pillars (x
-  384-511) standing on the wall's band.
+  384-511) standing on the wall's band, until the fire (below). Both sides are dimmed from the room's hold (above,
+  **Dimmed**: nothing there is Aladdin's to reach).
 - **The fire.** The cobra sets the floor on fire by writing its room's map (`$4000`, BG1) rows 21-31 in the 32 columns
   on its screen only (rows 21-23 the wall going down, 24-31 the flames), in the frame it points BG2 at the spiked arch
   (`$4800`, rows 22-28, mode `$12`; `painted_row`). From that frame (`fire_`) a margin tile of a painted row - BG1's
@@ -347,7 +360,16 @@ at all for the boss fight").
   4, the spikes 4; columns 0-7 left out, where the arch's rows 24-25 have a gap at columns 3-4). The flames are
   animated in VRAM (their tiles rewritten every 8 frames), so the sides burn with the screen; the white flash as the
   fire starts and the cobra's death flash are palette changes and cover the sides too. The sides change in the frame
-  the screen does: the stored floor before, the fire after, never dimmed.
+  the screen does: the stored floor before, the fire after.
+- **The left side on fire.** The fire repeated under the room's pillars cut them off at its top row (21): dark
+  shafts hanging over the flames, their bases gone (the user's crop at 21:9, CRT pixels: "the left side looks odd").
+  From the fire's frame the room's layers are mirrored about the fight's screen's left edge (`jafar_lo_` = the room's
+  last camera x, `$1A04` = 512) as well as past its right end: the left side is the arena's arched panels going on,
+  as the right is, with the wall, flames and arch over them repeated as before. Both sides then read as one room
+  around the fight, dimmed. The pillars go in the frame the floor turns to fire (the screen's own biggest change); in
+  the sorcerer's part they stay, the room Aladdin has just walked through. (Not taken: keeping the stored floor under
+  the pillars beside the fire cuts the floor off at the screen's edge, as a first version did; mirroring from the
+  hold would swap the pillars just panned past for panels.)
 - **The arch's wave.** The arch waves by mode 2's offset-per-tile on BG2: its object (type `$88`, script `$84:8E6A`)
   moves a 24-bit y by a velocity that an acceleration turns round at its centre (`$100`), and each step shifts a table
   of 32 column scrolls one column on and inserts its y at the front (`$7E:DFC0`, copied into BG3's map by the NMI;
