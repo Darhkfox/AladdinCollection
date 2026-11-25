@@ -293,7 +293,7 @@ original never shows one they hold whatever suited the tables. In a wide view:
 * a left wall just past the left edge (x -20..-8, under the original's blanked column) showed scraps of other tiles
   for ~8 frames, a magenta and yellow strip (the round-2 "scrambled pillars");
 * a left wall in the right side had bricks out of step with the brick wall beside it (a fixed image there);
-* a stage 1 roof end far in a side took another gap's look (beyond the tables' reach: E = 102, the holds);
+* a stage 1 roof end far in a side took another gap's look (beyond the tables' reach: the far right at 21:9 square);
 * while the view holds still at the stage's start and end (the slide) the walls kept changing and the bricks kept
   moving with the camera.
 
