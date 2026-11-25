@@ -845,7 +845,8 @@ const SceneRule kSceneRules[SCENES] = {
     {1, {WHOLE}},   // 2 the rooftops: Aladdin and Jasmine run (the tower repeats)
     {1, {WHOLE}},   // 3 the rooftops: the pole vault
     // 4 the desert hills over Agrabah: the hidden column's two bottom cells are bare rock (never shown), under the
-    // ridge that runs into it from the left side: the left side's (the ridge goes on to the hill at column 1)
+    // ridge that runs into it from the left side: the left side's (the ridge goes on to the hill at column 1; also
+    // where the sides repeat column 0)
     {1, {WHOLE}, 0x3u << 18},
     {1, {WHOLE}},   // 5 the palace wall: the guards take Aladdin
     {1, {WHOLE}},   // 6 the palace: Jafar and Jasmine (pillars and windows)
@@ -968,7 +969,10 @@ int story_bg_entry(const Sms& s, int vcol, int vrow, uint32_t replaced) {
             if (vrow < b.r0 || vrow >= b.r1) continue;
             const int la = vcol < 0 ? b.la : b.ra, lb = vcol < 0 ? b.lb : b.rb;
             if (la == lb) return SCENE_VOID;
-            const int col = vcol < 0 ? lb - 1 - ((-1 - vcol) % (lb - la)) : la + ((vcol - 32) % (lb - la));
+            int col = vcol < 0 ? lb - 1 - ((-1 - vcol) % (lb - la)) : la + ((vcol - 32) % (lb - la));
+            // (the picture's column 0 repeated in a side: where the rule replaces the hidden column, its copies too -
+            // the column the left side has next to the picture's edge)
+            if (col == 0 && (r.col0 >> vrow & 1) && b.la != b.lb) col = b.lb - 1;
             if (replaced >> vrow & 1) return s.vdp.name_entry(col, vrow) & 0x1FFF;
             return scene_cell(s, sc, col, vrow);
         }

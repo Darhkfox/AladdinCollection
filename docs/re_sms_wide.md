@@ -441,7 +441,7 @@ story screens are now drawn wide where their picture allows it (`story_screen`, 
   not the throne), the room on the right (0-27); $11 / $13 and $15 / $17 stars on the left (0-12), the balcony / cliff
   carried on on the right (24-31 or 28-31); 4's hidden column, rows 18-19, the left side's (its cells there are bare
   rock without the priority bit, never shown on the hardware: a dark block under the ridge that runs into it from the
-  left side; now the ridge goes on to the hill at column 1); $12 and $1E sky, railing or floor (0-15); $1C plain sky and the balcony
+  left side; now the ridge goes on to the hill at column 1, and so do the copies of column 0 in the sides); $12 and $1E sky, railing or floor (0-15); $1C plain sky and the balcony
   (28-31); $1F the floor around the hourglass (0-7 / 24-31). Kept 4:3, with black bars: 8 (a rock cut by the right
   edge), $C and $D (rock walls cut by both edges), $14 (a roof's slope cut by the left edge), $16 (the Genie's cave,
   lit from the middle, black rock at the right edge). Chosen with an offline model of the rules for every scene, then
