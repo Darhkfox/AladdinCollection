@@ -505,7 +505,7 @@ void VDP::render_line(int ln) {
         hfr_v_[hfr_cur_][1][ln] = (int16_t)(vsram[1] & 0x3FF);
         hfr_ok_[hfr_cur_][ln] = 1;
         const bool ovf = sprite_overflow, col = sprite_collision, dot = dot_overflow_prev;
-        const int mask_l = edge_mask_l, mask_r = edge_mask_r;
+        const int mask_l = edge_mask_l, mask_r = edge_mask_r, dim_l = edge_dim_l, dim_r = edge_dim_r;
         for (int k = 1; k < subs; k++) {
             dot_overflow_prev = dot_in;   // (the line's sprite masking as the frame's line had it)
             render_sub_line(ln, k, subs);
@@ -513,6 +513,7 @@ void VDP::render_line(int ln) {
         // (the status bits and the next line's masking state stay the frame's own: the game reads them)
         sprite_overflow = ovf; sprite_collision = col; dot_overflow_prev = dot;
         edge_mask_l = mask_l; edge_mask_r = mask_r;
+        edge_dim_l = dim_l; edge_dim_r = dim_r;
     }
 }
 
@@ -566,6 +567,15 @@ void VDP::compose(uint16_t* out, const uint8_t* la, const uint8_t* lb, const uin
         for (int i = 0; i < TW; i++) {
             if (i >= edge_mask_l && i < TW - edge_mask_r) continue;
             out[i] = (spr_hud_[i] && (ls[i] & 0x0F)) ? cram[ls[i] & 0x3F] : 0;
+        }
+    }
+    if (edge_dim > 0 && (edge_dim_l > 0 || edge_dim_r > 0)) {
+        const uint16_t mark = (uint16_t)((edge_dim > 15 ? 15 : edge_dim) << kDimShift);
+        const int l = std::min(edge_dim_l, TW), r = std::max(TW - edge_dim_r, l);
+        for (int i = 0; i < TW; i++) {
+            if (i == l) i = r;
+            if (i >= TW) break;
+            if (!(spr_hud_[i] && (ls[i] & 0x0F))) out[i] |= mark;
         }
     }
 }

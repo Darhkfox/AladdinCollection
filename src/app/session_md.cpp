@@ -99,7 +99,7 @@ protected:
             uint32_t* dst = &px[(size_t)y * w];
             uint8_t* spr = &sprite[(size_t)y * w];
             for (int x = 0; x < w; x++) {
-                dst[x] = lut_[src[x] & 0x7FF];
+                dst[x] = VDP::dimmed(lut_[src[x] & 0x7FF], src[x] >> VDP::kDimShift);   // (a dimmed boss arena's sides)
                 spr[x] = (src[x] & VDP::kSpritePixel) ? 1 : 0;
             }
         }
