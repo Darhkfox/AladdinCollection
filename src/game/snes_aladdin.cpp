@@ -127,8 +127,25 @@ constexpr uint16_t kTowerShut = 0xFE00, kTowerTop = 0x0E00;
 // parameter's bit 7 none -, bubbles for 32 frames, rises, holds and sinks, and deletes itself) and the Carpet Escape's
 // rock hanging from the ceiling ($83, $84:9538: it hangs, waits by the table $84:D83A and falls; with the parameter's
 // bit 4 it falls once Aladdin has passed it instead, no wait).
+// Inside the Lamp's rising platform ($79, $83:F541: spawned at the camera's centre y + $20, it rises from its spawn on,
+// a frame at a time - BRK, return $83:F58B, JSL $81:A4F7 - until Aladdin takes it or it leaves the screen) is one too:
+// its first frame's wait is held the same way (it stays where it was spawned, its range test running).
 struct TimedType { uint8_t type, bank; uint16_t wait; };
-constexpr TimedType kTimedTypes[] = {{0x5B, 0x83, 0xDF3A}, {0x83, 0x84, 0x9579}};
+constexpr TimedType kTimedTypes[] = {{0x5B, 0x83, 0xDF3A}, {0x83, 0x84, 0x9579}, {0x79, 0x83, 0xF58B}};
+// Objects that delete themselves by a range of their own from the camera's centre ($1A44), 4:3-based: the rising
+// platform $79 (Inside the Lamp 2 and 3, +-$D0: $83:F63C LDA $1A44 / SBC $0C / ADC #$00D0 / CMP #$01A0, on at
+// $83:F648 SEP / BCC kept) and Sultan's Dungeon 3's moving platforms $7D (+-$E0: $84:9106 LDA $0C / SBC $1A44 / ADC
+// #$00E0 / CMP #$01C0, on at $84:9112 SEP / BCS deleted). In widescreen the test takes the picture's sides as the keep
+// range's does.
+struct SelfRange { uint32_t pc, on; bool centre_minus_x; uint16_t off, range; };
+constexpr SelfRange kSelfRanges[] = {{0x83F63C, 0x83F648, true, 0xD0, 0x1A0}, {0x849106, 0x849112, false, 0xE0, 0x1C0}};
+// Iago ($38; Sultan's Dungeon 1 and 2, Jafar's Palace 2 and 3) is created by a generator ($97, $84:9F9F: a timer, then
+// the camera's centre within a range, two free slots) at the camera's centre + $90 ($84:A05E LDA $1A44 / STA $0C, then
+// $81:AA81 with the offset $80:DBFF; by the generator's $15 bit 0, - $90): 16 px past the screen's right edge, with what
+// he carries ($53, $83:D58C, kept at his side each frame). He flies left at 0.5 px a frame ($83:BE38 JSL $81:A5A7,
+// $80:BAC3; back at $83:BE3C) until he is within 96 px of Aladdin, hovers, drops it and flies off.
+constexpr uint32_t kIagoSpawnX = 0x84A05E, kIagoFlown = 0x83BE3C;
+constexpr int kIagoType = 0x38, kIagoOff = 0x90, kIagoMarginSpeed = 4;
 // The object runner's count of a waiting object's frames ($83:94BB DEC $01 / BEQ resume, state 1; then $83:94BF runs
 // its type's idle routine while it waits).
 constexpr uint32_t kObjWaitDec = 0x8394BB, kObjWaitIdle = 0x8394BF;
@@ -231,8 +248,10 @@ public:
             for (uint32_t pc : {kDrawTest, kKeepTest, kSpawnInitCam, kSpawnInitRight, kSpawnInitLeft, kSpawnInitCount,
                                 kSpawnFrameCam, kSpawnRowX, kSpawnEdgeLeft, kSpawnEdgeRight, kStubRetryR + 4,
                                 kStubRetryL + 4, kSweepDelete, kHdmaOn, kLampBeamTest, kObjGoneLeft, kObjGoneRight,
-                                kSpawnTest, kSpawnAllocated})
+                                kSpawnTest, kSpawnAllocated, kIagoSpawnX, kIagoFlown})
                 s.markExec(pc, true);
+        if (ext_ > 0)
+            for (const SelfRange& sr : kSelfRanges) s.markExec(sr.pc, true);
         write_stub(s);
     }
 
@@ -269,6 +288,7 @@ public:
             std::memset(again_, 0, sizeof(again_));
             std::memset(refused_, 0, sizeof(refused_));
             std::memset(waiting_, 0, sizeof(waiting_));
+            std::memset(starved_, 0, sizeof(starved_));
             spawn_mode_ = kSpawnGame;
             wall_valid_ = behind_valid_ = false;   // (the Lava Cavern's limits: from the picture's edges)
             return false;
@@ -372,7 +392,8 @@ public:
             const uint16_t d = (uint16_t)(rd16(s, kCamCentre) - rd16(s, r.dp + 0x0C));
             const uint32_t tab = pc == kDrawTest ? kDrawRanges : kKeepRanges;
             const int off = rom16(s, tab + (r.x & 0xFFFF)), range = rom16(s, tab + 2 + (r.x & 0xFFFF));
-            const bool in = (uint16_t)(d + off + er) < range + el + er;
+            bool in = (uint16_t)(d + off + er) < range + el + er;
+            if (pc == kKeepTest && in && (uint16_t)(d + off) >= range && let_go(s, r.dp, el, er)) in = false;
             if (pc == kDrawTest) r.pc = (uint16_t)(in ? kDrawIn : kDrawOut);
             else {
                 r.pc = (uint16_t)(in ? kKeepIn : kKeepOut);
@@ -420,7 +441,7 @@ public:
                 set_bit(refused_, idx, true);
                 set_bit(waiting_, idx, true);   // (held: never deleted, so the width change's spawn takes it too)
             }
-            if (spawn_mode_ == kSpawnGame || !skip(idx)) return false;
+            if (spawn_mode_ == kSpawnGame || !skip(s, idx)) return false;
             r.pc = (uint16_t)kSpawnNext;
             return true;
         }
@@ -428,6 +449,8 @@ public:
             const uint8_t idx = rd8(s, 0x0012);
             if (r.c && idx != 0 && (rom16(s, list_entry(s, idx)) & 0x8000)) set_bit(refused_, idx, true);
             if (r.c && idx != 0) set_bit(waiting_, idx, false);   // (a refused timed object: created fresh by the retry)
+            // (refused at the margins' own columns: tried again while it is still beyond the picture's edge, starved_)
+            if (r.c && idx != 0 && (spawn_mode_ == kSpawnGame || spawn_mode_ == kSpawnWidth)) set_bit(starved_, idx, true);
             return false;
         }
         case kSpawnInitRight:   // ADC #$0120: the right column past the view's right margin
@@ -521,6 +544,27 @@ public:
             r.pc = (uint16_t)(pc + 3);
             return true;
         }
+        case kIagoSpawnX:   // LDA $1A44 (A 16 bits): Iago's place from the picture's edge on his side, not the screen's
+            set_a(r, (uint16_t)(rd16(s, kCamCentre) + ((rd8(s, r.dp + 0x15) & 1) ? -el : er)));
+            r.pc = (uint16_t)(kIagoSpawnX + 3);
+            return true;
+        case kIagoFlown: {
+            // Iago comes in from the picture's edge (kIagoSpawnX) and crosses the margin at kIagoMarginSpeed times his
+            // own speed, up to the place the original creates him at (the camera's centre + $90 on his side, for the
+            // camera now): from there on he flies, hovers and drops what he carries as the original, a few frames later
+            // (at his own 0.5 px a frame the margin took up to 2 * ext frames: 212 at 106).
+            if (rd8(s, r.dp + 0x06) != kIagoType) return false;
+            const bool leftward = rd8(s, r.dp + 0x14) != 0;
+            const int32_t at = ((int16_t)rd16(s, kCamCentre) + (leftward ? kIagoOff : -kIagoOff)) * 256;
+            int32_t x = (int16_t)rd16(s, r.dp + 0x0C) * 256 + rd8(s, r.dp + 0x0B);
+            const int32_t v = (kIagoMarginSpeed - 1) * (rd16(s, r.dp + 0x1A) * 256 + rd8(s, r.dp + 0x19));
+            if (leftward ? x <= at : x >= at) return false;
+            x = leftward ? std::max(at, x - v) : std::min(at, x + v);
+            wr8(s, r.dp + 0x0B, (uint8_t)x);
+            wr8(s, r.dp + 0x0C, (uint8_t)(x >> 8));
+            wr8(s, r.dp + 0x0D, (uint8_t)(x >> 16));
+            return false;
+        }
         case kLampBeamTest: {
             // The lamp's beam with its left edge in the right margin (A: its screen x, 16 bits): kept on (fixed colour,
             // colour math) with an empty window on the game's screen, WH2 > WH3; the margin draws it at its place
@@ -538,6 +582,17 @@ public:
             return true;
         }
         default:
+            // An object's own range from the camera's centre (kSelfRanges), widened by the picture's sides as the keep
+            // range is: spawned in the margins, it lives there instead of deleting itself in the next frame (and coming
+            // at the original's moment, inside the picture). (The carry as the CMP leaves it: set = out.)
+            for (const SelfRange& sr : kSelfRanges)
+                if (pc == sr.pc) {
+                    const uint16_t c = rd16(s, kCamCentre), x = rd16(s, r.dp + 0x0C);
+                    const uint16_t d = sr.centre_minus_x ? (uint16_t)(c - x + sr.off + er) : (uint16_t)(x - c + sr.off + el);
+                    r.c = d >= sr.range + el + er;
+                    r.pc = (uint16_t)sr.on;
+                    return true;
+                }
             return false;
         }
     }
@@ -920,7 +975,7 @@ public:
     // of the frame in progress too: its OAM DMA comes after the load) and how long ago the level loop's top ran.
     std::vector<uint8_t> save_ext() const {
         std::vector<uint8_t> v;
-        v.push_back(9);   // version
+        v.push_back(10);   // version
         v.push_back((uint8_t)((level_ ? 1 : 0) | (lim_valid_ ? 2 : 0) | (stop_ ? 4 : 0) | (respawn_ ? 16 : 0) |
                               (armed_ ? 32 : 0)));
         const uint32_t since = snes_ ? snes_->frameCount() - loop_frame_ : 255;
@@ -974,6 +1029,7 @@ public:
             v.push_back((uint8_t)(x >> 16));
         }
         for (uint8_t x : {a.acc, a.idx, a.on, a.strength}) v.push_back(x);
+        v.insert(v.end(), starved_, starved_ + 32);   // (version 10) objects refused at the margins' columns
         return v;
     }
     void load_ext(const uint8_t* d, size_t n) {
@@ -991,6 +1047,7 @@ public:
         std::memset(again_, 0, sizeof(again_));
         std::memset(refused_, 0, sizeof(refused_));
         std::memset(waiting_, 0, sizeof(waiting_));
+        std::memset(starved_, 0, sizeof(starved_));
         spawn_mode_ = kSpawnGame;
         retry_idx_ = 0;
         retry_frame_ = 0xFFFFFFFFu;
@@ -1004,9 +1061,10 @@ public:
         const size_t need1 = 2 + 5 * 2 + 128 * 3, need2 = 3 + 7 * 2 + 2 * 128 * 3, need3 = need2 + 1 + 7 * 2;
         const size_t need5 = need3 + 2 + 3 * 32 + 5, need6 = need5 + 32, need8 = need6 + 1;
         const size_t need9 = need8 + 2 + 2 * (32 + kArchHist) + 4 * 3 + 4;
-        if (n < 2 || d[0] < 1 || d[0] > 9 || (d[0] == 1 && n < need1) || (d[0] == 2 && n < need2) ||
+        const size_t need10 = need9 + 32;
+        if (n < 2 || d[0] < 1 || d[0] > 10 || (d[0] == 1 && n < need1) || (d[0] == 2 && n < need2) ||
             (d[0] >= 3 && n < need3) || (d[0] >= 5 && n < need5) || (d[0] >= 6 && n < need6) ||
-            (d[0] >= 8 && n < need8) || (d[0] >= 9 && n < need9))
+            (d[0] >= 8 && n < need8) || (d[0] >= 9 && n < need9) || (d[0] >= 10 && n < need10))
             return;
         level_ = (d[1] & 1) != 0;
         if (d[0] >= 4) armed_ = (d[1] & 32) != 0;
@@ -1091,6 +1149,7 @@ public:
             a.on = d[q + 2];
             a.strength = d[q + 3];
         }
+        if (d[0] >= 10) std::memcpy(starved_, d + o + 33 + (need9 - need8), 32);   // (after the arch's data)
     }
 
 private:
@@ -1121,7 +1180,8 @@ private:
     // original's moment (refused_: once-only objects the allocator refused, timed ones held back from the margins).
     // Bits by index. waiting_: timed objects the margins spawned ahead of the original, their first wait held
     // (kObjWaitDec).
-    uint8_t gone_[32] = {}, again_[32] = {}, refused_[32] = {}, waiting_[32] = {};
+    // starved_: objects the allocator refused at the margins' own columns, tried again while beyond the picture's edge.
+    uint8_t gone_[32] = {}, again_[32] = {}, refused_[32] = {}, waiting_[32] = {}, starved_[32] = {};
     int spawn_mode_ = kSpawnGame, retry_idx_ = 0;
     uint32_t retry_frame_ = 0xFFFFFFFFu;
     uint16_t pending_again_ = 0;   // the object whose delete follows: past the 4:3 screen's edge, or swept beyond
@@ -1236,7 +1296,7 @@ private:
                 const int idx = (first + 1 + k) & 0xFF;
                 if (idx == 0) continue;
                 const uint16_t dy = (uint16_t)(rom16(s, list_entry(s, idx) + 4) + 0x40 - rd16(s, kSpawnCamY));
-                if (!(rd8(s, kSpawnedBits + idx) & 0x81) && dy < 0x180 && !skip_edge(idx)) return i;
+                if (!(rd8(s, kSpawnedBits + idx) & 0x81) && dy < 0x180 && !skip_edge(s, idx)) return i;
             }
         }
         return n - 1;
@@ -1252,15 +1312,32 @@ private:
     }
     // What the module's own spawns leave out (spawn_mode_): a width change's, everything the game has deleted since the
     // level's start; the original's edge columns, what it deleted for good (not past the 4:3 screen's edge, nor swept
-    // beyond the original's edges); the refused object's retry, everything but it.
-    bool skip_edge(int idx) const { return bit(gone_, idx) && !bit(again_, idx); }
-    bool skip(int idx) const {
+    // beyond the original's edges) and an ordinary object whose place is well inside the picture (in_view); the
+    // refused object's retry, everything but it.
+    bool skip_edge(const Snes& s, int idx) const { return (bit(gone_, idx) && !bit(again_, idx)) || in_view(s, idx); }
+    bool skip(const Snes& s, int idx) const {
         switch (spawn_mode_) {
         case kSpawnWidth: return bit(gone_, idx);
-        case kSpawnEdge: return skip_edge(idx);
+        case kSpawnEdge: return skip_edge(s, idx);
         case kSpawnRefused: return idx != retry_idx_;
         default: return false;
         }
+    }
+    // The original's moment for an object the margins had early (the edge-column retry, the once-only retry of one
+    // deleted beyond the original's edges) is its spawn at camera + $120 / - $40: 32 / 64 px past the 4:3 screen's
+    // edges, inside the picture from ext 32 / 64 on. An ordinary object (not once only, not timed) whose place is
+    // more than 16 px inside the picture is left to the margins' own columns instead, as the original leaves it to its
+    // edges: an Agrabah Market guard that walked left out of the wide keep range came back at camera - $40 when the
+    // view went back left, 64 px inside the picture's left edge at 106 (the original has him come back off its
+    // screen); a guard refused for lack of a sprite bank at the margin's column came at camera + $120.
+    bool in_view(const Snes& s, int idx) const {
+        if (ext_ == 0) return false;
+        const uint32_t e = list_entry(s, idx);
+        if ((rom16(s, e) & 0x8000) || timed_type(rom16(s, e) & 0xFF)) return false;
+        int el, er;
+        object_split(s, el, er);
+        const int cam = (int16_t)rd16(s, kCamX), x = rom16(s, e + 2) & 0x3FFF;
+        return x > cam - el + 16 && x < cam + 256 + er - 16;
     }
     // A level object whose timer mustn't start in the margins, only when the original's spawn edges reach its column:
     // a type whose script runs on a timer from its spawn (kTimedTypes: the Lava Cavern's pillar waits, bubbles, rises,
@@ -1299,11 +1376,66 @@ private:
             const uint16_t dy = (uint16_t)(rom16(s, e + 4) + 0x40 - rd16(s, kSpawnCamY));
             if (c >= lo && c <= hi && dy < 0x180) {
                 if (!(rom16(s, e) & 0x8000)) set_bit(refused_, idx, false);
+                if (in_view(s, idx)) continue;   // (its one try: in the picture, left to the margins' columns)
                 col = c;
                 return idx;
             }
         }
+        // Then one the allocator refused at the margins' own columns (starved_: no free sprite VRAM bank, the wider
+        // view keeping more of the level's enemies alive; an Agrabah Market guard, refused while a pot thrower 170 px
+        // left of the screen held the fourth bank): the game's spawner tries it again only when an edge crosses its
+        // column again, and the original's edge-column retry brought it at camera + $120, 74 px (106) / 108 px (140)
+        // inside the picture. Tried once a frame while its place is still at the picture's edge or beyond it (within
+        // the margins' spawn columns), it comes in from the edge as soon as a bank frees; once its place is in the
+        // picture it is left to the original's moment, as before.
+        int el, er;
+        object_split(s, el, er);
+        for (int idx = 1; idx < 256; idx++) {
+            if (!bit(starved_, idx)) continue;
+            const int side = starved_place(s, idx, el, er);
+            if (side == 0) {
+                set_bit(starved_, idx, false);
+                continue;
+            }
+            if (side != 2) {
+                col = (rom16(s, list_entry(s, idx) + 2) & 0x3FFF) >> 5;
+                return idx;
+            }
+        }
         return 0;
+    }
+    // A starved_ object's place: 0 no longer waiting (out, deleted, or its place in the picture or beyond the margins'
+    // spawn columns), 2 waiting out of the spawner's rows, else the side it waits on (1 right, -1 left).
+    int starved_place(const Snes& s, int idx, int el, int er) const {
+        if ((rd8(s, kSpawnedBits + idx) & 0x81) || bit(gone_, idx)) return 0;
+        const int cam = (int16_t)rd16(s, kCamX);
+        const uint32_t e = list_entry(s, idx);
+        const int x = rom16(s, e + 2) & 0x3FFF, c = x >> 5;
+        // (its place at the picture's edge or beyond it, up to 8 px in)
+        const int side = x >= cam + 256 + er - 8 && c <= floor_shr(cam + er + 0x120, 5) ? 1
+                         : x < cam - el + 8 && c >= floor_shr(cam - el - 0x40, 5)        ? -1
+                                                                                          : 0;
+        if (side == 0) return 0;
+        return (uint16_t)(rom16(s, e + 4) + 0x40 - rd16(s, kSpawnCamY)) < 0x180 ? side : 2;
+    }
+    // While a starved_ object waits on one side, an object beyond the original's keep range and off the picture on the
+    // other side (behind the view: the 4:3 game has deleted it) is let go as the original lets it go, freeing its slot
+    // and sprite VRAM banks. In the Agrabah Market a pot thrower ($51) 64 px past the picture's left edge held the bank
+    // a guard coming in on the right needed (the wider keep range kept it). (Not a once-only object: it would never
+    // come back.)
+    bool let_go(const Snes& s, uint16_t dp, int el, int er) const {
+        int side = 0;
+        for (int i = 0; i < 32 && side == 0; i++)
+            for (int b = 0; b < 8 && starved_[i] && side == 0; b++)
+                if ((starved_[i] >> b) & 1) {
+                    const int p = starved_place(s, i * 8 + b, el, er);
+                    if (p == 1 || p == -1) side = p;
+                }
+        if (side == 0) return false;
+        const uint8_t idx = rd8(s, dp + 0x34);
+        if (idx != 0 && (rd8(s, kSpawnedBits + idx) & 0x80)) return false;
+        const int x = (int16_t)rd16(s, dp + 0x0C), cam = (int16_t)rd16(s, kCamX);
+        return side > 0 ? x < cam - el - 32 : x >= cam + 256 + er + 32;
     }
 
     // A level screen: the main task waits in the level's main loop or its pause loop (task 0's saved return address).
