@@ -528,7 +528,10 @@
   golden idol, Jafar) instead of following Aladdin, so the extra width
   shows the arena; in widescreen the magic carpet comes as soon as the
   idol is beaten. On the SNES the arenas keep the original camera, and
-  their sides are shown at full brightness. In the SNES Lava Cavern,
+  their sides are shown at full brightness, except during the fight with
+  Jafar at the end of Jafar's Palace: there the sides fade dark while
+  the fight holds Aladdin and fade back in once Jafar is beaten, to show
+  the way on to the exit. In the SNES Lava Cavern,
   which scrolls by itself, the screen's limits follow the wide picture's
   edges, so Aladdin can use the extra width (widescreen only).
 
@@ -554,8 +557,9 @@
   the Lamp 3), the view is centred on it. Its gold pillars go on into
   both sides as a solid gold wall, so the tower reads as a shaft in the
   wall, with no statues, platforms or enemies beside it (or black, with
-  Past Level Ends: Black). Past any other SNES level's ends the sides
-  show only the background.
+  Past Level Ends: Black). The corridor at its top keeps its start in
+  the left side as Aladdin walks on. Past any other SNES level's ends
+  the sides show only the background.
 
   Attract-mode demos are recorded button presses. All three games show
   them in their original shape, exactly as recorded, at every width and

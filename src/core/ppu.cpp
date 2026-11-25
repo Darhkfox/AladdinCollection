@@ -833,6 +833,7 @@ void Ppu::renderLine(int line) {
   wideDimLo = -kMaxExt;
   wideDimHi = 256 + kMaxExt;
   wideDimSpare = 0;
+  wideDimAmt = 16;
   winShift = 0;
   wideWin[0].on = wideWin[1].on = false;
   if (hooks) hooks->beginLine(*this, row);
@@ -999,9 +1000,16 @@ void Ppu::composeLine(uint32_t* fb, int x0, int x1, int eL, int eR, bool mirror)
       }
     }
     if ((x < wideDimLo || x >= wideDimHi) && !(wideDimSpare & (1 << mainL))) {
-      r >>= 1;
-      g >>= 1;
-      b >>= 1;
+      if (wideDimAmt >= 16) {
+        r >>= 1;
+        g >>= 1;
+        b >>= 1;
+      } else if (wideDimAmt > 0) {   // (a fade: wideDimAmt / 32 darker, rounded)
+        const int keep = 32 - wideDimAmt;
+        r = (r * keep + 16) >> 5;
+        g = (g * keep + 16) >> 5;
+        b = (b * keep + 16) >> 5;
+      }
     }
     if (keepOutside && (x < wideShowLo || x >= wideShowHi)) {
       // outside the shown span only the kept layers' own pixels remain (on black)

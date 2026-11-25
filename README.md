@@ -196,7 +196,9 @@ achievements of its own: *A Whole New World* (defeat Jafar in all three versions
   at another width) brings out only the objects the new sides add: never an enemy already defeated, collected or
   swept away by an event. Boss arenas and events (the Market at Dusk,
   the end of the Cave of Wonders, Sultan's Dungeon and Jafar's Palace, Jafar) keep the original camera; their sides
-  show the level at full brightness, dimmed only beside Jafar's fire floor. Past a level's ends the sides show only
+  show the level at full brightness, dimmed only beside Jafar's fire floor and during the fight with Jafar at the
+  end of Jafar's Palace (the sides fade dark while he holds Aladdin in the throne room and fade back in once he is
+  beaten, when the way on to the exit opens). Past a level's ends the sides show only
   its far background, at full brightness: no platforms, props or sprites, nothing that looks like a way on. In the Lava
   Cavern, which scrolls by itself, the screen's limits follow the wide picture's edges (in widescreen only, a small
   change to the original's rules): Aladdin can run on to 16 px from the picture's right edge, is only left behind
@@ -374,7 +376,8 @@ gradlew assembleDebug
   as a solid gold wall (made from the pillars' own plain outer edge, their bands running on at the same height and
   scrolling with them), so the tower reads as a shaft in the wall, without statues, platforms or sprites beside it
   (black with *Past Level Ends: Black*); between the tower and the corridor at its top the view glides over as the
-  screen scrolls, the corridor coming down onto the wall. The STAGE CLEAR panel keeps its
+  screen scrolls, the corridor coming down onto the wall. The corridor's start stays in the left side as Aladdin
+  walks on, also after the game closes it behind him. The STAGE CLEAR panel keeps its
   4:3 frame on a purple background that fills the width; the
   bonus wheel and the story scenes between stages are on black and so look the same as before. The staff roll stays 4:3. The
   level select starts with new-game stats (3 lives, 3 hearts, 10 apples).

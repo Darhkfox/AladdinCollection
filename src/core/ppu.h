@@ -124,6 +124,8 @@ public:
   // bar over the level).
   int wideDimLo = -kMaxExt, wideDimHi = 256 + kMaxExt;
   uint8_t wideDimSpare = 0;
+  // How much darker, in 32nds (0-16: 16 is half brightness, the default; less while a dim fades in or out).
+  int wideDimAmt = 16;
   int winShift = 0;          // windows moved right by this much on this line (a hook's overlay)
   // Per line: window w's true edges for the margins, in screen x (inclusive; may lie outside 0-255), used there instead
   // of the edge pixel's value (a window the game clips at its screen's edge, or keeps empty while its object is off it).

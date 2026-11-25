@@ -214,6 +214,22 @@ floor comes down onto the wall's top on the right with no flash, pop or tear; at
 stopped at x 0) the left side is gone and the right side below the corridor is wall. In an in-between picture (high
 frame rate) the wall's edge moves with the layer's own shift (`subHofs_`), so it stays joined to the pillar there too.
 The corridor's right end (x 3328) keeps the background-only rule, as every other level's ends.
+**The door shut behind Aladdin.** Once the camera reaches x 256 the game shuts the corridor's first page behind him:
+a task (`$81:A363`, waiting for `$1774` = 1) writes `$FE` over the high byte of page (0, 0)'s entry (`$7F:F043`),
+`$0E00` to `$FE00`, a page the camera may not enter, and from then on the camera stays at x 256 or more (the tower's
+camera limit `$1A06` is already 0 there); a restart from the level's checkpoint (`$0360` set) shuts it as the level
+loads (`$81:8B15`). The page's block map stays in RAM. Taken as the game's table has it, the corridor's first page
+became past the level's end the moment the camera passed x 256: on the next line its gold block, its ledges and the
+left pillar going up vanished from the left side (background only, mirrored about x 256), and the span's change
+(its left end from 0 to 256) took the view's offset with it - the user's report from the tower's top at 21:9:
+"moving right ... there's a graphical glitch on the left (platforms/area disappear)". The margins take that entry as
+the page it was (`page_entry`: level `$0A`, BG1's page (0, 0) reading `$FE00` is `$0E00`; for the extent, the line's
+run, the decode and `edge_cover`), so nothing changes when the door shuts: the corridor's start stays in the left
+side as the camera goes on, and with the camera at x 256 the view stays centred with it on the left (the level, at full
+brightness, as anywhere the game's camera can't go now). The game's own camera and streaming read the table as it is.
+(`r3_tower.py`: the walk right along the corridor and back no longer moves the view with the camera still at x 256,
+and every past-the-end pixel at the tower is the wall; the user's state, holding right, frame by frame: no change in
+the left side as the door shuts.)
 (Round 3 showed the tower's background there instead: BG2 mirrored about the pillars' inner edges, the pastel sky,
 columns and clouds going on past them. The user, at 21:9: "for the vertical bit can we just extend the walls to the
 sides in widescreen". Before that, the level itself was mirrored and dimmed: both pillars doubled, the genie statues,
@@ -236,9 +252,29 @@ Sultan's Dungeon 2 and Jafar's Palace 2. None has a strip (BG2 mirrored about th
   shakes a few lines above 0 (register 1016-1022). Read as 248-254, the row came out at -87 and the whole side,
   wall included, was dimmed in every shaking frame, blinking at about 7.5 Hz (`tools/qa` round 2, N2: 672 of 5998
   fire frames at 106; now none, the only full dims being the fight's fade-out).
+- **Jafar's Palace 3's fight** (level `$10`, the user's request at 21:9: "maybe we should have the sides dimmed on
+  this battle, and undimmed after so Aladdin can get to the exit"). Its event task (`$80:A5AC`) holds the camera at
+  `$10A0` until Aladdin reaches x `$1190` on the floor; then it deletes every object, sets the zone's right limit to
+  `$11A0` (`$1A42`), pans the camera there (`$083D` = 4) and holds it in x (`$1A10` = 1); Jafar (type `$98`, from
+  `$84:A112`; 6 hit points) holds x and y too and fights in the throne room, Aladdin kept on the game's screen. Beaten
+  (`$00BD`, `$84:A36F`), the event waits 32 frames and lets the camera go (`$80:A622`: `$1A40` = `$11A0`, `$1A42` =
+  `$7FA0`, `$1A10` = 0): Aladdin walks on right to the exit at the level's end (the view stopped there: 116 px left /
+  96 px right at 21:9 with CRT pixels). While the fight holds him (`boss_held`: level `$10`, `$1A10` set, `$1A42` =
+  `$11A0`) both sides are dimmed, the bar spared, on every line (the corridor behind him and the hall on to the exit:
+  nothing there is his to reach until he wins); the dim fades in over 16 frames as the event pans the camera and out
+  over 16 frames from the frame the camera is let go (`fight_dim_`, 1/32 of the brightness a frame, `Ppu::wideDimAmt`:
+  the PPU darkens by that many 32nds, rounded; 16 is the old half brightness exactly, the fire floor's). No flash: the
+  sides' mean brightness steps 2-3 levels (of 255) a frame. Saved with the view (version 8); an older state from the
+  fight opens with the sides dimmed. **The other held fights**, by the same measure: the Market at Dusk's boss
+  (zone limits `$1A40` = `$1A42` = `$500`, no hold; once the boss is beaten the camera is let go only as Aladdin
+  reaches the arena's right wall, and the game then walks him on to Jasmine with no input: no way on for the player to
+  find), Sultan's Dungeon 3's boss (zone limits `$A00` / `$A00`, no hold; beaten, 432 frames on the right limit opens,
+  `$80:A59E`, and Aladdin walks on to the exit: the same shape as Palace 3's, by another mechanism), Jafar (level
+  `$11`: an arena, `$1A10` set and `$1A12` clear, then the cobra and its fire floor; the level ends with him, no exit
+  to walk to). None is the same fight setup; they keep their sides bright (Jafar's fire floor dimmed as before).
 - Everywhere else the margins show the level as stored, at full brightness, also where the game's camera can't go now:
   a zone's camera limits (`$1A40` / `$1A42`: the Market at Dusk's wait at `$400` and its boss at `$500`, Sultan's
-  Dungeon 3's boss at `$A00`, the end of Jafar's Palace 3 at `$11A0`), an arena (the Cave of Wonders' end, Jafar's
+  Dungeon 3's boss at `$A00`, the wait at the end of Jafar's Palace 3 at `$10A0`), an arena (the Cave of Wonders' end, Jafar's
   room before the fire), the pages the camera can't enter in another page row its screen covers (Agrabah Rooftops,
   Sultan's Dungeon 2, Jafar's Palace 2). Nothing changes the level there, and its objects are drawn as the game has
   them: the sweeps leave those areas as empty as the console's would be. **The Cave of Wonders' end** (level `$04`):
@@ -307,6 +343,8 @@ the band routines' inputs (both snapshots, whether this logic frame's is taken, 
 a level is being played (section 1; an older state: a level index, no demo and the main task in the level loop),
 and (version 5) the level objects deleted, swept or refused since the level's start, whose spawn is running, and the
 Lava Cavern's eased limits (section 4).
+Version 8 adds a boss fight's dim as it fades (`fight_dim_`, one byte at the end; an older state: dimmed if the fight
+holds Aladdin, no fade).
 Version 7 adds the camera's y and whether the span is a shaft's and its offset closes with the camera's y, in the two
 words the dimmed range held (version 6 and older: not read, and the view starts where it stops now, as for a state
 made at another width: the user's state from the tower opens centred).

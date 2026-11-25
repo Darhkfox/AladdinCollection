@@ -36,6 +36,7 @@ constexpr uint32_t kCamX = 0x1773, kCamY = 0x1777;                   // the came
 constexpr uint32_t kCamCentre = 0x1A44;                               // camera + $80 (objects' range tests)
 constexpr uint32_t kCamMaxX = 0x1A04, kCamMaxY = 0x1A06;              // the level's last camera x (width - 256), y
 constexpr uint32_t kCamHoldX = 0x1A10, kCamHoldY = 0x1A12;            // nonzero: the camera doesn't follow in x / y
+constexpr uint32_t kZoneMaxX = 0x1A42;                                 // a zone's right limit for the camera
 constexpr uint32_t kBg1Shown = 0x19ED, kBg2Shown = 0x19F5;            // the scroll the NMI writes (+ shake $1A18)
 constexpr uint32_t kBgMode = 0x083F;                                  // the background's mode ($81:C781): its speed
 constexpr uint32_t kBgSub = 0x0841;                                   // mode $10's phase (Jafar's Palace 3)
@@ -109,6 +110,11 @@ constexpr int kLavaLevel = 0x06;
 // picture's edges.
 constexpr int kRideLevel = 0x12;
 constexpr int kTowerLevel = 0x0A;   // Inside the Lamp 3: its one-screen-wide tower between gold pillars (span: a shaft)
+// Its corridor's first page (page column 0 of row 0, block map $7F:0E00, above the tower): once the camera reaches x
+// 256 a task ($81:A363: waits for $1774 = 1, then STA $7FF043 with $FE) writes $FE over the entry's high byte, $0E00
+// to $FE00, a page the camera may not enter: a door shut behind Aladdin, the camera's x held at 256 and over from then
+// on (a restart from its checkpoint, $0360 set, shuts it as the level loads, $81:8B15). Its block map stays in RAM.
+constexpr uint16_t kTowerShut = 0xFE00, kTowerTop = 0x0E00;
 // Objects on a timer from their spawn, by type, and the return address of that first wait (saved PC and bank, object
 // +$03 / +$05): the Lava Cavern's lava pillar ($5B, $83:DF14: spawned as its cap lying in the lava, animation 2, it
 // waits a time from its list entry - COP with the table $83:D3F8 by its list parameter, object +$07; with the
@@ -164,6 +170,14 @@ public:
     // the same frame.
     static constexpr int kJafarLevel = 0x11;
     static constexpr int kFireRoom = 0x4000, kFireArch = 0x4800, kFireRow = 21;
+    // Jafar's Palace 3's end (level $10; its event task $80:A5AC): the camera stops at $10A0 until Aladdin reaches x
+    // $1190 on the floor; then every object is deleted, the zone's right limit set to $11A0 ($1A42), the camera panned
+    // there ($083D = 4) and held in x ($1A10 = 1; Jafar, type $98 from $84:A112, holds x and y); Jafar fights in the
+    // throne room on the game's screen, Aladdin kept on it. Jafar beaten ($00BD, $84:A36F), 32 frames on the event
+    // lets the camera go ($80:A622: $1A40 = $11A0, $1A42 = $7FA0, $1A10 = 0) and Aladdin walks on right to the exit.
+    // The margins (the corridor behind, the hall on to the exit) are dimmed while the fight holds him, by a fade.
+    static constexpr int kPalace3Level = 0x10, kPalace3Boss = 0x11A0;
+    static constexpr int kFadeFrames = 16;        // a fight's dim fades in / out over this many frames (1/32 each)
 
     void configure(Snes& s, const GameConfig& cfg) {
         snes_ = &s;
@@ -538,6 +552,9 @@ public:
             const int step = std::min(kSlide, moved);
             d_off_ = d_off_ > 0 ? std::max(0, d_off_ - step) : std::min(0, d_off_ + step);
             if (d_off_ == 0 || jump) slide_y_ = false;
+            // A boss fight holding Aladdin on the game's screen: its sides dimmed, fading in and out a step a frame.
+            const int want = boss_held(s) ? kFadeFrames : 0;
+            fight_dim_ += fight_dim_ < want ? 1 : fight_dim_ > want ? -1 : 0;
             // A background the game scrolls itself: the inputs of its scroll for the frame its logic just finished.
             if (logic_done_ && !band_taken_) {
                 band_taken_ = true;
@@ -546,6 +563,7 @@ public:
         } else {
             lim_valid_ = false;
             d_off_ = 0;
+            fight_dim_ = 0;
             band_next_.valid = band_shown_.valid = false;
         }
         info.gameplay = level_ || stage_clear_;   // (the frame just drawn: frame_start)
@@ -731,6 +749,12 @@ public:
         if (row >= paint_row_) {
             p.wideDimLo = 0;
             p.wideDimHi = 256;
+        } else if (fight_dim_ > 0) {
+            // A boss fight holding Aladdin on the game's screen (boss_held): nothing beside it is his to reach until
+            // it is won and the way on opens; dimmed (the bar spared), fading in and out (fight_dim_, in 32nds).
+            p.wideDimLo = 0;
+            p.wideDimHi = 256;
+            p.wideDimAmt = fight_dim_;
         }
         p.wideDimSpare = row < kHudLines ? 0x04 : 0;
         lamp_window(s, p);
@@ -845,7 +869,7 @@ public:
     // of the frame in progress too: its OAM DMA comes after the load) and how long ago the level loop's top ran.
     std::vector<uint8_t> save_ext() const {
         std::vector<uint8_t> v;
-        v.push_back(7);   // version
+        v.push_back(8);   // version
         v.push_back((uint8_t)((level_ ? 1 : 0) | (lim_valid_ ? 2 : 0) | (stop_ ? 4 : 0) | (respawn_ ? 16 : 0) |
                               (armed_ ? 32 : 0)));
         const uint32_t since = snes_ ? snes_->frameCount() - loop_frame_ : 255;
@@ -884,6 +908,7 @@ public:
             v.push_back((uint8_t)(x >> 8));
         }
         v.insert(v.end(), waiting_, waiting_ + 32);   // (version 6) timed objects waiting for the original's moment
+        v.push_back((uint8_t)fight_dim_);             // (version 8) a boss fight's dim, fading
         return v;
     }
     void load_ext(const uint8_t* d, size_t n) {
@@ -906,12 +931,15 @@ public:
         retry_frame_ = 0xFFFFFFFFu;
         pending_again_ = 0;
         wall_valid_ = behind_valid_ = false;
+        // (a state without it: a boss fight's dim as it stands, no fade)
+        fight_dim_ = snes_ && boss_held(*snes_) ? kFadeFrames : 0;
         // (a state without it: a level being played if one is on screen)
         armed_ = snes_ && playing_level(*snes_) && in_level(*snes_);
         const size_t need1 = 2 + 5 * 2 + 128 * 3, need2 = 3 + 7 * 2 + 2 * 128 * 3, need3 = need2 + 1 + 7 * 2;
-        const size_t need5 = need3 + 2 + 3 * 32 + 5, need6 = need5 + 32;
-        if (n < 2 || d[0] < 1 || d[0] > 7 || (d[0] == 1 && n < need1) || (d[0] == 2 && n < need2) ||
-            (d[0] >= 3 && n < need3) || (d[0] >= 5 && n < need5) || (d[0] >= 6 && n < need6))
+        const size_t need5 = need3 + 2 + 3 * 32 + 5, need6 = need5 + 32, need8 = need6 + 1;
+        if (n < 2 || d[0] < 1 || d[0] > 8 || (d[0] == 1 && n < need1) || (d[0] == 2 && n < need2) ||
+            (d[0] >= 3 && n < need3) || (d[0] >= 5 && n < need5) || (d[0] >= 6 && n < need6) ||
+            (d[0] >= 8 && n < need8))
             return;
         level_ = (d[1] & 1) != 0;
         if (d[0] >= 4) armed_ = (d[1] & 32) != 0;
@@ -971,6 +999,7 @@ public:
             o += 5;
         }
         if (d[0] >= 6) std::memcpy(waiting_, d + o, 32);
+        if (d[0] >= 8) fight_dim_ = std::min<int>(d[o + 32], kFadeFrames);
     }
 
 private:
@@ -1026,6 +1055,7 @@ private:
     int obj_lo_ = 0, obj_hi_ = 0;
     bool arena_ = false;            // this frame: an arena holds the game's camera (arena)
     int paint_row_ = 0x10000;       // this frame: the first line the game has painted on its screen only (dimmed beside)
+    int fight_dim_ = 0;             // the sides' dim while a boss fight holds Aladdin (boss_held), in 32nds: 0-16
     LineLayer line_[2];
     struct Cover { int px, py; bool right; int n; };
     Cover cover_[16];                  // this frame: edge_cover's answers
@@ -1176,17 +1206,27 @@ private:
         return ret == kLevelWaitRet || ret == kPauseWaitRet;
     }
 
+    // A page entry of the table as the margins take it (idx: its offset in the table). Inside the Lamp 3's corridor's
+    // first page, shut behind the camera by the game (kTowerShut), is still the level: its gold block and the left
+    // pillar going up stay in the margin as the camera goes on, as they were before the door shut (it had them go to
+    // background only - the block, its ledge and the pillar vanishing from the left side as the camera passed x 256).
+    static uint16_t page_entry(const Snes& s, int idx) {
+        const uint16_t pg = rd16(s, kPageTable + (idx & 0xFFF));
+        if (pg == kTowerShut && (idx & 0xFFF) == 0x42 && rd16(s, kLayer[0] + 0x42) == 0 && rd8(s, kLevel) == kTowerLevel)
+            return kTowerTop;
+        return pg;
+    }
     // BG1's page entry (page x, page y in pages; -1 .. border).
     static uint16_t page(const Snes& s, uint32_t base, int px, int py) {
         const int idx = rd16(s, base + 0x42) + (py + 1) * 64 + (((px + 1) * 2) & 0xFE);
-        return rd16(s, kPageTable + (idx & 0xFFF));
+        return page_entry(s, idx);
     }
     static bool barrier(const Snes& s, int px, int py) { return (page(s, kLayer[0], px, py) & 0x8000) != 0; }
 
     // A tile entry of a streaming layer at world (x, y), as the column builder ($81:C2E0) finds it.
     static uint16_t tile_at(const Snes& s, const LineLayer& ll, int x, int y) {
         const int idx = ll.off + (((y + 256) & 0xFF00) >> 2) + ((((x >> 8) + 1) * 2) & 0xFE);
-        uint16_t pg = rd16(s, kPageTable + (idx & 0xFFF));
+        uint16_t pg = page_entry(s, idx);
         if (pg & 0x8000) pg = 0;
         const int blk_off = ((x >> 3) & 0x1E) | ((y << 1) & 0x1E0);
         const uint16_t blk = rd16(s, 0x7F0000 + ((pg + blk_off) & 0xFFFF)) | 0x8000;
@@ -1254,6 +1294,11 @@ private:
     }
     // The camera held in x while it follows in y: a fixed arena (Jafar's). (Both held: a death's fall.)
     static bool arena(const Snes& s) { return rd16(s, kCamHoldX) && !rd16(s, kCamHoldY); }
+    // A boss fight that holds Aladdin on the game's screen until it is won and then lets him go on: Jafar's Palace 3's
+    // end (kPalace3Boss: its zone's right limit while the event holds the camera in x; $7FA0 and let go once won).
+    static bool boss_held(const Snes& s) {
+        return rd8(s, kLevel) == kPalace3Level && rd16(s, kCamHoldX) && rd16(s, kZoneMaxX) == kPalace3Boss;
+    }
     // Whether every layer can follow a view stopped at a level's end (section 3 of docs/re_snes_wide.md): BG2 at a
     // known speed (modes 0-8: the parallax shift), or scrolled by the game in a way the module follows line by line
     // (modes $0A-$14: band_adj).

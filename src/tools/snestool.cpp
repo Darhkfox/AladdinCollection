@@ -538,6 +538,11 @@ API void snt_module_info(void* h, int* out) {
     out[0] = i.gameplay; out[1] = i.mask_left; out[2] = i.mask_right; out[3] = i.mask_lines;
 }
 API int snt_module_view_left(void* h) { return ((Tool*)h)->info.view_left; }   // (FrameInfo::view_left)
+// The module's own state as the app appends it to a save (src/app/session.cpp): loaded after the core state.
+API void snt_module_load_ext(void* h, const uint8_t* data, int n) {
+    Tool* t = (Tool*)h;
+    if (t->module) t->module->load_ext(data, (size_t)n);
+}
 API int snt_module_start_level(void* h, int index, int variant) {
     Tool* t = (Tool*)h;
     if (!t->module) return 0;
