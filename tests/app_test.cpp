@@ -1,9 +1,11 @@
 // Tests of the app's update check and achievements export (console; built as app_tests by CMakeLists.txt).
-//   app_tests                          the version comparison, the release JSON's tag and the badge table (offline)
+//   app_tests                          the version comparison, the release JSON's tag and the badge table, the
+//                                      controllers' read filter and the Controls settings saved and read (offline)
 //   app_tests --fetch <url>            also one GET of a GitHub "latest release" URL: prints the tag it read
 //   app_tests --export <dir> [ini]     writes the export (achievements.csv + icons) to <dir>, from an achievements.ini
 //   app_tests --sheet <file.png>       every badge, earned and locked, on one picture
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <string>
@@ -13,6 +15,9 @@
 #include "../src/app/png.h"
 #include "../src/app/sys.h"
 #include "../src/app/updatecheck.h"
+#include "../src/app/settings.h"
+#include "../src/platform/input.h"
+#include "../src/platform/pad_filter.h"
 
 namespace {
 int g_bad = 0;
@@ -66,11 +71,112 @@ void test_badges() {
     check(n == 54, "54 achievements");
     check(achievement_tier("all_complete") == 3 && achievement_points("all_complete") == 100, "Completionist is platinum");
 }
+
+// The DirectInput read filter (pad_filter.h): a controller's held buttons when it is opened or comes back are not
+// presses; a device sending random presses is left out until it has been quiet for 3 s; Other Controllers off leaves
+// them all out.
+void test_pad_filter() {
+    // what poll_dinput reports for a read: the buttons down, pressed, and whether it is ignored
+    struct Pad { PadFilter f; uint64_t buttons = 0, pressed = 0; bool ignored = false; };
+    auto read = [](Pad& p, uint64_t raw, uint64_t now, bool enabled = true) {
+        uint64_t prev = p.buttons;
+        if (!p.f.read(raw, now, enabled)) { p.buttons = p.pressed = 0; p.ignored = true; return; }
+        p.ignored = false;
+        if (p.f.take_settle()) prev = raw;
+        p.buttons = raw;
+        p.pressed = raw & ~prev;
+    };
+    {   // opened with B and Back held: no press until they're let go and pressed again
+        Pad p;
+        read(p, 0x12, 1000);
+        check(p.buttons == 0x12 && p.pressed == 0 && !p.ignored, "held at open: not pressed");
+        read(p, 0x12, 1016);
+        check(p.pressed == 0, "still held: not pressed");
+        read(p, 0x02, 1032);
+        read(p, 0x12, 1048);
+        check(p.pressed == 0x10, "let go and pressed again: pressed");
+        read(p, 0x13, 1064);
+        check(p.pressed == 0x01, "a new button: pressed");
+    }
+    {   // a failed read (dropped out): what it holds when it comes back is not a press
+        Pad p;
+        read(p, 0, 1000);
+        read(p, 0, 1016);
+        p.f.read_failed();
+        read(p, 0x04, 1032);
+        check(p.pressed == 0, "held when it comes back: not pressed");
+        read(p, 0x00, 1048);
+        read(p, 0x04, 1064);
+        check(p.pressed == 0x04, "after it comes back: pressed");
+    }
+    {   // a player mashing: fast, but on a few buttons - never left out
+        Pad p;
+        uint64_t t = 1000;
+        bool ever = false;
+        for (int i = 0; i < 600; i++, t += 8) {   // (125 reads a second, A / B / Right alternating every read)
+            read(p, (i & 1) ? 0x03 : 0x40, t);
+            ever = ever || p.ignored;
+        }
+        check(!ever, "mashing three buttons: never ignored");
+    }
+    {   // random presses on many buttons (a Switch Pro Controller in full report mode)
+        Pad p;
+        uint64_t t = 1000, seed = 12345;
+        for (int i = 0; i < 250; i++, t += 8) {   // 2 s of garbage
+            seed = seed * 6364136223846793005ull + 1442695040888963407ull;
+            read(p, (seed >> 40) & 0xFFFF, t);
+        }
+        check(p.ignored && p.f.noisy, "random presses: ignored");
+        check(p.buttons == 0 && p.pressed == 0, "ignored: reads as idle");
+        // quiet (nothing held) for a while: back after 3 quiet seconds, and no presses from that first read
+        bool back_early = false;
+        uint64_t back_at = 0;
+        for (int i = 0; i < 800 && !back_at; i++, t += 8) {
+            read(p, 0x08, t);
+            if (!p.ignored) back_at = t;
+            if (!p.ignored && back_at < 4000) back_early = true;
+        }
+        check(back_at > 0 && !back_early, "back after 3 quiet seconds");
+        check(p.pressed == 0, "back: what it holds is not a press");
+        read(p, 0x00, t);
+        read(p, 0x08, t + 8);
+        check(p.pressed == 0x08, "back: presses count again");
+    }
+    {   // Other Controllers off: left out; on again: held buttons aren't presses
+        Pad p;
+        read(p, 0x00, 1000);
+        read(p, 0x01, 1016, false);
+        check(p.ignored && p.pressed == 0, "Other Controllers off: ignored");
+        read(p, 0x01, 1032, true);
+        check(!p.ignored && p.pressed == 0, "on again: held is not pressed");
+    }
+}
+
+// Controls > Menu Buttons and Other Controllers are kept in settings.ini.
+void test_input_settings() {
+    const wchar_t* tmp = _wgetenv(L"TEMP");
+    const std::wstring path = path_join(tmp ? tmp : L".", L"aladdin_app_test_settings.ini");
+    Settings a;
+    check(!a.menu_confirm_right && a.other_controllers, "defaults: bottom confirms, other controllers on");
+    a.menu_confirm_right = true;
+    a.other_controllers = false;
+    check(a.save(path), "settings saved");
+    Settings b;
+    check(b.load(path), "settings read");
+    check(b.menu_confirm_right && !b.other_controllers, "Menu Buttons and Other Controllers read back");
+    a.menu_confirm_right = false;
+    a.other_controllers = true;
+    check(a.save(path), "settings saved again");
+    check(b.load(path) && !b.menu_confirm_right && b.other_controllers, "and back to the defaults");
+    _wremove(path.c_str());
+}
 }  // namespace
 
 int main(int argc, char** argv) {
     test_versions();
     test_badges();
+    test_pad_filter();
+    test_input_settings();
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--fetch") && i + 1 < argc) {
             std::string body;

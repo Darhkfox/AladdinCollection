@@ -121,6 +121,7 @@ int App::run(HINSTANCE inst, int show) {
         }
         audio_.set_paused(false);
         frame(dt);
+        if (cursor_visible() != cursor_shown_) update_cursor();
         if (!settings_.vsync) {
             // Software pacing when not synchronised to the display (fast forward too: it runs more game frames
             // per displayed frame, not more displayed frames).
@@ -201,15 +202,29 @@ void App::set_fullscreen(bool fs) {
         SetWindowLongW(hwnd_, GWL_STYLE, WS_POPUP | WS_VISIBLE);
         SetWindowPos(hwnd_, HWND_TOP, mi.rcMonitor.left, mi.rcMonitor.top, mi.rcMonitor.right - mi.rcMonitor.left,
                      mi.rcMonitor.bottom - mi.rcMonitor.top, SWP_FRAMECHANGED | SWP_NOOWNERZORDER);
-        ShowCursor(FALSE);
     } else {
         SetWindowLongW(hwnd_, GWL_STYLE, WS_OVERLAPPEDWINDOW | WS_VISIBLE);
         SetWindowPlacement(hwnd_, &windowed_placement_);
         SetWindowPos(hwnd_, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
-        ShowCursor(TRUE);
     }
     is_fullscreen_ = fs;
     settings_.fullscreen = fs;
+    update_cursor();   // (fullscreen hides the pointer until the mouse moves on the launcher)
+}
+
+// The pointer over the window's picture: hidden or not as cursor_visible() says, a hand over the launcher's links.
+// Called on WM_SETCURSOR and each frame (a game starting, a key pressed: it hides without the mouse moving).
+void App::update_cursor() {
+    POINT pt;
+    if (!GetCursorPos(&pt) || WindowFromPoint(pt) != hwnd_) return;
+    ScreenToClient(hwnd_, &pt);
+    RECT rc;
+    GetClientRect(hwnd_, &rc);
+    if (!PtInRect(&rc, pt)) return;   // (the frame and title bar keep their own pointers)
+    cursor_shown_ = cursor_visible();
+    const bool link = mode_ == Mode::Launcher && !menu_.active() && !jukebox_.active() &&
+                      (over_launcher_link((float)pt.x, (float)pt.y) || over_update_badge((float)pt.x, (float)pt.y));
+    SetCursor(cursor_shown_ ? LoadCursorW(nullptr, link ? IDC_HAND : IDC_ARROW) : nullptr);
 }
 
 RECT App::centered_rect(const RECT& work, int w, int h) {
@@ -333,22 +348,34 @@ LRESULT App::wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_EXITSIZEMOVE:
         remember_monitor();   // dragging the window to another display selects that display
         return 0;
-    // The launcher's update badge is a link: a hand over it, and a click opens the release's page.
+    // The mouse (see App::mouse_in_): the pointer as cursor_visible() says - a hand over the launcher's links (the
+    // logo / Patreon page, the update badge) - and its clicks, right clicks and wheel for poll_ui.
     case WM_SETCURSOR:
-        if (LOWORD(lp) == HTCLIENT && mode_ == Mode::Launcher && !menu_.active() && !jukebox_.active()) {
-            POINT pt;
-            GetCursorPos(&pt);
-            ScreenToClient(h, &pt);
-            if (over_update_badge((float)pt.x, (float)pt.y)) {
-                SetCursor(LoadCursor(nullptr, IDC_HAND));
-                return TRUE;
-            }
+        if (LOWORD(lp) == HTCLIENT) {
+            update_cursor();
+            return TRUE;
         }
         break;
-    case WM_LBUTTONUP:
-        if (mode_ == Mode::Launcher && !menu_.active() && !jukebox_.active() &&
-            over_update_badge((float)(short)LOWORD(lp), (float)(short)HIWORD(lp)))
-            open_update_page();
+    case WM_MOUSEMOVE: {
+        static LPARAM last = -1;   // (a real move: not the one Windows sends as the window appears or the pointer shows)
+        if (mode_ == Mode::Launcher && last != -1 && lp != last && !mouse_shown_) {
+            mouse_shown_ = true;
+            update_cursor();
+        }
+        last = lp;
+        return 0;
+    }
+    case WM_LBUTTONDOWN:
+        mouse_in_.click = true;
+        mouse_in_.x = (float)(short)LOWORD(lp);
+        mouse_in_.y = (float)(short)HIWORD(lp);
+        if (mode_ == Mode::Launcher) mouse_shown_ = true;
+        return 0;
+    case WM_RBUTTONDOWN:
+        mouse_in_.right = true;
+        return 0;
+    case WM_MOUSEWHEEL:
+        mouse_in_.wheel -= (float)GET_WHEEL_DELTA_WPARAM(wp) / WHEEL_DELTA;
         return 0;
     case WM_GETMINMAXINFO: {
         MINMAXINFO* mm = (MINMAXINFO*)lp;

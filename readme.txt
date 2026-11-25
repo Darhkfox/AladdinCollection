@@ -111,6 +111,21 @@
   position. Xbox-compatible pads (XInput) and other USB controllers
   (DirectInput) are supported, a pad plugged in while the game runs is
   picked up automatically, and every key and button can be changed.
+  A button held while a pad connects (or reconnects) only counts once it
+  has been let go and pressed again. A controller that sends random
+  button presses by itself (a Switch Pro Controller that Steam or another
+  program left in its full mode does this) is ignored, and a message says
+  which: reconnect it, or play it through Steam. On Android, controllers
+  without an SDL mapping (some PlayStation and 8BitDo pads) work too, in
+  the PlayStation button order.
+
+  THE MOUSE (on the launcher): click a game to choose it, and again to
+  play it; click the buttons, the rows of the menus (on a setting's
+  value, the left half steps back and the right half on) and the Music
+  Player's tracks; the wheel scrolls lists; right-click, or click outside
+  a menu, to go back. In fullscreen the pointer appears when the mouse
+  moves and hides again when you press a key or a game starts. In a game
+  the mouse does nothing.
 
   In the games:
      Mega Drive ....... A throws an apple, B swings the sword, C jumps.
@@ -166,6 +181,10 @@
   under the stars) or Classic (the original dark panels). Your own cover
   pictures can take the place of the previews, and your own picture can go
   behind the launcher (see LAUNCHER & MENUS under OPTIONS).
+
+  The Team RedTail logo at the top left opens my Patreon page
+  (patreon.com/c/TeamRedTail) in your browser: click it, or tap it on
+  Android.
 
   To start a game straight from a shortcut, make a shortcut to
   AladdinCollection.exe and add  --game md,  --game snes  or  --game sms  to
@@ -362,7 +381,12 @@
      and for Fast Forward and Rewind (greyed out while achievements are
      on), Menu, Quick Save, Quick Load and Screenshot. Highlight one, press
      Enter, then the new key or button (one already in use swaps; Esc
-     cancels). Also: Device (which pad), Left Stick Moves (default ON) and
+     or any controller button cancels a keyboard row; a key pressed on a
+     gamepad row says so). Also: Device (which pad), Left Stick Moves
+     (default ON), Menu Buttons (in the menus, the bottom face button
+     confirms - Xbox's layout, the default - or the right one, Nintendo's),
+     Other Controllers (PC: read controllers that aren't Xbox-style;
+     default ON - switch it off if one sends presses you didn't make) and
      Reset to Defaults.
 
   LAUNCHER & MENUS
@@ -688,6 +712,9 @@
      GitHub:  https://github.com/Darhkfox
      X:       https://x.com/ADH_Gaming
      Patreon: https://www.patreon.com/c/TeamRedTail
+
+  The Team RedTail logo at the top left of the launcher opens the Patreon
+  page too (click it, or tap it on Android).
 
   The port's own code is released under the MIT licence: see LICENSE.
   The MSU-1 chip and the MSU-1 pack handling are ported from my Super

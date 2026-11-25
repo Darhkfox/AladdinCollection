@@ -138,9 +138,13 @@ int App::run() {
             }
             case SDL_CONTROLLERDEVICEADDED:
             case SDL_CONTROLLERDEVICEREMOVED:
+            case SDL_JOYDEVICEADDED:     // (a controller SDL has no mapping for comes as a plain joystick: input_sdl.cpp)
+            case SDL_JOYDEVICEREMOVED:
                 input_.on_device_change();
                 break;
             case SDL_CONTROLLERBUTTONDOWN:
+            case SDL_JOYBUTTONDOWN:
+            case SDL_JOYHATMOTION:
                 use_touch(false);
                 break;
             case SDL_CONTROLLERAXISMOTION:

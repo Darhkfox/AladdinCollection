@@ -237,6 +237,8 @@ bool Settings::load(const std::wstring& path) {
             }
             if (k == "pad_index") pad_index[p] = clampi(iv, -1, Input::kMaxPads - 1);
             else if (k == "stick_as_dpad" && p == 0) stick_as_dpad = iv != 0;
+            else if (k == "menu_confirm_right" && p == 0) menu_confirm_right = iv != 0;
+            else if (k == "other_controllers" && p == 0) other_controllers = iv != 0;
         } else if (section.rfind("cheats.", 0) == 0) {
             cheats[section.substr(7)][k] = iv != 0;
         } else if (section == "touch") {
@@ -286,7 +288,8 @@ bool Settings::save(const std::wstring& path) const {
         }
         o << "pad_index=" << pad_index[p] << "\n";
         if (p == 0) {
-            o << "stick_as_dpad=" << stick_as_dpad << "\n";
+            o << "stick_as_dpad=" << stick_as_dpad << "\nmenu_confirm_right=" << menu_confirm_right
+              << "\nother_controllers=" << other_controllers << "\n";
             for (int h = 0; h < HK_COUNT; h++)
                 o << "key_" << kHotkeyKeys[h] << "=" << hotkey_keys[h] << "\npad_" << kHotkeyKeys[h] << "=0x" << std::hex
                   << hotkey_pads[h] << std::dec << "\n";

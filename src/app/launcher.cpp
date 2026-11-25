@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdio>
 #include "imageload.h"
+#include "logo_data.h"
 
 namespace {
 std::string narrow(const std::wstring& w) { return to_utf8(w); }
@@ -106,6 +107,52 @@ void draw_night(Video& v, float W, float H, float t, bool magic) {
 }
 }
 
+// The Team RedTail logo's link (as in the Mickey & Donald Collection and the Super Mario All-Stars port; the Credits
+// page has the same address).
+namespace {
+const char* kPatreonShown = "patreon.com/TeamRedTail";
+const char* kPatreonUrl = "https://www.patreon.com/c/TeamRedTail";
+}
+
+bool App::over_launcher_link(float x, float y) const {
+    const Rect& r = launcher_link_;
+    return r.w > 0 && x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
+}
+
+void App::open_patreon() {
+    if (autotest_) return;   // scripted test runs never open a browser
+    open_url(kPatreonUrl);
+    menu_.toast("Opened Patreon in your browser");
+}
+
+// The Team RedTail logo, top left, the Patreon page under it: smaller where the title leaves less room beside it
+// (none: not shown). Over the player's background picture the page's name is outlined, as the launcher's other text.
+void App::draw_logo(float title_left) {
+    const float H = (float)video_.height(), m = H * 0.03f, room = title_left - m * 2;
+    const float lw = std::round(std::min(room, H * 0.13f * kLogoW / kLogoH)), lh = std::round(lw * kLogoH / kLogoW);
+    launcher_link_ = {};
+    if (lw <= H * 0.06f || lh <= 0) return;
+    if (!logo_image_) {
+        std::vector<uint32_t> px;
+        px.reserve((size_t)kLogoW * kLogoH);
+        for (size_t k = 0; k + 1 < sizeof(kLogoRle); k += 2) px.insert(px.end(), kLogoRle[k], kLogoPal[kLogoRle[k + 1]]);
+        px.resize((size_t)kLogoW * kLogoH);
+        logo_image_ = video_.create_image(px.data(), kLogoW, kLogoH);
+        if (!logo_image_) return;
+    }
+    const bool ar = ui_style() == kStyleArabian, custom_bg = art_bg_ && bg_art_.w > 0;
+    const float fw = video_.measure_text(FontId::Small, kPatreonShown);
+    const float fs = std::min(1.0f, std::min(lw * 1.7f, room) / std::max(1.0f, fw));
+    const float bw = std::max(lw, fw * fs);   // (the two centred on each other)
+    const float lx = std::round(m + (bw - lw) * 0.5f), ly = std::round(m);
+    video_.draw_image(logo_image_, {lx, ly, lw, lh});
+    const float py = ly + lh + H * 0.004f;
+    const uint32_t c = ar ? 0xFFD3C7EC : 0xFFB4A9CC;   // (the subtitle's colour)
+    if (custom_bg) draw_text_outlined(video_, FontId::Small, m + bw * 0.5f, py, kPatreonShown, c, 0xD0000008, Align::Center, fs);
+    else video_.draw_text(FontId::Small, m + bw * 0.5f, py, kPatreonShown, c, Align::Center, fs);
+    launcher_link_ = {m, m, bw, py + video_.line_height(FontId::Small, fs) - m};
+}
+
 void App::update_launcher(const UiInput& ui, double dt) {
     const int N = kGameCount;          // cards 0..N-1, buttons N..N+4
     poll_roms(dt);
@@ -116,11 +163,14 @@ void App::update_launcher(const UiInput& ui, double dt) {
     if (ui.down && s < N) s = N + 2;
     if (ui.up && s >= N) s = launcher_last_card_;
     bool go = ui.confirm;
-    if (ui.tap && over_update_badge(ui.tap_x, ui.tap_y)) open_update_page();
-    else if (ui.tap)   // touch: a card or button is chosen and used at once
+    if (ui.tap && over_launcher_link(ui.tap_x, ui.tap_y)) open_patreon();
+    else if (ui.tap && over_update_badge(ui.tap_x, ui.tap_y)) open_update_page();
+    else if (ui.tap)   // touch: a card or button is chosen and used at once; the mouse: a card is chosen, then played
         for (int i = 0; i < N + kButtonCount; i++) {
             const Rect& r = launcher_hit_[i];
-            if (ui.tap_x >= r.x && ui.tap_x < r.x + r.w && ui.tap_y >= r.y && ui.tap_y < r.y + r.h) { s = i; go = true; }
+            if (!(ui.tap_x >= r.x && ui.tap_x < r.x + r.w && ui.tap_y >= r.y && ui.tap_y < r.y + r.h)) continue;
+            go = !(ui.mouse && i < N && s != i);
+            s = i;
         }
     if (s < N) launcher_last_card_ = s;
     if (go) {
@@ -221,12 +271,13 @@ void App::draw_launcher() {
         draw_night(video_, W, H, (float)time_, ar);
     }
 
-    // Title
+    // Title (narrower where it would leave the logo no room beside it)
     float ty0 = H * 0.035f;
     const char* kTitle = "Aladdin Collection";
     const float title_w = std::max(1.0f, video_.measure_text(FontId::Huge, kTitle));
-    float tscale = std::min(1.0f, W * 0.86f / title_w);
-    tscale = std::min(tscale, 0.8f);
+    const float title_max = std::min(W * 0.86f, W - 2 * (H * 0.16f + H * 0.06f));
+    float tscale = std::min(0.8f, std::max(W * 0.6f, title_max) / title_w);
+    tscale = std::min(tscale, W * 0.86f / title_w);
     if (ar) {   // gold, outlined in ink, with a shadow
         const float o = std::max(2.0f, H / 260.0f);
         video_.draw_text(FontId::Huge, W * 0.5f + o * 1.2f, ty0 + o * 2.2f, kTitle, 0xB0000000, Align::Center, tscale);
@@ -238,6 +289,7 @@ void App::draw_launcher() {
         video_.draw_text(FontId::Huge, W * 0.5f, ty0, kTitle, 0xFFF2C14E, Align::Center, tscale);
     }
     draw_update_badge(W * 0.5f + title_w * tscale * 0.5f);   // (a newer release)
+    draw_logo(W * 0.5f - title_w * tscale * 0.5f);           // (top left: the Team RedTail logo and the Patreon link)
     ty0 += video_.line_height(FontId::Huge, tscale);
 #ifdef __ANDROID__
     const char* edition = "Android Edition";
@@ -246,7 +298,16 @@ void App::draw_launcher() {
 #endif
     const std::string subtitle = std::string("Mega Drive  \xE2\x80\xA2  Super Nintendo  \xE2\x80\xA2  Master System  \xE2\x80\xA2  ") +
                                  edition + "  \xE2\x80\xA2  v" + kAppVersion;
-    const float sub_s = std::min(1.0f, W * 0.96f / std::max(1.0f, video_.measure_text(FontId::Body, subtitle)));
+    const float sub_w = std::max(1.0f, video_.measure_text(FontId::Body, subtitle));
+    float sub_s = std::min(1.0f, W * 0.96f / sub_w);
+    if (launcher_link_.w > 0 && ty0 < launcher_link_.y + launcher_link_.h) {
+        // clear of the Patreon link: beside it (as far from the middle either side), or under it where that would
+        // shrink it much (narrow windows)
+        const float side = launcher_link_.x + launcher_link_.w + H * 0.02f;
+        const float beside = std::min(sub_s, (W - side * 2) / sub_w);
+        if (beside >= sub_s * 0.85f) sub_s = beside;
+        else ty0 = launcher_link_.y + launcher_link_.h + H * 0.004f;
+    }
     label(FontId::Body, W * 0.5f, ty0, subtitle, ar ? 0xFFD3C7EC : 0xFFB4A9CC, Align::Center, sub_s);
     ty0 += video_.line_height(FontId::Body);
     if (ar) {
@@ -424,11 +485,14 @@ void App::draw_launcher() {
                          an > 0.5f ? (ar ? kInk : 0xFF10131A) : (ar ? kCream : 0xFFD8DDE8), Align::Center, bs);
         bx += bws[i] + bgap;
     }
+    const bool right = settings_.menu_confirm_right;   // (Controls > Menu Buttons: the right face button confirms)
 #ifdef __ANDROID__
     const char* hint = touch_active_ ? "Tap a game to play    Add ROMs to choose your ROM files"
+                       : right       ? "\xE2\x86\x90\xE2\x86\x92 Choose    (B) Play    Back Quit"
                                      : "\xE2\x86\x90\xE2\x86\x92 Choose    (A) Play    Back Quit";
 #else
-    const char* hint = "\xE2\x86\x90\xE2\x86\x92 Choose    Enter / (A) Play    F11 Fullscreen    Esc Quit";
+    const char* hint = right ? "\xE2\x86\x90\xE2\x86\x92 Choose    Enter / (B) Play    F11 Fullscreen    Esc Quit"
+                             : "\xE2\x86\x90\xE2\x86\x92 Choose    Enter / (A) Play    F11 Fullscreen    Esc Quit";
 #endif
     label(FontId::Small, W * 0.5f, H - video_.line_height(FontId::Small) * 1.6f, hint,
           with_alpha(ar ? 0xFFD8C49A : 0xFF6C7488, 1.0f - menu_.toast_cover()), Align::Center);
