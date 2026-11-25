@@ -392,7 +392,11 @@ gradlew assembleDebug
   4:3 frame on a purple background that fills the width; the Genie flies out into the purple whole, but only about
   his own width: the game starts, turns and removes him just past the 4:3 edges, so he appears and vanishes beside
   the panel. The
-  bonus wheel and the story scenes between stages are on black and so look the same as before. The staff roll stays 4:3. The
+  bonus wheel and the story scenes between stages are on black and so look the same as before. The staff roll is wide:
+  its night sky, clouds and city run the whole width (the moon once), the credits stay in the middle, and the birds
+  and the carpet fly out into the sides at their real place. The birds come in a little past the 4:3 edge, where the
+  game creates them. For the roll's first few seconds (left side) and beside THE END (right side) the sides lie past
+  the roll's ends and show its sky mirrored (black with *Past Level Ends: Black*). The
   level select starts with new-game stats (3 lives, 3 hearts, 10 apples).
 - Save states made by a newer version may not load in an older one.
 

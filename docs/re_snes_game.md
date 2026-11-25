@@ -96,7 +96,8 @@ plays (`re_snes_wide.md` section 1); a first version let the first demo land a f
 | `$083D` / `$145B` | the camera's mode (`$81:C5AA`: 2 the Lava Cavern's scroll, 6 / `$0A` the carpet rides') / the screen-edge rule for Aladdin (`$81:E986`: 0 held on the screen, 1 also in y, 3 the Lava Cavern's left behind, 4 a life being lost; `re_snes_wide.md` section 4) |
 | `$1B2B` | Jafar's cobra beaten |
 
-Screens (`$035E` >= `$14`): `$14-$1C` the attract demos' levels (stage 8; `$1C` is also the staff roll's carpet ride),
+Screens (`$035E` >= `$14`): `$14-$1C` the attract demos' levels (stage 8; `$1C` is also the staff roll's carpet ride:
+stage 8 act 8 with the demo flag set, its main loop `$82:B447`; `re_snes_wide.md` section 1),
 `$24` STAGE CLEAR (with the password), `$25` continue, `$2B` OPTIONS, `$2C` password, `$2F` the Genie's bonus wheel
 (BREAK TIME!), `$30` a story scene between stages, `$35` the opening story, `$39` the ending.
 
