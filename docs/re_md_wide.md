@@ -274,9 +274,9 @@ already be the next frame's — and, when it differs from the one the slide in f
 * What is left outside the level after the slide (only in a narrower level) is blacked out per line with the VDP's
   `edge_mask_l/r` — sprites too, but not HUD sprites. There is no vertical extension, so nothing to do vertically.
 
-**Boss fights** (`slide_target`, `boss_arena`, `boss_frame`). The 4:3 game never locks its camera (`$7DFE` is only
-ever `$70` / `$F0`, §1): in a fight it follows Aladdin, who is held in the arena by its walls, and the arena is wider
-than the 4:3 view. The Cave of Wonders' golden idol: Aladdin walks 2047-2305, between the pedestal the boss spawns
+**Boss fights** (`slide_target`, `boss_arena`, `boss_frame`, `boss_dim`). The 4:3 game never locks its camera
+(`$7DFE` is only ever `$70` / `$F0`, §1): in a fight it follows Aladdin, who is held in the arena by its walls, and the
+arena is wider than the 4:3 view. The Cave of Wonders' golden idol: Aladdin walks 2047-2305, between the pedestal the boss spawns
 from (`$F5`, block 129,29; object `$8B` at 2048,704) and the other one (`$F6`, 143,32; at 2272,752), between which the
 idol flies; the camera runs 1821-2178, so the 4:3 game shows map x 1838-2515 over the fight. Jafar's Palace: Jafar
 (`$4D`, block 51,47) stands at x 800 in a hall Aladdin walks 477-1138 (camera 252-947). With the slide 0 the widened
@@ -291,7 +291,13 @@ the idol on the far pedestal cut at the right edge; in Jafar's hall at the left 
   on while the carpet flew Aladdin over the treasure, switching off and on as the carpet crossed the arena's height
   band (QA round 2 F3: 320 of 562 carpet frames, Aladdin carried to screen x 452 of 576). Now the fight bit drops at
   the kill and the slide eases back to the level's own (21:9, beaten from the left pedestal: 125 → 0 over 60 frames,
-  the fight bit off from the first frame after the kill, never on again on the carpet).
+  the fight bit off from the first frame after the kill, never on again on the carpet). Jafar's tenth hit puts the
+  snake in his slot from a template (`$1AC5A4`, `$FFF11D` set), which clears the slot's block and map type: the fight
+  went off there and the view eased back to the level's own for the whole snake fight. Now an object `$11` with
+  `$FFF11D` set in Jafar's Palace is Jafar's fight going on (his block, 51,47, the same hall) until its kill clears the
+  slot. The height test also passes while Aladdin is inside the arena's walls (the dim's boxes, below): at the
+  Rooftops' end on top the boss's block is row 4 and the camera drops to y 200 with Aladdin on the floor left of the
+  step (x 2126-2270), which turned the fight off and on as he crossed the step.
 * Its arena: the boss's block and, within a plane window of it, the blocks of the kinds that share its colours (§3,
   Palette line 2: the idol's other pedestal); for spawned ones their objects' blocks. The centre, map x 8 × (first +
   last block column), is what a 4:3 camera of 8 × (first + last) − 176 centres: the idol 2000 (the middle of 1821-2178),
@@ -310,14 +316,46 @@ the idol on the far pedestal cut at the right edge; in Jafar's hall at the left 
   starts at camera 1724 / 1732 at 16:9 / 21:9 (the tune's moment), the view never moves more than 3 px a frame further
   than the camera in, through and out of the fight (the boss removed: slide back to 0), at 1.5 times the camera's pace
   where it catches up after Aladdin leaves.
+* **The sides dimmed** (`kBossDims`, `boss_dim`, `VDP::edge_dim`; the user's request at 21:9: the fights showed "too
+  much from the left/right which isn't important to the boss fight"). Each arena's walls, measured with walks to both
+  walls at 4:3 (Aladdin's x, object 0's +2; his body spans x .. x + 32 in the map): the idol 2047 / 2305 (beside the
+  pedestals; the near one's foot at map x 2035), Jafar's hall 477 / 1138 (the pillars' inner faces 479 / 1166), the
+  Rooftops' end on top 2126 (the cliff; the step at 2270 can be jumped) / 2432, and below (boss `$28`) 1999 (a wall
+  he can't jump) / 2431. While the fight is on (the framing's own test) with Aladdin inside an arena's box, the widened
+  view's columns beyond its walls' faces (map x < 2031 / ≥ 2340, < 479 / ≥ 1166, < 2126, < 1997) are darkened: planes
+  and sprites alike, the HUD sprites spared (`spr_hud_`, as the edge masks). The line hook works the columns out per
+  line from the map x of the line's screen x 0 (the in-between pictures of the high frame rate included); the VDP
+  marks those pixels with the darkening (0-15) in bits 12-15 of the frame buffer, and the app and `mdtool` darken them
+  by that many 30ths (`VDP::dimmed`: 15 = half brightness, the SNES fights' strength). It goes up a 30th a frame from
+  entering the box (15 frames) and down the same way once the fight is off (the idol's tenth hit, the snake's or the
+  Rooftops' boss's kill) or Aladdin leaves the box (the Cave's river). Kept in `module_state[1]` bits 25-28 (the
+  darkening) and 29-31 (the arena + 1), so save states and rewind keep it; cleared at a level's load and fade-ins; an
+  older state has 0 there (undimmed, fading in on its next frame in a fight). What was shown beyond the walls and what
+  is dimmed now (map px, view at the arena's middle / its left end / its right end):
+  - the idol, 21:9: 1884-2460 / 1838-2414 / 1938-2514 showed the bats' slope left of the near pedestal and the treasure
+    heap right of the far one: 147 + 120 / 193 + 74 / 93 + 174 px dimmed; 16:9: 112 + 7 / 193 / 174 px. Beaten, the
+    sides are bright again 15 frames after the tenth hit, with the carpet coming in right of the far pedestal.
+  - Jafar and the snake: in the middle of the hall (528-1104 at 21:9) neither pillar is in view and nothing is dimmed;
+    at the walls 148 px (the corridor left of the left pillar) / 118 px (the hall beyond the right one), at 16:9 167 /
+    118. The snake's kill: the dim fades out in 15 frames as the level's fade-out begins.
+  - the Rooftops' end on top: the view is the level's last 576 px (1886-2462) throughout: the cliff and the rooftops
+    beyond it, 240 px, dimmed (16:9: 92); the right wall is the level's end. Below: 111 px at the right end (the wall
+    and the roof left of it), 216 at its left wall (16:9: 0 / 253).
+  - Jafar's Quarters (no boss object, the 800-px level is the arena) and Abu's bonus rounds and the Rug Ride (no
+    boss): nothing dimmed. At 4:3 nothing is dimmed (no line hook).
+  Measured (`md_boss_dim` shots, 21:9 / 16:9): the sides' mean brightness in the idol's arena 54.6 → 31.4 / 46.3 →
+  25.2 over the 15 frames after the drop, about 1.7 levels (of 255) a frame; walking into the arena from the ledge on
+  its left the darkening starts on the frame Aladdin passes x 2040 and rises 1 a frame, never back, until the tenth hit;
+  then 14 … 0 over 15 frames. Jafar through his ten hits, the snake and its kill: 15 on every frame of the fight.
+  States saved at darkening 1 / 5 / 9 / 13 / 15 and run on 30 frames in a fresh instance: pictures and RAM identical.
 * The spawn band follows the slide (`reach_hook`), so objects still come in just outside the view. While a framing is
   in force (or easing out) the view can run ahead of the camera between column steps, so right after the gameplay
   loop's streaming (`$1A8CE8`, `jsr $1B315C`) the module pushes the return past it and two column ranges and enters the
   cave `$7400` (`band_refresh`), which spawns the two outermost columns of each band through the column spawner
   (`$1AE42C`, as the left writer sets it up) and then jumps to `$1B315C`; blocks already spawned are cleared or alive,
   so only what is missing comes.
-* `module_state[1]` bits 2-23 (bits 0-1 are the developer flags): the fight bit, the arena's column sum and `e`; reset
-  at a level's load and its fade-ins (start, restart). Older save states have 0 there: no framing, as before.
+* `module_state[1]` bits 2-23 (bits 0-1 are the developer flags): the fight bit, the arena's column sum and `e` (bit 24
+  the carpet due, 25-31 the dim); reset at a level's load and its fade-ins (start, restart). Older save states have 0 there: no framing, as before.
   Abu's bonus rounds and the Rug Ride have no boss; Jafar's Quarters' boss music is the level's own and it has no boss
   object (Jafar's magic is re-armed by the level routine): the 800-px level is its own arena and the level's limits
   already keep the view inside it.
@@ -519,6 +557,7 @@ look-ahead would mean running the game ahead (the player decides the crashes) or
 | stepping stones | `md_wide_stones.py 0 54 128` (map-view pass back and forth over the river) | at most 3 / 8 / 10 stones on one block and 0 / 9 / 17 views missing one (block 156, 165) before; 3 / 1 / 1 and 0 now (the 3 at 4:3 are the game's own) |
 | river foreground | plane A alone at 21:9 at the QA's spot (camera ≈ 2150) against 4:3 renders of the same map pixels (same CRAM) | 126,720 pixels identical, 0 different: the flat patches under the water line are the map's own art |
 | boss framing | `md_wide_boss.py 0 54 128`; Jafar's hall and the Rooftops' end walked wall to wall | views as in §5 (Boss fights); no frame moves the view more than 3 px further than the camera |
+| boss fights' sides dimmed | every fight at 54 / 128 walked to both walls, beaten (the idol, Jafar through the snake); the idol's arena entered from its left ledge; states mid-fade | as in §5 (The sides dimmed): only what lies beyond the walls, the HUD bright, 15 frames in and out, keyed to the fight and Aladdin's box; `md_wide_boss`, `md_wide_carpet`, `md_boss_tune cave`, `md_wide_stones`, `md_wide_popin`, `md_wide_rug 54 128 --seeds 1,2` as before, `md_parity`, `md_attract` (cheats) 0 differences, `hfr_test.py md` passes |
 | after the bosses | `md_wide_carpet.py 0 54 128`; the Rooftops' boss and Jafar (both forms) beaten from one state at 0 / 54 / 128 | see §5 (After the fight): in widescreen the carpet with the idol's kill from either pedestal, at 4:3 as the original; the other two end their level from the kill, nothing streamed |
 | the Palace's hole | `md_wide_abu.py 0 54 128` (Abu left in the cage / freed / freed after standing on the carpet) | the same at every width: the carpet in the hole from frame 216 while Abu is caged, none once he is free and Aladdin down the shaft (§5, After the fight) |
 | idol arena colours | the arena runs of §3 (Palette line 2) at 0 / 54 / 128, split into frames shown as play and the death-fade / fill frames (line 2 on the all-black `$128F12`) | in other colours on shown frames: 21:9 from the left 526 → 0 (the bat), from above 31 → 0 at 16:9 and 91 → 0 at 21:9; what remains are fade and fill frames (the run now falls into the river on its second life, as at 4:3) |
