@@ -108,6 +108,7 @@ int App::run() {
     ach_startup();
     for (int g = 0; g < kGameCount; g++)
         if (settings_.last_game == games_[g].module->id()) launcher_sel_ = launcher_last_card_ = g;
+    fix_launcher_selection();   // (a hidden game's card isn't there: the nearest shown one)
 
     Uint64 freq = SDL_GetPerformanceFrequency(), last = SDL_GetPerformanceCounter();
     int perf_frames = 0;

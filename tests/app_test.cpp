@@ -170,6 +170,31 @@ void test_input_settings() {
     check(b.load(path) && !b.menu_confirm_right && b.other_controllers, "and back to the defaults");
     _wremove(path.c_str());
 }
+
+// Options > Launcher & Menus > Show Games: [launcher] show_md / show_snes / show_sms, all on by default; a file with
+// every game hidden (edited by hand) shows them all.
+void test_show_games() {
+    const wchar_t* tmp = _wgetenv(L"TEMP");
+    const std::wstring path = path_join(tmp ? tmp : L".", L"aladdin_app_test_show.ini");
+    Settings a;
+    check(a.shown(System::MegaDrive) && a.shown(System::Snes) && a.shown(System::MasterSystem) && a.shown_count() == 3,
+          "defaults: all three games shown");
+    a.show_game[(int)System::Snes] = false;
+    check(a.shown_count() == 2 && !a.shown(System::Snes), "one hidden");
+    check(a.save(path), "show games saved");
+    std::string text;
+    check(read_text(path, text) && text.find("show_snes=0") != std::string::npos && text.find("show_md=1") != std::string::npos,
+          "written as show_<id> in the file");
+    Settings b;
+    check(b.load(path) && b.shown(System::MegaDrive) && !b.shown(System::Snes) && b.shown(System::MasterSystem), "read back");
+    a.show_game[(int)System::MegaDrive] = false;
+    check(a.save(path) && b.load(path) && b.shown_count() == 1 && b.shown(System::MasterSystem), "two hidden read back");
+    const char* none = "[launcher]\nshow_md=0\nshow_snes=0\nshow_sms=0\n";
+    check(write_file(path, none, strlen(none)), "all-hidden file written");
+    Settings c;
+    check(c.load(path) && c.shown_count() == 3, "every game hidden: all shown instead");
+    _wremove(path.c_str());
+}
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -177,6 +202,7 @@ int main(int argc, char** argv) {
     test_badges();
     test_pad_filter();
     test_input_settings();
+    test_show_games();
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--fetch") && i + 1 < argc) {
             std::string body;

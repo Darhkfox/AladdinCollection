@@ -153,13 +153,50 @@ void App::draw_logo(float title_left) {
     launcher_link_ = {m, m, bw, py + video_.line_height(FontId::Small, fs) - m};
 }
 
+// ---------------------------------------------------------------------------
+// Show Games: hidden games have no card (nor preview) and are left out of the launcher's Music Player and Achievements
+// ---------------------------------------------------------------------------
+int App::shown_game_near(int g) const {
+    g = std::clamp(g, 0, kGameCount - 1);
+    if (game_shown(g)) return g;
+    for (int d = 1; d < kGameCount; d++) {
+        if (game_shown(g + d)) return g + d;
+        if (game_shown(g - d)) return g - d;
+    }
+    return g;   // (none shown: Settings keeps one)
+}
+
+void App::fix_launcher_selection() {
+    launcher_last_card_ = shown_game_near(launcher_last_card_);
+    if (launcher_sel_ < kGameCount) launcher_sel_ = shown_game_near(launcher_sel_);
+}
+
+void App::set_game_shown(int g, bool on) {
+    const int s = (int)games_[g].module->system();
+    if (!on && settings_.show_game[s] && settings_.shown_count() <= 1) {
+        menu_.toast("One game is always shown: show another game first");
+        return;
+    }
+    settings_.show_game[s] = on;
+    fix_launcher_selection();
+    ensure_previews();   // (a shown game's preview starts; a hidden one's stops)
+}
+
 void App::update_launcher(const UiInput& ui, double dt) {
-    const int N = kGameCount;          // cards 0..N-1, buttons N..N+4
+    const int N = kGameCount;          // cards 0..N-1 (the shown ones), buttons N..N+4
     poll_roms(dt);
+    fix_launcher_selection();
     int& s = launcher_sel_;
     if (s < N) launcher_last_card_ = s;
-    if (ui.left && s != 0 && s != N) s--;
-    if (ui.right && s != N - 1 && s != N + kButtonCount - 1) s++;
+    // Left / right step over hidden cards
+    auto step = [&](int dir) {
+        for (int c = s + dir; c >= 0 && c < N; c += dir)
+            if (game_shown(c)) { s = c; return; }
+    };
+    if (ui.left && s < N) step(-1);
+    else if (ui.left && s != N) s--;
+    if (ui.right && s < N) step(1);
+    else if (ui.right && s != N + kButtonCount - 1) s++;
     if (ui.down && s < N) s = N + 2;
     if (ui.up && s >= N) s = launcher_last_card_;
     bool go = ui.confirm;
@@ -167,6 +204,7 @@ void App::update_launcher(const UiInput& ui, double dt) {
     else if (ui.tap && over_update_badge(ui.tap_x, ui.tap_y)) open_update_page();
     else if (ui.tap)   // touch: a card or button is chosen and used at once; the mouse: a card is chosen, then played
         for (int i = 0; i < N + kButtonCount; i++) {
+            if (i < N && !game_shown(i)) continue;   // (a hidden card isn't there)
             const Rect& r = launcher_hit_[i];
             if (!(ui.tap_x >= r.x && ui.tap_x < r.x + r.w && ui.tap_y >= r.y && ui.tap_y < r.y + r.h)) continue;
             go = !(ui.mouse && i < N && s != i);
@@ -181,7 +219,7 @@ void App::update_launcher(const UiInput& ui, double dt) {
             int g = -1;
             for (int k = 0; k < N && g < 0; k++) {
                 int c = (launcher_last_card_ + k) % N;
-                if (games_[c].rom.found) g = c;
+                if (games_[c].rom.found && game_shown(c)) g = c;
             }
             if (g >= 0) open_jukebox(g, false);
             else menu_.toast("No ROMs found");
@@ -296,8 +334,12 @@ void App::draw_launcher() {
 #else
     const char* edition = "PC Edition";
 #endif
-    const std::string subtitle = std::string("Mega Drive  \xE2\x80\xA2  Super Nintendo  \xE2\x80\xA2  Master System  \xE2\x80\xA2  ") +
-                                 edition + "  \xE2\x80\xA2  v" + kAppVersion;
+    // (the consoles of the games shown)
+    std::string subtitle;
+    static const char* kConsoles[kSystemCount] = {"Mega Drive", "Super Nintendo", "Master System"};
+    for (int i = 0; i < N; i++)
+        if (game_shown(i)) subtitle += std::string(kConsoles[(int)games_[i].module->system()]) + "  \xE2\x80\xA2  ";
+    subtitle += std::string(edition) + "  \xE2\x80\xA2  v" + kAppVersion;
     const float sub_w = std::max(1.0f, video_.measure_text(FontId::Body, subtitle));
     float sub_s = std::min(1.0f, W * 0.96f / sub_w);
     if (launcher_link_.w > 0 && ty0 < launcher_link_.y + launcher_link_.h) {
@@ -325,9 +367,15 @@ void App::draw_launcher() {
         ty0 += H * 0.026f;
     }
 
-    // Cards: the frames are the console's screen's shape, or square when there are covers (box art fills them better)
+    // Cards: the frames are the console's screen's shape, or square when there are covers (box art fills them better).
+    // Only the shown games have cards: as big as three would be, centred (Show Games).
     bool any_cover = false;
-    for (int i = 0; i < N; i++) any_cover = any_cover || (has_cover(i) && games_[i].rom.found);
+    int shown = 0;
+    for (int i = 0; i < N; i++) {
+        if (!game_shown(i)) continue;
+        shown++;
+        any_cover = any_cover || (has_cover(i) && games_[i].rom.found);
+    }
     const float aspect = any_cover ? 1.0f : 4.0f / 3.0f;
     const float top = ty0 + H * 0.045f;
     float gap = W * 0.03f;
@@ -339,24 +387,28 @@ void App::draw_launcher() {
     float cw = std::min((W * 0.94f - gap * (N - 1)) / N, (H * 0.82f - top - info_h - rad0 * 0.6f) * aspect + rad0 * 1.2f);
     float ph = rad0 * 0.6f + (cw - rad0 * 1.2f) / aspect;
     float ch = ph + info_h;
-    float x0 = (W - (cw * N + gap * (N - 1))) * 0.5f;
+    float x0 = (W - (cw * shown + gap * (shown - 1))) * 0.5f;
     const float by = H * 0.855f;
     const float card_top = top + std::max(0.0f, (by - H * 0.03f - top - ch) * 0.5f);   // (centred above the buttons)
     // ROM file names share one text size (the one the longest name needs)
     std::string rom_label[kGameCount];
     float rom_fs = 1.0f;
     for (int i = 0; i < N; i++) {
-        if (!games_[i].rom.found) continue;
+        if (!games_[i].rom.found || !game_shown(i)) continue;
         const std::wstring& path = games_[i].rom.path;
         rom_label[i] = "\xE2\x9C\x93 " + narrow(path.substr(path.find_last_of(L"\\/") + 1));
         rom_fs = std::min(rom_fs, cw * 0.92f / std::max(1.0f, video_.measure_text(FontId::Small, rom_label[i])));
     }
     const uint32_t c_frame_bg = ar ? 0xFF0A0620 : 0xFF0A0D14;
-    for (int i = 0; i < N; i++) {
+    for (int i = 0, slot = 0; i < N; i++) {
         GameSlot& g = games_[i];
+        if (!game_shown(i)) {
+            launcher_hit_[i] = {};
+            continue;
+        }
         float an = launcher_anim_[i];
         float sc = 1.0f + 0.035f * an;
-        float cx = x0 + i * (cw + gap) + cw * 0.5f, cy = card_top + ch * 0.5f;
+        float cx = x0 + (slot++) * (cw + gap) + cw * 0.5f, cy = card_top + ch * 0.5f;
         Rect r = {cx - cw * sc * 0.5f, cy - ch * sc * 0.5f, cw * sc, ch * sc};
         launcher_hit_[i] = r;
         uint32_t c = g.module->accent_color();

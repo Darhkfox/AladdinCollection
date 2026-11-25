@@ -169,6 +169,12 @@ bool Settings::cheat(const std::string& game, const std::string& key) const {
 }
 void Settings::set_cheat(const std::string& game, const std::string& key, bool on) { cheats[game][key] = on; }
 
+int Settings::shown_count() const {
+    int n = 0;
+    for (bool b : show_game) n += b ? 1 : 0;
+    return n;
+}
+
 // ---------------------------------------------------------------------------
 // INI I/O
 // ---------------------------------------------------------------------------
@@ -249,6 +255,9 @@ bool Settings::load(const std::wstring& path) {
             else if (k == "covers") launcher_covers = iv != 0;
             else if (k == "background") launcher_background = iv != 0;
             else if (k == "cover_fill") cover_fill = iv != 0;
+            else
+                for (int g = 0; g < kSystemCount; g++)   // show_md=0 hides the game from the launcher
+                    if (k == std::string("show_") + kSystemKeys[g]) show_game[g] = iv != 0;
         } else if (section == "updates") {
             if (k == "check") check_updates = iv != 0;
             else if (k == "checked_on") update_checked_on = v;
@@ -261,6 +270,8 @@ bool Settings::load(const std::wstring& path) {
             else if (k == "no_slowdown") no_slowdown = iv != 0;
         }
     }
+    if (shown_count() == 0)   // (a game is always shown)
+        for (bool& b : show_game) b = true;
     return true;
 }
 
@@ -303,6 +314,7 @@ bool Settings::save(const std::wstring& path) const {
       << "\nachievements=" << achievements << "\nno_slowdown=" << no_slowdown << "\n";
     o << "\n[launcher]\nmenu_style=" << menu_style << "\ncovers=" << launcher_covers << "\nbackground=" << launcher_background
       << "\ncover_fill=" << cover_fill << "\n";
+    for (int g = 0; g < kSystemCount; g++) o << "show_" << kSystemKeys[g] << "=" << show_game[g] << "\n";
     o << "\n[updates]\ncheck=" << check_updates << "\nchecked_on=" << update_checked_on << "\nlatest=" << update_latest << "\n";
 #ifdef __ANDROID__
     o << "\n[touch]\nmode=" << touch_mode << "\nopacity=" << touch_opacity << "\n";

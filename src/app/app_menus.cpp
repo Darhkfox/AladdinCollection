@@ -76,7 +76,7 @@ void App::open_options_menu(bool from_launcher) {
     p.items.push_back(MenuItem::action("Colour", [this]() { menu_.push(color_page()); }, "Colour profiles and picture adjustments."));
     p.items.push_back(MenuItem::action("Audio", [this]() { menu_.push(audio_page()); }, "Volume and sound-chip options."));
     p.items.push_back(MenuItem::action("Launcher & Menus", [this]() { menu_.push(launcher_page()); },
-                                       "The menus' look, and your own cover pictures and background for the launcher."));
+                                       "The menus' look, the games shown, and your own covers and background for the launcher."));
     // Each console has its own buttons: in a game its console's bindings, from the launcher all three.
     if (session_ && !from_launcher) {
         const System sys = session_->system();
@@ -180,6 +180,13 @@ MenuPage App::launcher_page() {
     p.items.push_back(MenuItem::choice("Menu Style", {"Arabian Nights", "Classic"}, [this]() { return settings_.menu_style; },
                                        [this](int v) { settings_.menu_style = v; apply_ui_style(); },
                                        "Arabian Nights: deep indigo and gold arabesques under the stars. Classic: the original dark panels."));
+    // Show Games: a hidden game has no card on the launcher (nor a place in its Music Player and Achievements); its
+    // saves, settings and achievements are kept, and its desktop shortcut (--game) still starts it
+    p.items.push_back(MenuItem::header("Show Games"));
+    for (int g = 0; g < kGameCount; g++)
+        p.items.push_back(MenuItem::toggle(system_name(games_[g].module->system()), [this, g]() { return game_shown(g); },
+                                           [this, g](bool v) { set_game_shown(g, v); },
+                                           "Off hides this game's card on the launcher. Nothing is deleted: switch it on to have it back."));
     p.items.push_back(MenuItem::header("Your own pictures (none are included)"));
     // (beside each switch: how many of its pictures were found)
     MenuItem covers = MenuItem::toggle("Game Covers", [this]() { return settings_.launcher_covers; },
@@ -187,9 +194,10 @@ MenuPage App::launcher_page() {
                                        "Your cover pictures on the game cards in place of the live previews.");
     covers.value_text = [this]() {
         if (!settings_.launcher_covers) return std::string();
-        int n = 0;
-        for (int g = 0; g < kGameCount; g++) n += has_cover(g) ? 1 : 0;
-        return n ? std::to_string(n) + " of " + std::to_string(kGameCount) + " found" : std::string("none found");
+        int n = 0, of = 0;   // (of the games shown)
+        for (int g = 0; g < kGameCount; g++)
+            if (game_shown(g)) { of++; n += has_cover(g) ? 1 : 0; }
+        return n ? std::to_string(n) + " of " + std::to_string(of) + " found" : std::string("none found");
     };
     p.items.push_back(covers);
     MenuItem bg = MenuItem::toggle("Custom Background", [this]() { return settings_.launcher_background; },
@@ -218,6 +226,16 @@ MenuPage App::launcher_page() {
     }, "Put md, snes, sms (the covers) and background there as .png or .jpg; they're read when you leave this page."));
     p.items.push_back(MenuItem::info("Covers: md, snes, sms    Background: background    (.png or .jpg)"));
 #endif
+    p.items.push_back(MenuItem::action("Reset to Defaults", [this]() {
+        const Settings d;
+        settings_.menu_style = d.menu_style;
+        settings_.launcher_covers = d.launcher_covers;
+        settings_.launcher_background = d.launcher_background;
+        settings_.cover_fill = d.cover_fill;
+        for (int g = 0; g < kSystemCount; g++) settings_.show_game[g] = d.show_game[g];
+        apply_ui_style();   // (the style, the pictures, the cards and their previews)
+        menu_.toast("Launcher & Menus reset");
+    }, "Arabian Nights, all three games shown, no covers or background of your own."));
     p.on_back = [this]() { load_launcher_art(true); save_settings(); };
     return p;
 }
