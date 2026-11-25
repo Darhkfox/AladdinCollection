@@ -26,7 +26,7 @@ sms_end` for states near the auto-run stages' ends). Widths: 6/22/40/74 (CRT pix
    pieces beyond the 8-bit table X get their true X from PC hooks on the three sprite writers (`sprite_x`);
    objects the 64-entry table has no room for are drawn as extra sprites by the VDP.
 4. Status bar (rows 0-1): the stone counter moves to the right edge (`line_hook`), the gems stay centred; neither
-   moves with the slide.
+   moves with the slide. READY (sprites) stays in the picture's middle too (`ready_sprite`, section 5).
 5. The story screens are wide where their picture allows (section 5a): 31 of the 36 story scenes carry their own
    picture on from ROM (characters walking off go on into the sides), the intro and title fill the width with their
    plain background, the ending carries its sprite starfield and sea on. Five scenes, menus, password, game over and
@@ -357,6 +357,18 @@ module only steps in beyond the tables' reach).
 * Rows 0-1, fixed (reg 0 bit 6): gems at columns 15-17, the stone counter (stages 2 3 4 6) at 26-29, PAUSE in row
   0. With `hud_anchor` the line hook moves x 192..255 of lines 0-15 to the right edge; the gems and PAUSE stay in
   the middle. There are no status sprites. The slide leaves lines 0-15 alone.
+* Screen-fixed texts in the stages: PAUSE (row 0, above), READY, and the story moments' text box (lines 176-191,
+  below); TRY AGAIN? / GAME OVER is a screen of its own (mode $11, pillarboxed, centred). READY is sprites: a
+  stage's setup (`$3486`, called by every engine's setup - not the Lamp's, not in the demos - at the stage's start
+  and at TRY AGAIN) fills table slots 57-61 with Y $40 and the X / tile pairs at `$3834` (x 108-147, centred on the
+  256 px) and the slots keep them for about 70 frames, until the objects' writers take them. It is shown at a
+  stage's start, where the view has slid by E, and moved with the slide like every sprite: at 21:9 it sat at x
+  108-147 of the wide picture, E px left of its middle (74 / 102 px at 21:9 CRT / square, with or without
+  `hud_anchor`; away from a level's ends, where there is no slide, it was centred). `sprite_x` now tells it by what
+  the VDP's table holds (`ready_sprite`: slot, Y, X and tile as `$3834` has them) and gives it the slide back,
+  ignoring the page a piece left in those slots: centred at every width. Measured (tool, stages 0 2 5 restarted, and
+  the app at 21:9 CRT and square, `hud_anchor` on and off): READY's middle at the picture's (202.5 / 202 at 74, 230.5 /
+  230 at 102; 128.5 / 128 at 4:3); PAUSE and the stone counter unchanged; TRY AGAIN? centred in its pillarbox.
 * `FrameInfo.gameplay` = modes 2..$B but the attract demos (shown at 4:3), and a stage fading out; also the widened
   story screens (section 5a). Password, game over, the menus, the scenes kept 4:3 and the demos are pillarboxed. With
   the core ignoring reg 0 bit 5 in widescreen, the line hook draws the blanked column (backdrop colour, no sprites)
@@ -491,6 +503,7 @@ scene 3 at 102 differs in 76 of 954 (the characters in the sides).
 | left behind, fade-outs | stage 1 standing still and walking back, stage 8's wall; every auto-scrolling stage's exit, a death to TRY AGAIN | sections 2 and 5 |
 | story screens | every scene, the intro, title and ending at 74 and 102 (tool), the app at 21:9 CRT (before / after); `sms_rewind.py 74 102 --scenes .. --ending` | section 5a; rewind identical |
 | screen changes | GAME START and PASSWORD from the title, a password taken, game over (continue) at 21:9 CRT (tool, app); QA's round-3 replays (`r3_play_e74`, `r3_play_e74b`: to scene $11, and scene $23 to the title), frames where the sides change under a still 4:3 picture | section 5a "A wait before the fade": none but characters walking in a side |
+| screen-fixed texts | READY at stages 0 2 5's (re)start, PAUSE at a stage's start (slid) and mid-stage, TRY AGAIN?, at 0 / 74 / 102 with `hud_anchor` on and off (tool and app) | section 5: centred in the wide picture (READY was E px left at a start before) |
 | screens | `sms_wide_shots.py`, `sms_run_sheet.py` (whole stages 0 1 5 7 at 74 / 102), `sms_app_test.py` (16:9 and 21:9 CRT, 21:9 square) | reviewed: stages, ends, HUD, scenes |
 | late splits drawn on time | the module against the build before: stages 0 and 1 (`Player`, 2400 frames, E = 0 / 74 / 102), attract 15,000 frames (E = 0 / 74); QA `r2_identity.py` with the picture compared outside the lines whose drawn scroll differs from the plain core's | RAM, VRAM, CRAM identical every frame; pictures differ only on the corrected lines (64 / 80 / 128, 160 / 168), each drawn with the scroll its split brought a line later; `sms_rewind`, `hfr_test.py sms`, `sms_walls`, `r2_lag`, `r2_wakes` print the same as before |
 | high frame rate | `hfr_test.py sms` (attract mode, stages 0 1 5 7) | RAM and picture identical with and without; in-betweens between the frames, the sides with the 256 px (section 7a) |
