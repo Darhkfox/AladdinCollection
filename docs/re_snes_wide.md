@@ -9,8 +9,8 @@ Extension per side (`wide_ext`, `src/app/settings.cpp`): CRT pixels 30 / 46 / 68
 A level is on screen while the main task waits in the level's main loop or its pause loop (task 0's saved return
 address `$81:82E9` / `$81:83FA`), or the loop's top (`$81:82CF`, an exec hook) ran within the last 4 frames (a frame
 the game's logic doesn't finish in leaves the task running and its saved stack stale). Everything else - logos,
-title, OPTIONS, password, story scenes, the bonus wheel, continue, the ending and staff roll - is reported as no
-gameplay and pillarboxed, and so is a level the game runs as an attract demo. STAGE CLEAR is drawn wide (below).
+title, OPTIONS, password, story scenes, the bonus wheel, continue, the ending's story - is reported as no gameplay and
+pillarboxed, and so is a level the game runs as an attract demo. STAGE CLEAR and the staff roll are drawn wide (below).
 
 **STAGE CLEAR** (screen `$24`) is a panel - a gold frame 4 px inside the screen's edges, the title, the password's
 portraits (sprites), the CONGRATULATIONS bar - on the backdrop, colour 0 (`$1806`, a dark purple). BG1 / BG2 (64-column
@@ -35,6 +35,47 @@ sparkles, his trail) stay on the 256 px. The bonus wheel (`$2F`), the story scen
 continue screen are on black: their black bars look the same as a fill. While visible none of them nor the password
 screen (`$2C`) has a sprite past the 4:3 screen's edges (checked after every stage's last level, with and without a
 Genie token, and on the password screen with input).
+
+**The staff roll** is a level of its own: index `$1C`, stage 8 act 8, which the ending (`$39`) starts with the screen
+black and runs with the attract demos' flag (`$0331` = 2). Its main task loops at `$82:B447` (`JSL $81:830D`, the
+level's frame work: objects, camera, streaming, spawner, draw list, OAM) and waits at `$82:B44D`. Its camera flies right
+by itself, 0.75 px a frame, from 0 to the level's end (`$1A04` = `$1F00`, ~10,580 frames), twice dropping through the
+clouds to the city and back up (y 0-512), and stops there: THE END (an object, type `$A7`, waiting at x 0 until
+then, its twinkles `$4C` spawned at the end) stays for good; START does nothing (only a reset leaves). The layers:
+- BG1 (64x32 map `$4800`, struct `$1738`): the near clouds, the cloud banks the camera flies through and the city's
+  dark domes, at the camera's speed;
+- BG2 (64x32 map `$4000`, struct `$188E`, mode 0: half the camera's speed): the night sky, its stars (their twinkle
+  is a palette cycle), the moon (once, at the roll's start), the bank of clouds along the bottom and the far city;
+- BG3 (32x32 map `$5C00`): the credits' text, fixed on the screen, and the TOTAL gem count at the end (colour math:
+  half the sub screen, the sprites, added to BG1, BG2 and the sprites);
+- sprites: the carpet with Aladdin and Jasmine (the roll's player, at camera + 124, bobbing), the flock of 11 birds
+  (type `$7F`, level objects at x 416-576: spawned 288-312 px from the camera, flying right slower than it, so out to
+  the left), the Genie and his sparkles (`$8D` / `$8E`, by the moon, inside the screen), THE END and its twinkles.
+No raster scroll: every line has the frame's scroll. It is drawn wide (`roll_`, read as the frame starts, so a loaded
+state draws the same), centred on the game's screen: BG1 / BG2 in the sides come from the level's data at the line's
+own scroll, as a level's (`roll_line`, `fetchWideTile`; the VRAM maps' 512-px repeat had doubled the moon and showed
+stale columns), mirrored tile by tile past the level's ends (its first ext px of camera, at the start; THE END's right
+side): the sky, its stars and the cloud bank going on. BG3 is hidden in the sides, so the credits stay centred and
+are never repeated. With *Past Level Ends: Black* the sides are black past the ends (the sprites kept). The sprites are
+drawn at their true x, as STAGE CLEAR's Genie, and the draw and keep ranges (only) are widened by the picture's sides
+there, so the birds fly out whole to the left side's edge (deleted beyond it) instead of being cut at 32 px past the
+4:3 screen. The spawner keeps the original's edges: the roll's choreography stays the console's, so the birds come in
+where the game creates them, 32-56 px past the 4:3 screen's right edge (inside a side of 68 px or more).
+The roll's end: its player (object at `$08DB`, x / y `$08E7` / `$08EA`; the carpet `$72` is drawn at its place,
+`$83:F435`) is flown right ever faster from `$81:E3B3` until past camera + `$140`; then the script signals THE END's
+sequence (`$81:E3D2` INC `$1B14`, which an object waits for at `$84:AC6F`) and moves it out of the level (x high byte
+`$22`, y high byte `$FE`): at 4:3 64 px past the screen's edge, wide in the right side, where the riders and their
+carpet vanished. The flight now goes on to the picture's edge + 64 px (`$81:E3C9` ADC #`$0140` + ext), the hook gives
+the signal at the original's moment (the script's own INC skipped once it is given) and the camera, which follows the
+player's y (`$81:C6EF` LDA `$08EA`), is given the moved-out y meanwhile: from the same state the camera, THE END, its
+twinkles, the texts, the palette and the game's 256 px are the 4:3 run's in every frame (46, 106, 140); the carpet
+drifts down the right side as it leaves (the camera rises faster than it flies).
+The wide sprites cost the draw list and OAM build (`$81:8379` .. `$81:8381`) enough that the roll dropped frames the
+console doesn't (36 at 106, 122 at 140, nearly all with the flock out): those two run at a quarter of their time there
+(`kRollTurbo`, Remove Slowdown's way, whatever the option), so its pace is the console's: at 4:3 it drops 3 frames in
+all (camera x 428, 588, 670), wide none, so it reaches THE END 3 frames sooner. The ending hands over to the roll
+with the screen black (forced blank for ~60 frames, then a fade-in): the switch from pillarboxed to wide is never
+seen. Nothing is hooked at 4:3.
 
 **Attract demos** (`$0331` = 2: the pad read from the recording at `$84:F700`; their level index is the level's own,
 `$00` for Agrabah Market) replay recorded input against the original game: anything that changes the code they run
@@ -783,6 +824,20 @@ margins and, where the view is split, moved to the picture's middle (`(extR - ex
   first frame of Jafar's Palace 3's STAGE CLEAR and 140 from the Carpet Escape's (0 differing), `hfr_test.py snes`
   (all passed).
 
+- The staff roll (section 1), from a state ~400 frames before the ending hands over to it, with no input to THE END
+  (11,500 frames): at 4:3 the module against the bare core, work RAM, VRAM and picture every frame: identical. Wide,
+  the gameplay report turns on with the picture black (forced blank before the fade-in), and START does nothing in
+  the roll (it stays at THE END). The camera reaches 1000, 2000, ... 7936 on the same frames at 46, 106 and 140,
+  3 frames before the 4:3 run (its 3 dropped frames); before the draw list's speed-up, 36 / 122 frames after it at
+  106 / 140. From a state near the end (camera ~7,680, the city before the carpet leaves) against 4:3 for 900 frames at 46 / 106 / 140: the camera,
+  every object but the carpet and the player, the BG3 texts, CGRAM, `$1B14` and the game's 256 px identical in every
+  frame (two frames of a twinkle's script address apart). `snes_rewind.py` 106 / 140 / 46 from that first state
+  (1,200 frames: the ending's last scene, the switch, the flock), from the flock (900) and from near the end (900):
+  0 differing. High frame rate (4 pictures a frame) against off, from the start and the flock: RAM and picture
+  identical. The app's shots at 46, 106 and 140 (before: pillarboxed). `r2_parity.py` (0 frames differing),
+  `snes_attract.py 0 106 140t4` (0 RAM differences; no frame of the attract loop is the roll), `snes_rewind.py 106
+  all` (0 differing), `hfr_test.py snes` (all passed).
+
 With *High Frame Rate* on a 100 Hz+ display the PPU draws up to three in-between pictures with each line
 (`Ppu::subFrames`, `subFrame`; ported from the Super Mario All-Stars port's PPU). Each BG layer's line is drawn again
 with its scroll part of the way back to the last frame's on that line, as the picture shows it: the register plus the
@@ -830,3 +885,8 @@ every frame; layer by layer the in-betweens at (1 - k/4) of the frame's move and
 - Where the game's camera can't go (a zone's limits, an arena) the margins show the level and the objects the game
   has out there; ones it would only bring out with its camera there don't appear (the events' sweeps empty those
   areas on the console too).
+- The staff roll's birds come in where the game creates them, 32-56 px past the 4:3 screen's right edge (its spawner's
+  edge; spawned earlier they would fly another path against the credits). For its first ext px of camera (some 140 /
+  190 frames at 106 / 140) the left side, and beside THE END the right side, lie past the roll's level: its sky
+  mirrored there. The carpet leaves through the right side drifting down (the camera rises faster than it flies).
+  With the sides drawn the roll doesn't drop the 3 frames the console's does.

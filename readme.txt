@@ -545,10 +545,17 @@
   always did; the extra width shows the cave you've flown through, with
   the lava wave chasing you.
 
-  Shown in their original shape: title screens, menus, story scenes, the
-  Mega Drive's bonus rounds and the SNES staff roll. Where such a screen's
-  background is one plain colour, it fills the width in that colour. The
-  SNES STAGE CLEAR screen fills the width with its purple background.
+  Shown in their original shape: title screens, menus, story scenes and
+  the Mega Drive's bonus rounds. Where such a screen's background is one
+  plain colour, it fills the width in that colour. The SNES STAGE CLEAR
+  screen fills the width with its purple background.
+
+  The SNES staff roll is wide: its night sky, clouds and city run the
+  whole width (the moon only once), the credits stay in the middle, and
+  the birds and the carpet fly out into the sides. The birds come in a
+  little past the original screen's edge, where the game creates them.
+  For the roll's first few seconds (left side) and beside THE END (right
+  side) the sides show the roll's sky mirrored.
 
   Master System story screens are drawn wide: each story scene carries
   its own picture on into the sides (characters, text and framed

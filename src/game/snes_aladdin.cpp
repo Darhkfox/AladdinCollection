@@ -14,7 +14,9 @@
 // and keep-alive range tests and the level-object spawner follow the wider view; sprites are placed by their true
 // 16-bit x. The status bar (BG3, the top 40 lines) is split to the picture's edges; the game's centred texts (PAUSE)
 // stay at the picture's middle. In the Lava Cavern, which scrolls by itself, the limits the game sets at its screen's
-// edges (the wall ahead, being left behind, its objects' lifetime) follow the picture's edges instead.
+// edges (the wall ahead, being left behind, its objects' lifetime) follow the picture's edges instead. The staff roll,
+// a level the game flies its camera through by itself, is drawn wide the same way, centred, its sprites flying out
+// into the sides; its credits (BG3) stay on the game's 256 px.
 #include "game.h"
 #include "snes_common.h"
 #include "../core/snes.h"
@@ -61,6 +63,30 @@ constexpr uint32_t kStageClearFrom = 0x81F7B6, kStageClearTo = 0x81F90C;
 // screen by his own width. His first frame drawn shows tiles his graphics' upload hasn't replaced yet.
 constexpr uint8_t kGenieType = 0x8F;
 constexpr uint32_t kGenieFly = 0x83FA8C;
+// The staff roll: a level of its own (index $1C, stage 8 act 8) the game runs with the attract demos' flag ($0331 = 2)
+// from the ending, its main task looping at $82:B447 (JSL $81:830D, the level's frame work: objects, camera, streaming,
+// spawner, OAM) and waiting at $82:B44D. Its camera flies right by itself (0.75 px a frame, with y swings through the
+// clouds and the city) from 0 to the level's end ($1A04 = $1F00), where THE END stays. BG1 (the near clouds and towers)
+// and BG2 (the sky, its stars, the moon, the cloud bank and the far city; mode 0: half the camera's speed) are streamed
+// from the level's data as in a level; BG3 holds the credits' text, fixed on the screen.
+constexpr uint8_t kRollLevel = 0x1C, kRollStage = 8, kRollAct = 8;
+// Its frame work's draw list and OAM build ($81:8379 JSL $81:9198, JSL $81:9258; done at $81:8381). Drawn wide, the
+// birds in the sides cost them enough to drop frames the console doesn't (36 at 106, 122 at 140, nearly all while the
+// flock is out): the CPU runs those two at a quarter of their time there (Remove Slowdown's way), so the roll keeps
+// the console's pace (at 4:3 it drops 3 frames in all, which this takes away too: it reaches THE END 3 frames sooner).
+constexpr uint32_t kRollDraw = 0x818379, kRollDrawDone = 0x818381;
+constexpr int kRollTurbo = 4;
+// The roll's end: the roll's player (its object at $08DB: Aladdin and Jasmine, x / y at $08E7 / $08EA; their carpet,
+// type $72, is drawn at the player's place, $83:F435) is flown right, faster and faster, from $81:E3B3 until it is
+// past camera + $140 ($81:E3C9 ADC #$0140 / CMP $0C); then the script signals THE END's sequence ($81:E3D2 INC $1B14:
+// the object waiting on it, $84:AC6F, goes on) and moves the player out of the level (x high byte $22, y high byte
+// $FE), 64 px past the screen's edge at 4:3. Drawn wide, the riders and the carpet vanished in the right side. The
+// flight now goes on to the picture's edge + 64 px (kRollExitTest), while THE END keeps the console's timing: the hook
+// gives the signal at the original's moment (nonzero, the script's own INC is skipped, kRollExitSignal), and the
+// camera, which follows the player's y ($81:C6EF LDA $08EA), is given the moved-out y meanwhile (kRollCamY), as at 4:3.
+constexpr uint32_t kRollExitTest = 0x81E3C9, kRollExitSignal = 0x81E3D2, kRollExitOn = 0x81E3D5;
+constexpr uint32_t kRollCamY = 0x81C6EF;
+constexpr uint32_t kRollCarpetGone = 0x1B14, kRollPlayerX = 0x08E7, kRollPlayerY = 0x08EA;
 // Sprites: the OAM builder stores each piece's 16-bit screen x (A; X = OAM index * 4); the NMI's OAM DMA.
 constexpr uint32_t kOamPiece = 0x81938B, kOamPieceFlip = 0x8193F9, kOamBuild = 0x819258, kOamDma = 0x8081B2;
 // Objects drawn while within a range of the camera's centre ($81:91D4, table $80:BA02 by the object's class $12) and
@@ -166,6 +192,10 @@ inline bool demo_playing(const Snes& s) { return s.wram[0x0331] == 2; }
 // A level index ($035E below $14; the screens - story scenes, which run the level-start object spawn too, STAGE CLEAR,
 // the title - are above) and no demo. (The title zeroes $035E while it waits for GAME START: AladdinWide::armed_.)
 inline bool playing_level(const Snes& s) { return s.wram[0x035E] < 0x14 && !demo_playing(s); }
+// The staff roll (kRollLevel): the ending hands over to it with the screen black, and it stays to THE END.
+inline bool staff_roll(const Snes& s) {
+    return s.wram[0x035E] == kRollLevel && s.wram[0x035C] == kRollStage && s.wram[0x035D] == kRollAct && demo_playing(s);
+}
 inline uint16_t rd16(const Snes& s, uint32_t a) { return (uint16_t)(s.wram[a & 0x1FFFF] | (s.wram[(a + 1) & 0x1FFFF] << 8)); }
 inline void wr8(Snes& s, uint32_t a, uint8_t v) { s.wram[a & 0x1FFFF] = v; }
 inline uint16_t rom16(const Snes& s, uint32_t a) { return s.peek16(a); }
@@ -247,13 +277,13 @@ public:
         // 4:3 state loaded wide, knows them)
         for (uint32_t pc :
              {kOamPiece, kOamPieceFlip, kOamBuild, kOamDma, kLevelLoop, kLevelWait, kTaskYield, kSpawnInit, kObjDelete,
-              kLavaWall, kLavaBehind, kLavaAhead, kObjWaitDec})
+              kLavaWall, kLavaBehind, kLavaAhead, kObjWaitDec, kRollDraw, kRollDrawDone})
             s.markExec(pc, true);
         if (ext_ > 0)
             for (uint32_t pc : {kDrawTest, kKeepTest, kSpawnInitCam, kSpawnInitRight, kSpawnInitLeft, kSpawnInitCount,
                                 kSpawnFrameCam, kSpawnRowX, kSpawnEdgeLeft, kSpawnEdgeRight, kStubRetryR + 4,
                                 kStubRetryL + 4, kSweepDelete, kHdmaOn, kLampBeamTest, kObjGoneLeft, kObjGoneRight,
-                                kSpawnTest, kSpawnAllocated, kIagoSpawnX, kIagoFlown})
+                                kSpawnTest, kSpawnAllocated, kIagoSpawnX, kIagoFlown, kRollExitTest, kRollExitSignal, kRollCamY})
                 s.markExec(pc, true);
         if (ext_ > 0)
             for (const SelfRange& sr : kSelfRanges) s.markExec(sr.pc, true);
@@ -350,6 +380,20 @@ public:
             // Remove Slowdown ends wherever the level's main task gives the CPU back: its frame wait, the pause loop's,
             // and the restart that leaves the level (an exit, a life lost: the next screen keeps the console's timing).
             s.turboActive = false;
+            s.cpuTurbo = std::max(1, cfg_.cpu_turbo);   // (the staff roll's own speed-up ends there too)
+            return false;
+        case kRollDraw:
+            // The staff roll drawn wide: its draw list and OAM build at the console's timing (kRollTurbo).
+            if (ext_ > 0 && staff_roll(s)) {
+                s.cpuTurbo = std::max(kRollTurbo, cfg_.cpu_turbo);
+                s.turboActive = true;
+            }
+            return false;
+        case kRollDrawDone:
+            if (staff_roll(s)) {   // (in a level this is the level's own Remove Slowdown: left as it is)
+                s.turboActive = false;
+                s.cpuTurbo = std::max(1, cfg_.cpu_turbo);
+            }
             return false;
         case kLevelLoop:
             // Remove Slowdown: the frame's work runs faster up to the task's yield (not in a demo: its input is a
@@ -385,6 +429,43 @@ public:
             lava_limit(s, pc, 0, 0);
             if (pc == kLavaWall && wall_x_ == target) wall_valid_ = false;
             if (pc == kLavaBehind && behind_x_ == target) behind_valid_ = false;
+            return true;
+        }
+        if (ext_ > 0 && (pc == kDrawTest || pc == kKeepTest) && staff_roll(s)) {
+            // The staff roll, centred: its objects (the birds, the carpet, the Genie, THE END's twinkles) are drawn
+            // and kept within the picture's sides as well, so they fly out whole at their true x. Its spawner keeps
+            // the original's edges: the roll's choreography (the Genie's entrance, the birds against the credits)
+            // stays the console's.
+            const uint16_t d = (uint16_t)(rd16(s, kCamCentre) - rd16(s, r.dp + 0x0C));
+            const uint32_t tab = pc == kDrawTest ? kDrawRanges : kKeepRanges;
+            const int off = rom16(s, tab + (r.x & 0xFFFF)), range = rom16(s, tab + 2 + (r.x & 0xFFFF));
+            const bool in = (uint16_t)(d + off + ext_) < range + 2 * ext_;
+            if (pc == kDrawTest) r.pc = (uint16_t)(in ? kDrawIn : kDrawOut);
+            else {
+                r.pc = (uint16_t)(in ? kKeepIn : kKeepOut);
+                r.c = !in;
+            }
+            return true;
+        }
+        if (ext_ > 0 && (pc == kRollExitTest || pc == kRollExitSignal || pc == kRollCamY) && staff_roll(s)) {
+            // The roll's end (kRollExitTest above): the flight on to the picture's edge, the signal and the camera's
+            // y as the original has them
+            const int cam = (int16_t)rd16(s, kCamX), px = (int16_t)rd16(s, kRollPlayerX);
+            if (pc == kRollExitTest) {   // ADC #$0140 (A the camera, carry clear)
+                if (px - cam > 0x140 && rd8(s, kRollCarpetGone) == 0) wr8(s, kRollCarpetGone, 1);
+                set_a(r, (uint16_t)(r.a + 0x140 + ext_));
+                r.pc = (uint16_t)(kRollExitTest + 3);
+                return true;
+            }
+            if (pc == kRollExitSignal) {   // INC $1B14: given already
+                if (rd8(s, kRollCarpetGone) == 0) return false;
+                r.pc = (uint16_t)kRollExitOn;
+                return true;
+            }
+            // LDA $08EA: past the original's end of the flight, the y the original has moved the player to
+            if (px - cam <= 0x140 || px - cam > 0x140 + ext_ + 0x10) return false;
+            set_a(r, (uint16_t)((rd16(s, kRollPlayerY) & 0xFF) | 0xFE00));
+            r.pc = (uint16_t)(kRollCamY + 3);
             return true;
         }
         if (ext_ == 0 || !active(s)) return false;   // (a demo, a story scene, the title: the original ranges)
@@ -663,7 +744,7 @@ public:
             fight_dim_ = 0;
             band_next_.valid = band_shown_.valid = false;
         }
-        info.gameplay = level_ || stage_clear_;   // (the frame just drawn: frame_start)
+        info.gameplay = level_ || stage_clear_ || roll_;   // (the frame just drawn: frame_start)
         info.view_left = level_ ? el_ : -1;
     }
 
@@ -680,6 +761,10 @@ public:
         if (stage_clear_) {   // (the backdrop and the sprites at their true x in the margins)
             for (bool& h : p.hideWideBg) h = true;
             p.hideWideObj = genie_loading_;
+            return;
+        }
+        if (roll_) {
+            roll_line(p, row);
             return;
         }
         if (!level_ || ext_ == 0 || !snes_) return;
@@ -883,6 +968,48 @@ public:
         }
     }
 
+    // The staff roll (roll_), centred on the game's screen. Its two streamed layers - BG1 the near clouds and towers,
+    // BG2 the night sky with its stars, the moon, the cloud bank and the far city - are drawn in the sides from the
+    // level's data at the line's own scroll, as a level's are: the sky goes on as the game's camera would show it, the
+    // moon once (the data holds it once; the VRAM map's 512-px repeat doubled it), and nothing of the game's own
+    // scrolling changes. Past the level's ends (its start, at the camera's first ext px; THE END, held at the level's
+    // last camera x) each layer is mirrored tile by tile about the end: the sky, its clouds and stars going on. BG3,
+    // the credits' text (fixed on the screen), stays on the game's 256 px: centred, never repeated into the sides.
+    void roll_line(Ppu& p, int row) {
+        const Snes& s = *snes_;
+        if (row == 0) {
+            for (int k = 0; k < 2; k++) {
+                near_x_[k] = (int16_t)rd16(s, kLayer[k] + 0x3B);
+                near_y_[k] = (int16_t)rd16(s, kLayer[k] + 0x3F);
+            }
+        }
+        const int maxx = (int16_t)rd16(s, kCamMaxX);
+        for (int l = 0; l < 2; l++) {
+            LineLayer& ll = line_[l];
+            ll.decode = false;
+            const uint32_t b = kLayer[l];
+            if (!rd8(s, b + 0x4F) || p.bgMapBase(l) != rd16(s, b + 0x2E) || p.bgMapSize(l) != 1) continue;
+            const int sx = near_x_[l], sy = near_y_[l];
+            const int wx = unwrap10(p.bgHofs(l), sx), wy = unwrap10(p.bgVofs(l), sy);
+            if (std::abs(wx - sx) > 64 || std::abs(wy - sy) > 64) continue;   // (not following its struct: VRAM)
+            ll.decode = true;
+            ll.wx = wx;
+            ll.wy = wy + row + 1;
+            ll.off = rd16(s, b + 0x42);
+            ll.bank = rd8(s, b + 0x4C);
+            ll.rep = false;
+            ll.lo = 0;
+            ll.hi = (l == 1 && bg2_ratio_ != 0 ? (maxx * bg2_ratio_) >> 8 : maxx) + 256;
+        }
+        p.hideWideBg[2] = true;
+        // With Past Level Ends: Black, black there instead (the sprites kept: the carpet, THE END's twinkles).
+        if (!p.edgeMirror && line_[0].decode) {
+            p.wideShowLo = -line_[0].wx;
+            p.wideShowHi = maxx + 256 - line_[0].wx;
+            p.wideShowKeep = 0x10;
+        }
+    }
+
     // The Lava Cavern's limits (exec hooks at the immediates; A the camera) for the picture's edges el / er.
     bool lava_limit(Snes& s, uint32_t pc, int el, int er) {
         CpuRegs& r = s.cpu.r;
@@ -949,7 +1076,7 @@ public:
             return kWideEntry;
         }
         if (layer == 1 && obj_bg2_ && level_) return screenX >= obj_lo_ && screenX < obj_hi_ ? kWideVram : kWideBlank;
-        if (layer > 1 || !level_ || !snes_ || !line_[layer].decode) return kWideVram;
+        if (layer > 1 || !(level_ || roll_) || !snes_ || !line_[layer].decode) return kWideVram;
         const LineLayer& ll = line_[layer];
         int x = ll.wx + screenX;
         if (ll.rep) x &= 0x1FF;
@@ -1205,6 +1332,7 @@ private:
     bool slide_y_ = false;   // the offset came from a shaft's span: it closes as the camera moves in x or y
     bool stage_clear_ = false;   // this frame: the STAGE CLEAR screen (its plain backdrop fills the margins)
     bool genie_loading_ = false; // ...with its Genie's first frame drawn (his tiles not yet uploaded)
+    bool roll_ = false;          // this frame: the staff roll (centred; its sky drawn from the level's data)
     bool stop_ = true;                    // the view may stop at the level's ends (can_stop)
     int el_ = 0, er_ = 0, mid_ = 0;
     int bg2_ratio_ = 0;      // this frame: BG2's x speed against the camera (8.8), 0 = scrolled by the game itself
@@ -1920,6 +2048,7 @@ private:
         el_ = er_ = ext_;
         stage_clear_ = ext_ > 0 && snes_ && !level_ && stage_clear(*snes_);
         genie_loading_ = stage_clear_ && genie_loading(*snes_);
+        roll_ = ext_ > 0 && snes_ && !level_ && staff_roll(*snes_);
         mid_ = 0;
         arena_ = false;
         paint_row_ = 0x10000;
@@ -1968,7 +2097,7 @@ private:
             }
         }
         for (int i = 0; i < 128; i++) {
-            p.objTrueXSet[i] = (level_ || stage_clear_) && ext_ > 0 && oam_set_[i];
+            p.objTrueXSet[i] = (level_ || stage_clear_ || roll_) && ext_ > 0 && oam_set_[i];
             p.objTrueX[i] = oam_x_[i];
         }
     }
