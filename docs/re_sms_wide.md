@@ -39,6 +39,10 @@ sms_end` for states near the auto-run stages' ends). Widths: 6/22/40/74 (CRT pix
    doesn't have (section 3, "CPU time").
 9. Left behind by the scroll, Aladdin is lost at the view's left edge, not the 4:3 screen's (section 2); a stage's
    fade-out after its end or before TRY AGAIN stays wide (section 5).
+10. A visual fix to the original, at every width (4:3 and widescreen off too): the parallax bands' raster splits in
+   1-1 and 1-2 land a line late, so each band's first tile row showed its top line with the band above's scroll (the
+   Rooftops' sky-orange roof edge floating in the brown city on line 128). Those lines are drawn with their own
+   band's scroll, as if the split were on time (section 1, "Late splits"). Only pixels change.
 
 ---------------------------------------------------------------------------------------------------
 
@@ -56,6 +60,28 @@ sms_end` for states near the auto-run stages' ends). Widths: 6/22/40/74 (CRT pix
   they run, and the logic for the next frame may have moved it already. Before, such a line counted as a parallax
   band and its sides showed the wrapped table (garbage at the sides of stage 1's lower half). Other bands repeat
   every 256 px in the map, so the hardware table (wrapped) is right there.
+* Late splits (a visual fix to the original; every width, 4:3 and widescreen off included). Each band's line
+  interrupt is raised at the end of the line above its first tile row; its handler (`$01E9` → `jp ($C91D)`, the k-th
+  scroll write = -`$C4A7+k`) cannot write reg 8 before that row's first line has started, so the scroll changes one
+  line into the row: stage 1's sky and city at 65 / 81 / 129 for rows from 64 / 80 / 128, stage 0's floor at 161 / 169
+  for rows from 160 / 168 (`$C499`-`$C49B`: 2·`$C499` + 3, ...). That first line showed the row's top pixels shifted by
+  the gap between the two scrolls: in 1-2 the roofs' sky-orange top row floating in the brown city on line 128 over
+  a gap or a lower roof (at 4:3 in 1095 of 2400 frames of a `Player` run), small dashes of the far city and clouds on 64 and 80,
+  pot rims and stone fragments on the Market floor's 160 and 168. Stage 9's interrupt at line 79 writes no scroll
+  (`$C49A` = `$FF`); no other stage splits. `line_scroll` (asked first as each line is drawn: `SmsVdp::line_scroll`)
+  draws such a line with the scroll the coming write brings, read from RAM as the handler will read it: an interrupt
+  raised at the end of a line above (`SmsVdp::line_irq_line`), still pending or its handler under way (the Z80's PC in
+  `$0038`-`$0044` / `$01E9`-`$0257`), whose handler (`$C91D` as the line after the raise finds it, before any handler
+  can have moved the chain on) is one of the three with a scroll write, and no scroll write since. A split the game
+  takes a few more lines late (its logic holding interrupts off: 1-2 lines now and then) is drawn on time the same way,
+  up to `SPLIT_LATE` = 6 lines; an interrupt lost to a status read outside the handler (`$09A5`, at a mode change) is
+  left alone. reg 8 stands in for the corrected scroll only while the VDP draws the line (and its high frame rate
+  in-betweens): the registers, the interrupts and all the game reads stay the original's. In a wide picture the line
+  counts as its band's (`line_shift`, `bg_entry`: the camera's band from the map at 128). Measured (`Player` bot, 2400
+  frames, the module against the build before, 4:3 / 74): RAM, VRAM and CRAM identical every frame; pictures differ
+  only on corrected lines (1-1: 2399 frames, lines 160 / 168; 1-2: 2103 frames at 4:3, 64 / 80 / 128, 1095 of them on
+  128); every corrected line's scroll is the one the split brought where it landed; afterwards the scroll changes
+  exactly on 64 / 80 / 128 and 160 / 168. The attract demos (shown at 4:3) get it too (the Rooftops' demo).
 * `map_entry` = the streamer's lookup (`$2E19` paged / `$2DEC` flat, metatiles at `$C49D`, slot 2 = bank
   `$3306[stage]`). `sms_map.check` compares it with the name table every frame: 0 mismatches in all stages (whole
   stages 1 and 5 too). Entries are masked to 13 bits (the hardware ignores bits 13-15; the VDP uses 14 and 15 for
@@ -470,7 +496,7 @@ scene 3 at 102 differs in 76 of 954 (the characters in the sides).
 | level ends | `sms_run_sheet.py`, app `--states sms_end` (21:9 CRT and square) | the view holds at the last pixel; no cells past the map |
 | rewind | `sms_rewind.py` (tool), app `--rewind 120` (hold R, achievements off) | identical pictures; app: no glitches while rewinding or after |
 | attract mode | `sms_attract.py`, 60,000 frames at every width, with and without cheats | RAM identical to 4:3 every frame; 12 demos, never a game over |
-| widescreen off | the module at E = 0 against the plain core: attract 20,000 frames, every stage 3,000 | RAM and picture identical |
+| widescreen off | the module at E = 0 against the plain core: attract 20,000 frames, every stage 3,000 | RAM identical; the picture identical but for the late splits' lines drawn on time (section 1), a visual fix to the original |
 | object wakes / pop-in | `sms_wakes.py 74 102`, every stage 4200 frames; `sms_popin.py` | section 3: none inside the view but the original's own |
 | width changes | E 0 → 102 → 40 in stage 5 | waiting objects wake for the current E |
 | slowdown | `r2_lag.py` (QA, round 2), every stage at 0 / 22 / 74 / 102, 3000 frames | section 3, "CPU time": near 4:3 everywhere |
@@ -479,6 +505,7 @@ scene 3 at 102 differs in 76 of 954 (the characters in the sides).
 | screen changes | GAME START and PASSWORD from the title, a password taken, game over (continue) at 21:9 CRT (tool, app); QA's round-3 replays (`r3_play_e74`, `r3_play_e74b`: to scene $11, and scene $23 to the title), frames where the sides change under a still 4:3 picture | section 5a "A wait before the fade": none but characters walking in a side |
 | screen-fixed texts | READY at stages 0 2 5's (re)start, PAUSE at a stage's start (slid) and mid-stage, TRY AGAIN?, at 0 / 74 / 102 with `hud_anchor` on and off (tool and app) | section 5: centred in the wide picture (READY was E px left at a start before) |
 | screens | `sms_wide_shots.py`, `sms_run_sheet.py` (whole stages 0 1 5 7 at 74 / 102), `sms_app_test.py` (16:9 and 21:9 CRT, 21:9 square) | reviewed: stages, ends, HUD, scenes |
+| late splits drawn on time | the module against the build before: stages 0 and 1 (`Player`, 2400 frames, E = 0 / 74 / 102), attract 15,000 frames (E = 0 / 74); QA `r2_identity.py` with the picture compared outside the lines whose drawn scroll differs from the plain core's | RAM, VRAM, CRAM identical every frame; pictures differ only on the corrected lines (64 / 80 / 128, 160 / 168), each drawn with the scroll its split brought a line later; `sms_rewind`, `hfr_test.py sms`, `sms_walls`, `r2_lag`, `r2_wakes` print the same as before |
 | high frame rate | `hfr_test.py sms` (attract mode, stages 0 1 5 7) | RAM and picture identical with and without; in-betweens between the frames, the sides with the 256 px (section 7a) |
 
 ## 7a. High frame rate
