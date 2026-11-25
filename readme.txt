@@ -179,8 +179,9 @@
   The launcher and the menus come in two styles (Options > Launcher &
   Menus > Menu Style): Arabian Nights (deep indigo and gold arabesques
   under the stars) or Classic (the original dark panels). Your own cover
-  pictures can take the place of the previews, and your own picture can go
-  behind the launcher (see LAUNCHER & MENUS under OPTIONS).
+  pictures can take the place of the previews, your own picture can go
+  behind the launcher, and a game you don't want there can be hidden (see
+  LAUNCHER & MENUS under OPTIONS).
 
   The Team RedTail logo at the top left opens my Patreon page
   (patreon.com/c/TeamRedTail) in your browser: click it, or tap it on
@@ -394,6 +395,13 @@
                          arabesque frames, gold titles, and Agrabah's night
                          sky with glints and gold dust. Classic: the
                          original dark panels.   (default: Arabian Nights)
+     Show Games ........ Mega Drive / Genesis, Super Nintendo, Master
+                         System: switch one off to hide its card on the
+                         launcher (and leave it out of the launcher's Music
+                         Player and Achievements page). Nothing is deleted:
+                         its saves, settings, cheats and achievements are
+                         kept, and its shortcut (--game) still starts it.
+                         One game is always shown.     (default: all ON)
      Game Covers ....... Your own cover pictures on the game cards instead
                          of the live previews (a card with a cover runs no
                          preview).                         (default: OFF)
@@ -409,6 +417,8 @@
                          preview, the launcher its night sky.
                          On Android: Choose Cover / Choose Background pick
                          a picture from your device instead.
+     Reset to Defaults . Arabian Nights, all three games shown, no covers
+                         or background of your own.
 
   ACHIEVEMENTS
      Achievements ...... Earn achievements as you play. While this is on,

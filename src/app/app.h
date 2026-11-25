@@ -157,7 +157,12 @@ private:
     bool has_cover(int g) const;
     void load_launcher_art(bool reload = false);   // reads the pictures the settings ask for; starts / stops previews
     int art_image(Art& a);
-    void ensure_previews();              // previews for the found games without a cover; none for the others
+    void ensure_previews();              // previews for the shown, found games without a cover; none for the others
+    // Show Games (Options > Launcher & Menus): the launcher's cards, its Music Player's and Achievements' games
+    bool game_shown(int g) const { return g >= 0 && g < kGameCount && settings_.shown(games_[g].module->system()); }
+    int  shown_game_near(int g) const;   // g if shown, else the nearest shown game (the one after it first)
+    void fix_launcher_selection();       // a hidden card's selection (and the remembered card) moves to a shown one
+    void set_game_shown(int g, bool on); // ... refused (a toast) for the last one shown
     void apply_ui_style();               // the menu style (the menus and the launcher), and the launcher's pictures
     MenuPage launcher_page();            // Options > Launcher & Menus
 #ifdef __ANDROID__
