@@ -173,6 +173,7 @@ void SmsVdp::render_sprites(uint8_t* dst, int ln) {
     const int n_table = 64;
     for (int i = 0; i < n_table + extra_count; i++) {
         int y, x, pat;
+        const uint8_t* data = nullptr;
         if (i < n_table) {
             y = vram[(sat + i) & 0x3FFF];
             if (y == 0xD0) { i = n_table - 1; continue; }   // end of the list (192-line mode)
@@ -183,6 +184,7 @@ void SmsVdp::render_sprites(uint8_t* dst, int ln) {
             y = e.y;
             x = e.x;
             pat = e.pattern;
+            data = e.data;
         }
         if (sub_) y = (y + spr_sub_dy_[i]) & 0xFF;   // (an in-between line: part of the way back)
         const int dy = (ln - (y + 1)) & 0xFF;
@@ -201,7 +203,7 @@ void SmsVdp::render_sprites(uint8_t* dst, int ln) {
             x += spr_sub_dx_[i];
         }
         const int row = zoom ? dy >> 1 : dy;
-        const uint8_t* p = &vram[((pat + (row >> 3)) * 32 + (row & 7) * 4) & 0x3FFF];
+        const uint8_t* p = data ? data + (row >> 3) * 32 + (row & 7) * 4 : &vram[((pat + (row >> 3)) * 32 + (row & 7) * 4) & 0x3FFF];
         const int step = zoom ? 2 : 1;
         for (int px = 0; px < 8; px++) {
             const int bit = 7 - px;

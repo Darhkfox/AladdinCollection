@@ -84,7 +84,10 @@ public:
     // Sprites a module adds after the table's 64 (widescreen: pieces of objects a game could not fit in its table).
     // Same meaning as the table's entries (y = the line above the sprite's first, pattern before reg 6 bit 2), with
     // the true screen X; drawn behind the table's sprites. Not kept in save states (the module sets them every frame).
-    struct ExtraSprite { int16_t x; uint8_t y, pattern; };
+    // data: the pattern's rows (32 bytes a tile, as in VRAM) from elsewhere - a module drawing a pose whose tiles the
+    // game streams to VRAM only while it shows it (a story scene's character walking in before the game has it); null:
+    // the pattern in VRAM.
+    struct ExtraSprite { int16_t x; uint8_t y, pattern; const uint8_t* data = nullptr; };
     static constexpr int kMaxExtra = 64;
     ExtraSprite extra[kMaxExtra];
     int  extra_count = 0;

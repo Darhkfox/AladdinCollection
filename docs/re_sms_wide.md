@@ -28,7 +28,9 @@ sms_end` for states near the auto-run stages' ends). Widths: 6/22/40/74 (CRT pix
 4. Status bar (rows 0-1): the stone counter moves to the right edge (`line_hook`), the gems stay centred; neither
    moves with the slide.
 5. The story screens are wide where their picture allows (section 5a): 31 of the 36 story scenes carry their own
-   picture on from ROM (characters walking off go on into the sides), the intro and title fill the width with their
+   picture on from ROM (characters walking off go on into the sides; those the game brings in from off its screen
+   walk in from the wide picture's edge, and those it removes beyond the 4:3 edge walk on out, drawn with the game's
+   own walk cycle and timing: "Walks"), the intro and title fill the width with their
    plain background, the ending carries its sprite starfield and sea on. Five scenes, menus, password, game over and
    the attract demos are pillarboxed, the blanked left column drawn as the hardware does. A screen fading out after
    the next mode is set is still drawn as itself. In the stages, lines 176-191 (blank border / a story moment's text
@@ -368,15 +370,29 @@ story screens are now drawn wide where their picture allows it (`story_screen`, 
   table with it first). Both buttons skip a scene (`$66B7`).
   The sides repeat part of the scene's own map, from ROM (`kSceneRules`: per band of cell rows, a range of source
   columns for each side, `scene_cell`), so what the game draws into the table is never repeated; the text box's rows
-  are `$11BF` at the sides, the hidden column 0 shows the table's own. Rules: the whole picture (its edges meet: the
+  are `$11BF` at the sides, the hidden column 0 shows the table's own (or, where a rule says so, the left side's).
+  Rules: the whole picture (its edges meet: the
   stalls, rooftops, hills, pillars and towers of 0-7, 9, $B, $E, $F, $19, $1B, $1D, $20-$23); $A without the claw at its
-  left edge (columns 8-15 above, 27-29 for the water; on the right 4-31); $10 / $18 / $1A pillars on the left (0-8,
+  left edge: columns 8-15 on the left and 4-31 on the right above row 15; below, where the floor (rows 16-19, columns
+  2-25, its boulders on row 15) ends at the claw with the cave's dark beyond it and at the right in water (columns
+  26-29) with a rock at the edge, the left side is the cave's dark (tile `$100`, the hidden column too: the table has a
+  black block there, `$1100`) and the right side the water (26-29). (Before, rows 16-19 took the water on the left -
+  floor-top boulders above water, and a dark gap where the picture's dark columns 0-1 met it - and the floor again on
+  the right, after the picture's water: the user's "left/right borders issues", QA state `ready/r.state`.) $10 / $18 / $1A pillars on the left (0-8,
   not the throne), the room on the right (0-27); $11 / $13 and $15 / $17 stars on the left (0-12), the balcony / cliff
   carried on on the right (24-31 or 28-31); $12 and $1E sky, railing or floor (0-15); $1C plain sky and the balcony
   (28-31); $1F the floor around the hourglass (0-7 / 24-31). Kept 4:3, with black bars: 8 (a rock cut by the right
   edge), $C and $D (rock walls cut by both edges), $14 (a roof's slope cut by the left edge), $16 (the Genie's cave,
   lit from the middle, black rock at the right edge). Chosen with an offline model of the rules for every scene, then
   checked in the module at 74 and 102 and in the app.
+  A scene can draw another picture over its own: Jafar's spell in the throne room ($10, ticks ~730-830) blanks the
+  table but for the pillars' outlines in the spell's colours, and the sides, still from ROM, showed the room's pillars
+  as dotted outlines beside a black 4:3 picture. Each frame (`scene_replaced_rows`, at the frame's start) a row whose
+  32 cells mostly (more than 24) differ from the picture's own is taken as drawn over, and its sides repeat the
+  table's cells of the same source columns instead. Checked over every scene every 10 frames (the table against the
+  ROM model): the spell is the only such stretch inside a scene; the tiles the model's cells use never change in VRAM
+  during a scene (no reloads), and the cells the scenes draw into (the Genie, the framed pictures) are at most 10 a
+  row.
 * **Characters at the sides**: the writers park a piece whose 16-bit X is off the 256 px at X = 0 (under the blanked
   column). PC hooks before their "off screen" test (`$23C2`, `$3C63`, `$50D4`: hl = the piece's X, bc = its
   character's) record each piece by slot of the sprite table buffer; at the VBlank's upload (`$02D9`) the slot's Y /
@@ -385,10 +401,53 @@ story screens are now drawn wide where their picture allows it (`story_screen`, 
   them). Parked entries are hidden (module_state[0..3], `sprite_x`) and the pieces in reach drawn as extra sprites at
   their true X: the game's sprite table, its RAM, stays as it is. Scenes keep characters waiting off the screen for
   their cue (scene 0's second guard at x -48 for 557 frames, Aladdin at -16 for 1009 frames in $18, a figure at -36 in 4):
-  a character is drawn beyond the 256 px only once it has been on them (X within 0..255) since it was put where it is
-  (a jump of more than 16 px, or another scene). So one leaving walks on into the side (and stays there if it stops
-  there, as Abu does in scene 1 at x 331 during the dialogue: in view at 21:9 with square pixels), one waiting stays unseen and
-  enters at the 4:3 picture's edge as in the original.
+  a character is drawn beyond the 256 px only once it has been on them (X within 0..255, or one of its pieces shown
+  there: the writer has put the piece's Y in the buffer before its X) since it was put where it is (a jump of more
+  than 16 px, or another scene). So one leaving walks on into the side (and stays there if it stops there), one
+  waiting stays unseen unless the scene's walk (below) draws it.
+* **Walks** (`kSceneWalks`, generated by `tools/re/sms_scene_walks.py`): the scenes move their characters by a clock of
+  their own, -(`$CF79`), counted by `$6100` on each pass of the scene's logic and not while text is written (a button
+  hurries the text, not the clock: the characters' X per tick is the same with and without button-1 taps, every
+  scene). Each walk has a tick t0 and the steps of the character's walk cycle as the game plays it (per tick the pose -
+  the piece list its writer is called with, bank and address - and the X / Y move), recorded from the scenes entered
+  from the title and played with no input. Aladdin's and the second figure's tiles are streamed to VRAM (patterns 1-17
+  / 18-34, `$2362` / `$3BFC` from the pose's record, 8 bytes before its piece list: tile bank, duration, tile address)
+  only for the pose shown, so their walk poses are drawn from ROM (`SmsVdp::ExtraSprite::data`); the list's
+  characters use tiles the scene keeps in VRAM. The module draws the pieces as their writer places them (`$2390`: Y =
+  offset + the character's Y, $C0 = none, clamped as the writer does; X = signed offset + the 16-bit X).
+  - IN: before t0 the character is drawn on the cycle played backwards from where the game has it at t0 - so it
+    walks in from beyond the wide picture's edge with the game's frames and speed and is where the game takes over,
+    at t0, on the same step; from t0 until it is well in, it counts as shown. Its own (hidden or parked) pieces are
+    not drawn meanwhile. A cue earlier than the walk across the side takes (scene 0's Aladdin: t0 58 at 1 px a tick)
+    leaves the character partway across the side when the scene fades in (the clock is 0 through the fade-in: it
+    stands there, in the pose of tick 0, and walks from the first tick): at 21:9 CRT Aladdin starts at the very edge,
+    at 21:9 square 27 px in. The walk is drawn while the character is within 80 px of the view.
+  - OUT: one the game removes just beyond the 4:3 edge after walking off goes on with the cycle of the ticks before,
+    until it is out of the widest view (t1).
+  - SHOWN: drawn as the game has it, t0 to t1.
+  | scene | character | walk | t0 | cycle |
+  |---|---|---|---|---|
+  | 0 the market | Aladdin | in from the left (waits at -17 walking on the spot) | 58 | 48 ticks, 1 px |
+  | 0 | the guard | in from the left after him (waits at -48 running on the spot) | 494 | 24, 2 px |
+  | 1 the market | Aladdin | in from the left (put at -8) | 365 | 48, 1 px |
+  | 1 | Abu | out to the right (removed at 354) | 348 | 20, 1 px |
+  | 6 the palace | Jasmine | in from the left (waits at -32) | 66 | 48, 1 px |
+  | $B the escape | the carpet | shown from tick 1 (its swoop from -52) | 1-8 | |
+  | $10 the throne room | Jasmine | in from the right (put at 264) | 346 | her walk in $11, 48, 1 px |
+  | $10 | Jasmine | out to the right (removed at 327) | 592 | 48, 1 px |
+  | $11 night | Jasmine | in from the right (put at 256) | 808 | 48, 1 px |
+  | $11 | Rajah | shown lying on the balcony at 256-287 | 0-392 | |
+  | $11 | Rajah | out to the right (removed at 287) | 798 | 2, 1 px in 2 |
+  | $18 the throne room | Jafar | out to the right (removed at 259) | 384 | 8, 1 px |
+  | $1A the throne room | Aladdin | in from the right (waits at 268) | 98 | 48, 1 px |
+  | $20 Jafar's room | Abu | in from the right (waits at 256 running on the spot) | 114 | his run off at 402, 24, 2 px |
+  | $23 the balcony | Iago | shown on the tower's corner at 256 | 0-850 | |
+  Not walked: the pole vault in 3 (Aladdin and Jasmine wait at -30 / -26 in the sky beyond the roof the picture
+  repeats, and leap in), the bird of $1D (it comes in from the top, on the 256 px), Jafar's snake in $20 (drawn into
+  the table), scene 0's guard at the scene's end (he reaches 270 as the scene ends; the fade freezes everything), and
+  the characters walking off as a scene ends (2, $1B, $22: the scene's last ticks).
+  Checked: every walk's hand-over, every frame from 6 before t0 to 8 after at 74 and 102 (no doubled or missing
+  character, the step and the pose go on), strips of each walk at 74 and 102, and the app at 21:9 CRT and square.
 * **Intro, title and menu** (mode 0, script `$CF01`): the Genie and his framed pictures, the logo and the menu on
   a plain background, table entry 0 at every edge column in every state: the sides are entry 0, the blanked column
   the plain background without sprites. The attract mode passes through it (its RAM untouched).
@@ -426,7 +485,8 @@ story screens are now drawn wide where their picture allows it (`story_screen`, 
   on a widened scene or the ending only, and a character's only once it has been on the 256 px since it was put
   there on the screen shown), so a non-gameplay screen's parked pieces stay hidden as in the original.
 * What doesn't change: Jafar's snake (scene $20) grows out of the 4:3 picture's right edge, as the game only writes
-  the part on the original screen into the table. Characters entering from a side appear at the 4:3 edge.
+  the part on the original screen into the table. Characters leaping or swooping in (the pole vault in 3) appear at
+  the 4:3 edge.
 
 ## 6. Save states and rewind
 
@@ -437,8 +497,10 @@ undrawn objects ([6] bits 0-15) with how far Aladdin is left behind (bits 16-23)
 frame's end, so a state taken there has part of the next table written), the extra sprites made at the last VBlank
 for the frame being drawn, and the frame counter at stage 1's last camera move. The camera of the frame before
 comes from module_state. A reconfigure at the same width inside a stage keeps them; a state without them (older
-states, or from another width) starts them empty. After them comes the story screens' record (tag 'S', version 1:
-each slot's piece, character and contents, each character's X and whether it has been on the screen, section 5a).
+states, or from another width) starts them empty. After them comes the story screens' record (tag 'S', version 2:
+each slot's piece, character and contents, each character's X and whether it has been on the screen, section 5a,
+and the scene's clock at the writers' last pass, which places the walks; version 1, without it, still loads), then
+'D' and a ROM offset per extra sprite (the walks' poses drawn from ROM; none: VRAM's).
 
 `sms_rewind.py` steps back as the app does (load a state, one frame, compare its picture with the forward run's):
 stages 0 1 5 7 8 at E = 74 and 102, 2000 frames each, 1000 states: every picture identical; loading the core's state
@@ -464,6 +526,8 @@ scene 3 at 102 differs in 76 of 954 (the characters in the sides).
 | slowdown | `r2_lag.py` (QA, round 2), every stage at 0 / 22 / 74 / 102, 3000 frames | section 3, "CPU time": near 4:3 everywhere |
 | left behind, fade-outs | stage 1 standing still and walking back, stage 8's wall; every auto-scrolling stage's exit, a death to TRY AGAIN | sections 2 and 5 |
 | story screens | every scene, the intro, title and ending at 74 and 102 (tool), the app at 21:9 CRT (before / after); `sms_rewind.py 74 102 --scenes .. --ending` | section 5a; rewind identical |
+| scene walks | every walk: each frame from 6 before t0 to 8 after at 74 / 102, strips at 74 / 102, the app at 21:9 CRT and square (before / after); scenes as played from the QA playthrough states: RAM, VRAM, CRAM at 74 and 102 against 4:3 (and the plain core) every frame through every story screen into the next stage, without input and with button-1 taps | no doubled or missing character at the hand-over; identical |
+| scene sides | every scene's table against the ROM model every 10 frames; the tiles the model uses, every 5 frames; the 4:3 edges of every widened scene at 74 | the spell in $10 the only picture drawn over (now repeated from the table); no tile reloads; $A's rule remade |
 | screen changes | GAME START and PASSWORD from the title, a password taken, game over (continue) at 21:9 CRT (tool, app); QA's round-3 replays (`r3_play_e74`, `r3_play_e74b`: to scene $11, and scene $23 to the title), frames where the sides change under a still 4:3 picture | section 5a "A wait before the fade": none but characters walking in a side |
 | screens | `sms_wide_shots.py`, `sms_run_sheet.py` (whole stages 0 1 5 7 at 74 / 102), `sms_app_test.py` (16:9 and 21:9 CRT, 21:9 square) | reviewed: stages, ends, HUD, scenes |
 | high frame rate | `hfr_test.py sms` (attract mode, stages 0 1 5 7) | RAM and picture identical with and without; in-betweens between the frames, the sides with the 256 px (section 7a) |
@@ -494,6 +558,10 @@ another width, name or sprite table, a loaded state. The status bits stay the fr
   wider view gives him more time than the original.
 * With the sprite limit on ("Remove Sprite Flicker" off), sprites in the sides count towards the 8 per line.
 * Story scenes 8, $C, $D, $14 and $16 stay 4:3 (black bars): their picture is cut by its edges (a rock, rock walls, a
-  roof's slope, a cave lit from the middle) and can't be carried on. In the widened scenes a character coming in
-  from a side appears at the 4:3 picture's edge, as in the original (the game keeps them waiting off the screen),
-  and Jafar's snake grows out of it; one that walks off and stops in a side stays there.
+  roof's slope, a cave lit from the middle) and can't be carried on. In the widened scenes the walks in (section 5a)
+  are drawn from where the game has the character at its cue; one whose cue comes too soon after the scene starts
+  for the whole walk across the side (scene 0's Aladdin, 1 px a tick, 58 ticks) stands partway across the side as
+  the scene fades in, then walks. Characters leaping in (the pole vault) still appear at the 4:3 picture's edge, and
+  Jafar's snake grows out of it; one that walks off and stops in a side stays there. The walks are a table made from
+  the scenes as the game plays them (`tools/re/sms_scene_walks.py`): the clock they follow can't be changed by input,
+  but a scene changed by a ROM hack would need the table made again.
