@@ -87,6 +87,7 @@ int App::run(HINSTANCE inst, int show) {
     if (settings_.fullscreen) set_fullscreen(true);
     for (int g = 0; g < kGameCount; g++)
         if (settings_.last_game == games_[g].module->id()) launcher_sel_ = launcher_last_card_ = g;
+    fix_launcher_selection();   // (a hidden game's card isn't there: the nearest shown one)
 
     // Command line: --game md|snes|sms starts a game directly.
     int argc = 0;

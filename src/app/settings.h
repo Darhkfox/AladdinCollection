@@ -98,6 +98,9 @@ struct Settings {
     bool        launcher_covers = false;    // the game cards show covers/<id> in place of the live previews
     bool        launcher_background = false;   // the launcher's background is covers/background
     bool        cover_fill = false;         // covers fill their frames (trimmed); else shown whole
+    // Show Games: the games on the launcher (and in its Music Player and Achievements), by console; at least one is
+    // always shown. A hidden game keeps its saves, settings and achievements, and --game still starts it.
+    bool        show_game[kSystemCount] = {true, true, true};
 
     std::string last_game;
 
@@ -106,6 +109,9 @@ struct Settings {
     void reset_keys(System s, int player);   // one console's bindings for one player
     bool load(const std::wstring& path);
     bool save(const std::wstring& path) const;
+
+    bool shown(System s) const { return (int)s >= 0 && (int)s < kSystemCount && show_game[(int)s]; }
+    int  shown_count() const;
 
     bool cheat(const std::string& game, const std::string& key) const;
     void set_cheat(const std::string& game, const std::string& key, bool on);

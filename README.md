@@ -57,6 +57,11 @@ Bluetooth / USB controller.
   arabesque frames with eight-pointed stars, gold titles, and the night sky with a glowing moon, glints among the
   stars and gold dust rising from the palace) or *Classic* (the original dark panels). It styles the launcher,
   every menu, the pause menu and the achievement pages.
+- **Show Games** (Options > Launcher & Menus): switch off a game you don't want on the launcher. Its card goes
+  (the other one or two stay the same size, centred), it runs no preview, and the launcher's Music Player and
+  Achievements page leave it out. Nothing is deleted: its saves, settings, cheats and achievements are kept and
+  come back when it's switched on again, and its desktop shortcut (`--game`) still starts it. One game is always
+  shown. Saved as `show_md` / `show_snes` / `show_sms` in `[launcher]` in `settings.ini`.
 - **Your own covers and background**: cover pictures on the cards in place of the previews, and a picture behind
   the launcher (PNG or JPEG; none are included). On PC put `md`, `snes`, `sms` and `background` (.png / .jpg) in
   the `covers` folder next to the exe (*Open Covers Folder*); on Android pick them with *Choose Cover* /

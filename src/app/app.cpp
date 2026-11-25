@@ -26,6 +26,8 @@ static Settings preview_settings(const Settings& s) {
 void App::apply_ui_style() {
     set_ui_style(settings_.menu_style);
     load_launcher_art();
+    fix_launcher_selection();   // (Show Games: the cards shown, and their previews)
+    ensure_previews();
 }
 
 void App::apply_settings() {
@@ -377,10 +379,11 @@ void App::frame(double dt) {
             jukebox_.clear_switch();
             int cur = 0;
             for (int g = 0; g < kGameCount; g++) if (jukebox_.module() == games_[g].module.get()) cur = g;
+            // (the games shown, and the one being played: Show Games)
             int next = cur;
             for (int k = 0; k < kGameCount; k++) {
                 next = (next + dir + kGameCount) % kGameCount;
-                if (games_[next].rom.found) break;
+                if (games_[next].rom.found && (game_shown(next) || (mode_ == Mode::Playing && next == current_))) break;
             }
             if (next != cur) open_jukebox(next, false);
         }
@@ -511,7 +514,8 @@ bool App::load_script(const std::wstring& path) {
         else if (c == "pads") script_.push_back({fr, 0, 9, a});       // <dir>\<a>.pads: uint16 p1, p2 per frame
         else if (c == "set") script_.push_back({fr, 0, 10, a});       // key=value: widescreen, color, filter, slang_preset,
                                                                       // aspect, integer_scale, hud_anchor, menu_style, covers,
-                                                                      // background, cover_fill, black_frames, high_frame_rate,
+                                                                      // background, cover_fill, show_md / show_snes / show_sms,
+                                                                      // black_frames, high_frame_rate,
                                                                       // vsync, refresh (the display rate to assume), soundtrack
                                                                       // (the game's n-th pack, 0 none), reset_game
         else if (c == "award") script_.push_back({fr, 0, 11, a});     // an achievement id (tests of the pop-up / pages)
@@ -599,6 +603,10 @@ void App::run_script() {
             else if (k == "covers") settings_.launcher_covers = v != 0;
             else if (k == "background") settings_.launcher_background = v != 0;
             else if (k == "cover_fill") settings_.cover_fill = v != 0;
+            else if (k.rfind("show_", 0) == 0) {   // show_md=0: Show Games, as the Options row sets it (the last one stays)
+                for (int g = 0; g < kGameCount; g++)
+                    if (k == std::string("show_") + games_[g].module->id()) set_game_shown(g, v != 0);
+            }
             else if (k == "refresh") test_refresh_ = v;
             else if (k == "soundtrack" && session_ && current_ >= 0) {   // the running game's n-th pack (0: original)
                 const std::string id = games_[current_].module->id();
@@ -693,11 +701,11 @@ void App::find_game_roms() {
     ensure_previews();
 }
 
-// A preview for each found game without a cover on its card; none for the others (lighter on slow devices).
+// A preview for each shown, found game without a cover on its card; none for the others (lighter on slow devices).
 void App::ensure_previews() {
     for (int i = 0; i < kGameCount; i++) {
         GameSlot& g = games_[i];
-        if (has_cover(i) || !g.rom.found) {
+        if (has_cover(i) || !g.rom.found || !game_shown(i)) {
             g.preview.reset();
             g.preview_start.clear();
             continue;
@@ -725,7 +733,7 @@ void App::poll_roms(double dt) {
     for (int i = 0; i < kGameCount; i++) was[i] = games_[i].rom.found;
     find_game_roms();
     for (int i = 0; i < kGameCount; i++)
-        if (!was[i] && games_[i].rom.found) menu_.toast(game_label(games_[i].module.get()) + " ROM found");
+        if (!was[i] && games_[i].rom.found && game_shown(i)) menu_.toast(game_label(games_[i].module.get()) + " ROM found");
 }
 
 void App::scan_soundtracks() {

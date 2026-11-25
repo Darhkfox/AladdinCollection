@@ -213,8 +213,9 @@ MenuPage App::achievements_page(int game) {
             p.items.push_back(it);
         }
     };
+    // (from the launcher: the games shown (Show Games); in a game, that game's)
     for (int g = 0; g < kGameCount; g++)
-        if (game < 0 || g == game) add(game_label(games_[g].module.get()), games_[g].module->achievements());
+        if (game < 0 ? game_shown(g) : g == game) add(game_label(games_[g].module.get()), games_[g].module->achievements());
     add("Across the collection", collection_achievements());
     char buf[96];
     snprintf(buf, sizeof(buf), "%d of %d unlocked", got, total);
