@@ -6,7 +6,8 @@ stages' camera on its own with a test patch at `$2BFF`; `Player` plays a stage t
 `sms_wide_check.py` (the extension's background against the hardware's own picture, whole stages),
 `sms_slide_check.py` (the view's slide at the level ends), `sms_run_sheet.py` (whole-stage contact sheets),
 `sms_rewind.py` (save states / rewind), `sms_popin.py` (where objects first appear, objects the sprite table had no
-room for), `sms_map.py` (map model vs VRAM), `sms_app_test.py` (the full app, autotest; `--rewind N`, `--states
+room for), `sms_map.py` (map model vs VRAM), `sms_walls.py` (stages 0 and 1's camera-animated walls, frame to frame),
+`sms_pursuer.py` (the Market's pursuer at every width), `sms_app_test.py` (the full app, autotest; `--rewind N`, `--states
 sms_end` for states near the auto-run stages' ends). Widths: 6/22/40/74 (CRT pixels) and 26/44/64/102 (square);
 `max_ext()` = 102.
 
@@ -15,7 +16,8 @@ sms_end` for states near the auto-run stages' ends). Widths: 6/22/40/74 (CRT pix
    from the level map (`bg_entry` → `map_entry`), exact where both exist (checked against VRAM in every stage).
    Parallax bands repeat every 256 px and use the table. The old blanked column (x 0-7) is drawn from the map too
    (`hw_x0` = 8). Stage 7's reloaded section graphics, and its city's colours once the night palette is in, come
-   from ROM copies at the sides (section 4).
+   from ROM copies at the sides (section 4). The tiles stages 0 and 1 animate with the camera (the Market's gap
+   walls and brick wall, the Rooftops' roof ends) are given for the walls as the view shows them (section 4a).
 2. The camera is the original's (Aladdin's position is an 8-bit screen X). Near a level's ends the picture slides
    instead (`view_slide`): the view shows the level from its first / to its last pixel and holds still while the
    camera covers the E px next to the end. Only a level narrower than the view is masked (Jafar's room: dimmed).
@@ -70,9 +72,9 @@ sms_end` for states near the auto-run stages' ends). Widths: 6/22/40/74 (CRT pix
   repeats every 256 px: a second hourglass, then a second snake, steps and bits of the status bar at the sides.
 * Check (`sms_wide_check.py 74` / `102`, whole stages played through, background only, every third frame: each
   extension pixel against the colours the hardware region showed at that world position with the same palette):
-  see section 7. What differs is animated tiles whose patterns follow the camera (stage 0's far building and brick
-  wall, `$30F6`; stage 1's railings and roof faces, tiles 257-272): the side shows them as they are now, right for
-  the current frame.
+  see section 7. What differs is the tiles stages 0 and 1 animate with the camera (section 4a): a wall in a side
+  shows a face the original only ever has for it off its screen (a left wall's full face), which the check counts
+  as unseen at that world position.
 
 ## 2. Camera and level edges: the sliding view
 
@@ -108,7 +110,9 @@ for the logic's camera and slide), as the original loses him 8 px past its blank
 is as far out of the picture at every width as he is out of the 4:3 one, and the carry to -32 and the wait happen
 out of sight. Walking right takes the distance back first (`$34A5`'s entry). When nothing pushes him any more the
 game puts a player below x 24 at 24 (`$36B8`), a rescue that never reaches past the blanked column: one left behind
-further catches up 4 px a frame instead, unless he walks. A stage start or TRY AGAIN clears it. (`behind.py`-style
+further catches up 4 px a frame instead, unless he walks. A stage start or TRY AGAIN clears it (a PC hook on the
+auto-scrolling stages' handler `$33B7`; `$C912` is no test for it: the game also sets it around the VDP writes of
+most frames, `$0B20`, and a frame can start there - seen on 2 of 24 frames in the Market). (`behind.py`-style
 check: stage 1 standing still at 21:9 CRT, lost at x -86 = the picture's edge - 12, as the original at -4 = its
 blanked column's edge - 12; TRY AGAIN restarts with nothing left over; walking right from 32 px behind comes back.)
 
@@ -234,6 +238,21 @@ plays the ROM holds none of these patches (below).
   view's edges at 21:9 as at 4:3. Camera travel by which a record wakes earlier than at 4:3: E (± the camera's step)
   for those entering from the right, 0 for those inside the original screen; the birds from the left by their
   lead (up to 8 (E - s)).
+* The Market's pursuer (stage 0's second figure, bank `$0C` `$A978`; his X `$C689` is a screen X): unless stunned he
+  runs 1 px a frame toward screen x 40, or 88 once the camera has passed `$B6C6`[stuns] (960, 1456, 2176, 3040)
+  (`$B66F`); 40-48 px from an object on the screen he jumps it, but type 8 (the rolling barrels) stuns him for 120
+  frames (`$B5AF`: `$C69D`, count `$C69E`), during which he slides back 2 px a frame (camera + 1) to about x -196,
+  and then runs back in: about 360 frames in all. Nothing of the wide view's own touches him (the left-behind rule is
+  stages 1 and 8's; his loop over the objects, `$B5C0`, takes 12 slots but only objects on the original screen; the
+  stopped clock leaves his frames alone). Measured (`sms_pursuer.py`, invincible, whole stage, 4:3 / 16:9 / 21:9 CRT /
+  21:9 square): Player bot 3612 / 3614 / 3609 / 3617 frames, 4 stuns and 22 jumps at every width, distance to
+  Aladdin while he chases 247 / 249 / 250 / 251 px, back at his place about 357 frames after each stun (4:3: the same;
+  its first stun falls as he sets off for x 88); at the same camera his X is the same but for the stuns: the barrels
+  wake E px of camera travel earlier (above) and meet him earlier - stuns at camera 964 / 1460 / 2179 / 2976 at 4:3,
+  920 / 1416 / 2136 / 2932 at 21:9 CRT. Running back in he shows in the left side, 145 frames a stun at 21:9 CRT (186
+  at square), where the 4:3 screen has lost him (33 frames under its blanked column). Without cheats, standing still,
+  he catches Aladdin at frame 457 / 444 / 412 / 397 (a barrel knocking Aladdin back into him comes earlier); walking
+  left, at frame 28 at every width.
 
 ## 4. Stage 7: section graphics and palettes
 
@@ -250,6 +269,58 @@ background palette `$33A7` (`$323D`), while the city's last buildings are still 
 turned yellow and magenta for about a second. Cells of the other palette's part of the flight now carry bit 14:
 the VDP takes their colours from `SmsVdp::alt_cram` (the module's copy of that palette, from ROM; the sprites' half
 as it is).
+
+## 4a. Stages 0 and 1: tiles animated with the camera
+
+The Market's sky gaps (world x 64..191 of every 512 px but one) have side walls drawn in perspective: the left wall
+(B, 16 px at x 64 mod 512, tiles 265-272 h-flipped) shows its face while it is left of the screen's middle (x below
+~100), the right wall (A, x 176 mod 512, tiles 257-264) while it is right of it; between them a brick wall (tile 273)
+moves slower than the camera. The Rooftops' roofs end in faces the same way at its five gaps (B 265-272 at x 96 mod
+512 - the first gap, 1088, at 64 -, A 257-264 32 px further). The tiles are rewritten for the camera's phase:
+
+| | phase | tables (entry: source w, VRAM address w, tile count b) | data |
+|---|---|---|---|
+| stage 0 (`$30F6`) | (camera - 40) & `$1FC`, 128 steps of 4 px | A: bank `$0A` `$8000`; B: bank 2 `$A324`; bricks: `$0A` `$8400` (8 steps, a 32-px cycle) | bank `$3311`[0] = `$0A` |
+| stage 1 (`$3159`) | (camera - 40) & `$1F8`, 64 steps of 8 px | A: bank `$0A` `$9850`; B: `$0A` `$9A50` | bank `$3311`[1] = `$0A` |
+
+Most entries write a part of the 8 tiles (stage 0's walls 5, 2 or 1 tiles, the middle ones cycling with the bricks);
+the VBlank job (`$32DE` / `$32EA`, every fourth frame, `$C20E` & 3) copies them, up to 3 frames behind the camera. So
+the tiles show the one wall of each kind near the original screen as it looks at its place there, and where the
+original never shows one they hold whatever suited the tables. In a wide view:
+
+* a right wall coming into the right side showed no face (the tables' look for it far left of the screen) until 8 px
+  from the 4:3 picture, then all of it at once - a face popping up 66 px inside the 21:9 picture, at every gap;
+* a left wall just past the left edge (x -20..-8, under the original's blanked column) showed scraps of other tiles
+  for ~8 frames, a magenta and yellow strip (the round-2 "scrambled pillars");
+* a left wall in the right side had bricks out of step with the brick wall beside it (a fixed image there);
+* a stage 1 roof end far in a side took another gap's look (beyond the tables' reach: the far right at 21:9 square);
+* while the view holds still at the stage's start and end (the slide) the walls kept changing and the bricks kept
+  moving with the camera.
+
+The module keeps the tiles' state for every phase (`CamTiles`, from ROM: two cycles of the job's uploads in order;
+the second leaves each phase's state) and the walls (the map's columns using each kind's tiles). Each frame
+(`anim_tiles`, at the frame's start) it gives the VDP the 17 tiles (`SmsVdp::bg_alt`: cells of those patterns, the
+hardware table's too, take their rows from the module) as for the wall of each kind nearest the view (they lie 512
+px or more apart, so at most one is in view):
+
+* camera: the view's (camera + slide). Without a slide it is the one whose tiles are in VRAM - the bricks' tile tells
+  their step, and the camera is taken back to it - and a wall where the tables are right keeps VRAM's tiles: the 4:3
+  part is the original's;
+* a wall wholly off the original screen (x ≥ 256, or x + width ≤ 8) whose place the tables don't have right
+  (`kAnimGroups`: stage 0 right walls beyond 263, left walls outside -148..-20; stage 1 roof ends outside -160..343 /
+  -128..375) looks as at the window's end (stage 0: right walls 232..263, all face; left walls -52..-21, all face, or
+  in the right side 197..228, no face and bricks cycling) - in stage 0 a whole number of 32-px brick steps away, so
+  the bricks in it keep step with the brick wall's.
+
+So a right wall shows its face as it comes into the right side, a left wall its full face all through the left
+side, the bricks next to a wall line up, and at a stage's start and end walls and bricks hold still with the view
+(their look then is the view's: a wall left of the wide picture's middle shows its face). Measured (`sms_walls.py`:
+each wall's 16 columns, lines 16-151, at its place in the level, frame to frame; a change of more than 600 px is a
+sudden one; the tables' own steps reach 989): whole Market, Player bot, before / after: E = 22: 61 / 39 sudden
+changes, 18 / 0 with the wall in a side; 74: 67 / 35, 30 / 0 (largest 1706 px: the face popping up at x 263);
+102: 67 / 35, 30 / 0. The 35 left are the original's own steps inside the 4:3 picture (43 at 4:3, the stage's start
+included). The Rooftops: no sudden changes before or after at 22 / 74 / 102 (its faces' changes are small; the
+module only steps in beyond the tables' reach).
 
 ## 5. Status bar and other screens
 
@@ -292,7 +363,9 @@ alone (`--no-ext`) gives wrong extra sprites for a frame (stage 5 at 102: 17 of 
 | check | how | result |
 |---|---|---|
 | map model | `sms_map.check` every frame, all stages; whole stages 1 and 5 | 0 mismatching cells |
-| extension background | `sms_wide_check.py 74` / `102`, whole stages (`Player`), every 3rd frame | 0 in stages 2 6 8 9; ≤ 0.04 % in 3 4 5 7 (fade-in, lava, torches); 0.2-0.4 % in 0 1 (tiles animated with the camera) |
+| extension background | `sms_wide_check.py 74` / `102`, whole stages (`Player`), every 3rd frame | 0 in stages 2 6 8 9; ≤ 0.04 % in 3 4 5 7 (fade-in, lava, torches, stars); 0.2-0.35 % in 0 1 (the walls' off-screen faces, section 4a; stage 0 at 74: 0.37 % before) |
+| camera-animated walls | each wall in view frame to frame, whole stages 0 and 1 at 22 / 74 / 102 (section 4a) | no sudden change with a wall in a side (before: 18-30 a run in the Market); the 4:3 picture's own steps as at 4:3 |
+| the Market's pursuer | `sms_pursuer.py`: E = 0 / 22 / 74 / 102, invincible and not, running, pausing, standing, walking back | as at 4:3 but for the barrels' earlier stuns (section 3) |
 | slide at the ends | `sms_slide_check.py 22 74 102`, 600 frames (free stages to the far end and back) | no jumps, view never outside the level, bands still while it holds (0.0 %) |
 | level ends | `sms_run_sheet.py`, app `--states sms_end` (21:9 CRT and square) | the view holds at the last pixel; no cells past the map |
 | rewind | `sms_rewind.py` (tool), app `--rewind 120` (hold R, achievements off) | identical pictures; app: no glitches while rewinding or after |
@@ -324,14 +397,9 @@ another width, name or sprite table, a loaded state. The status bits stay the fr
   as the view's edge is as near them as the original's is when it wakes them); A Whole New World's birds from the
   left start correspondingly earlier, and one the list loads late catches up quickly. (The attract demos run on the
   original ROM.)
-* Tiles the game animates with the camera (stage 0's far building and brick wall, stage 1's railings) show at the
-  sides as they are now; at the start / end holds stage 0's far building keeps changing while the view holds still.
-  The Market's pillars (between the brick wall and the market's wall) are worst: `$30F6` uploads their tiles for
-  the camera's phase (camera - 40, in 4-px steps over 512 px: bank `$0A` `$8000` and bank 2 `$A324`, source, VRAM
-  address and count, into tiles that other phases reuse), drawn for the one place on the screen the original shows
-  them; in the left side the cells show another phase's data, a strip of scrambled tiles for about 95 frames as
-  each pillar passes (13 % of the stage at 21:9). Drawing them right would need each pillar's tiles for positions
-  off the original screen, which the tables don't hold.
+* The walls stages 0 and 1 animate with the camera (section 4a) have no look of their own for places off the
+  original screen: there they show the look the tables give the nearest place they have right (a right wall all
+  face, a left wall all face or none), not a face wider than the original ever draws.
 * Left behind by the scroll Aladdin is lost at the view's edge (section 2), and can walk back in until then: a
   wider view gives him more time than the original.
 * With the sprite limit on ("Remove Sprite Flicker" off), sprites in the sides count towards the 8 per line.
