@@ -453,6 +453,12 @@ story screens are now drawn wide where their picture allows it (`story_screen`, 
   only for the pose shown, so their walk poses are drawn from ROM (`SmsVdp::ExtraSprite::data`); the list's
   characters use tiles the scene keeps in VRAM. The module draws the pieces as their writer places them (`$2390`: Y =
   offset + the character's Y, $C0 = none, clamped as the writer does; X = signed offset + the 16-bit X).
+  Nothing of a scene's characters (walks, and the parked pieces of the ones shown) is drawn until the scene's picture
+  is built ((`$C48F`) = `$8048`, as for its sides; the screen is black until its fade-in): the title's 20-frame wait
+  after GAME START already has the scene's mode, and a state saved there by a version before the title's fade kind
+  showed scene 0's Aladdin walking over the title (QA, fixed). Checked against master frame by frame from power-on
+  through GAME START into scene 0, through PASSWORD into a stage, and every scene from its playthrough state into
+  the next scene or stage, at 74 and 102: no extra sprite differs on any frame that isn't the scene's.
   - IN: before t0 the character is drawn on the cycle played backwards from where the game has it at t0 - so it
     walks in from beyond the wide picture's edge with the game's frames and speed and is where the game takes over,
     at t0, on the same step; from t0 until it is well in, it counts as shown. Its own (hidden or parked) pieces are

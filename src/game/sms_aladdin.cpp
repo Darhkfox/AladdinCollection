@@ -1083,6 +1083,8 @@ struct StorySprites {
         for (int c = 0; c < CHARS; c++) { at[c] = NONE; seen[c] = 0; }
         tick = -1;
     }
+    // the screen the pieces belong to (kind << 8 | scene; kept through a screen's fade-out)
+    static uint16_t screen_key(const Sms& m) { return (uint16_t)(story_screen(m) << 8 | m.ram8(SCENE)); }
     static bool hidden_y(uint8_t y) { return y >= 0xBF && y < 0xE0; }   // (below the picture: the writers' $C0 - 1)
     void piece(const Sms& m, int slot, int c) {
         if (slot < 0 || slot >= 64 || c < 0 || c >= CHARS) return;
@@ -1090,6 +1092,10 @@ struct StorySprites {
         x[slot] = (int16_t)px;
         who[slot] = (uint8_t)c;
         fresh[slot] = 1;
+        // (a new screen starts here, not only at the next upload: its clock is the pass's, run after the scene's init
+        // has cleared it - a scene following another keeps the last one's number of ticks until then)
+        const uint16_t now = screen_key(m);
+        if (now != shown) { forget(); shown = now; }
         tick = scene_tick(m);
         const int cx = (int16_t)m.z80.bc;
         if (at[c] == NONE || std::abs(cx - at[c]) > 16) seen[c] = 0;
@@ -1136,7 +1142,7 @@ struct StorySprites {
         SmsVdp& v = m.vdp;
         v.extra_count = 0;
         const int kind = story_wide(m);
-        const uint16_t now = (uint16_t)(story_screen(m) << 8 | m.ram8(SCENE));   // (kept through a screen's fade-out)
+        const uint16_t now = screen_key(m);
         if (now != shown) { forget(); shown = now; }
         for (int slot = 0; slot < 64; slot++) {   // (follow the slots on every screen: a widened one may come next)
             const uint8_t cur[3] = {m.ram8((uint16_t)(SAT_Y + slot)), m.ram8((uint16_t)(SAT_XT + 2 * slot)),
@@ -1162,8 +1168,16 @@ struct StorySprites {
         std::memcpy(show, seen, CHARS);
         std::memset(walk, 0, CHARS);
         const SceneWalk* walks[CHARS] = {};
-        const int t = std::max(tick, 0);   // (a scene's fade-in, before its first pass: tick 0)
-        if (kind == STORY_SCENE && !(v.reg[1] & 0x02)) {   // (8x8 sprites, as all scenes have them)
+        const int t = std::max(tick, 0);
+        // Only on the scene's own picture: built ($4E92 has set ($C48F) to the scenes' maps, as the sides require) and
+        // its init run (the writers' first pass on this screen, `$626E` calls them after `$6010` has cleared the clock;
+        // the fade-in follows). Before that the screen is still another one's - the title waits 20 frames after GAME
+        // START with the scene's mode already set (a state saved there by an earlier version has no fade kind to tell
+        // it), a stage fades out, a scene that follows another has its number before its init - and nothing of the
+        // scene's may be drawn over it. (Not the display bit: the VBlank's upload turns the display off around its VRAM
+        // writes on some frames.)
+        const bool scene_up = m.ram16(MAP) == SCENE_MAPS && tick >= 0;
+        if (kind == STORY_SCENE && scene_up && !(v.reg[1] & 0x02)) {   // (8x8 sprites, as all scenes have them)
             for (const SceneWalk& w : kSceneWalks) {
                 if (w.scene != m.ram8(SCENE) || w.ch >= CHARS) continue;
                 int gx, gy;
@@ -1181,7 +1195,8 @@ struct StorySprites {
             const int slot = rev ? 63 - i : i;
             if (!valid[slot] || x[slot] == NONE || (x[slot] >= 0 && x[slot] < 256)) continue;
             m.module_state[i >> 4] |= (uint32_t)PAGE_HIDDEN << ((i & 15) * 2);
-            if (show[who[slot]] && !walk[who[slot]]) add(x[slot] - shift, snap[slot][0], snap[slot][2], nullptr);
+            if (show[who[slot]] && !walk[who[slot]] && (kind != STORY_SCENE || scene_up))
+                add(x[slot] - shift, snap[slot][0], snap[slot][2], nullptr);
         }
         // a walking character: its writer's pieces for the pose, as the writer places them ($2390 / $3C31 / $5099)
         for (int c = 0; c < CHARS; c++) {
