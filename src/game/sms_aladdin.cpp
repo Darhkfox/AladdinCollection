@@ -725,6 +725,20 @@ bool off_screen_vertically(const Sms& s, uint16_t o) {
 // A sprite table entry's 256-px page (module_state[0..3], see sprite_x)
 enum : uint8_t { PAGE_0 = 0, PAGE_RIGHT = 1, PAGE_LEFT = 2, PAGE_HIDDEN = 3 };
 
+// Screen-fixed sprites: READY. A stage's setup ($3486: every stage but the Lamp, at its start and at TRY AGAIN, not in
+// the demos) puts table slots 57-61 at Y $40 with the X / tile pairs at $3834 (x 108-147, the 256-px screen's middle)
+// and leaves them until the objects' writers take the slots. It belongs to the screen, not the level: it neither
+// slides with the view near a level's ends (it is shown at the start, where the view has slid by E) nor takes the
+// page a piece left in those slots. Told by what the VDP's table holds, so nothing to keep.
+constexpr int READY_SLOT = 57, READY_LEN = 5;
+constexpr uint8_t READY_Y = 0x40;
+constexpr uint8_t READY_XT[READY_LEN][2] = {{108, 0xF4}, {116, 0xF2}, {124, 0xF0}, {132, 0xF1}, {140, 0xF7}};
+bool ready_sprite(const SmsVdp& v, int index, int x, int y, int pattern) {
+    const int k = index - READY_SLOT;
+    if (k < 0 || k >= READY_LEN || y != READY_Y || (pattern & 0xFF) != READY_XT[k][1]) return false;
+    return x + ((v.reg[0] & 0x08) ? 8 : 0) == READY_XT[k][0];
+}
+
 // ---- story screens: the cut scenes, the intro and title, the ending (docs/re_sms_wide.md section 5a) ------------------
 // Everything but the ten stage modes used to be pillarboxed. The story screens are widened where their picture allows:
 // * Story scenes (mode $13, scene $C11F = 0..$23, script table $5F42): a 256x160 picture of its own, 16x10 metatiles
@@ -1705,9 +1719,9 @@ private:
     }
 
     static int sprite_x(void* host, int index, int x, int y, int pattern) {
-        (void)y; (void)pattern;
         const Sms& s = *((SmsAladdin*)host)->sms_;
         if (!shows_stage(s)) return story_sprite_x(s, index, x);
+        if (ready_sprite(s.vdp, index, x, y, pattern)) return x + s.vdp.sprite_shift;   // (the screen's: no slide)
         switch ((s.module_state[index >> 4] >> ((index & 15) * 2)) & 3) {
         case PAGE_RIGHT: return x + 256;
         case PAGE_LEFT: return x - 256;
