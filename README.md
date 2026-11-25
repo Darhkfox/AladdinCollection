@@ -71,7 +71,8 @@ Bluetooth / USB controller.
   level instead of black (the game's own camera, and so how Aladdin moves, is untouched). The HUD is re-anchored to
   the screen edges (can be switched off). Title screens, menus and cut-scenes keep their original shape
   automatically; where such a screen's background is one plain colour, it fills the width in that colour. The
-  Master System's story scenes, intro, title and ending are drawn wide too (see below).
+  Master System's story scenes, intro, title and ending and the Mega Drive's title, story cards, "Level Complete" and
+  ending are drawn wide too (see below).
 - The width (and cheats) can be changed at any time, also mid-level; save states remember the width they were
   made at.
 
@@ -168,8 +169,15 @@ achievements of its own: *A Whole New World* (defeat Jafar in all three versions
   through on the left, with the lava wave chasing you and what you passed drifting away until it leaves the screen.
   A level fades in and out in the shape it is played in (a death, a fall, a Rug Ride crash or the level's end fades
   wide, without the picture jumping); the picture becomes 4:3 only once the screen is black.
-  Abu's bonus rounds stay 4:3, and so do the title screens and the attract demos, which play exactly as recorded at
-  every width and with any cheat. A save state always goes on with the game it was saved in, wherever it is loaded
+  The screens around the levels are wide too: the title and OPTIONS (the night sky, stars and palace skyline run
+  across the width, the logo and menu stay centred), the story cards (their starry sky and dunes, the palace
+  skyline), the title cards, "Level Complete", the death and continue screens and the ending. Their sides carry the
+  picture's own edges on (mirrored or repeated, never the moon, the domes, the Cave's tiger head or any text), and
+  whatever moves across them goes on into the sides instead of being cut at the 4:3 edge: the Genie flying round
+  the Disney and Virgin logos, Aladdin and Abu running through "Level Complete", the scarab's halves, the carpet
+  across the moon. The Genie's bonus wheel, the instructions screen and the full scarab between its halves' flights
+  stay 4:3 (their pictures are cut off by the screen's edges). Abu's bonus rounds stay 4:3, and so do the attract
+  demos, which play exactly as recorded at every width and with any cheat. A save state always goes on with the game it was saved in, wherever it is loaded
   (the title screen, the attract demos, the Rug Ride).
 - **Level select**: all 13 entries in the game's own order (both of Abu's bonus rounds and the Rug Ride included),
   on Practice, Normal or Difficult. Each level starts with its own story card, as after the one before.
@@ -347,6 +355,12 @@ gradlew assembleDebug
   as it comes in at 21:9 while a bat is in view. A boss arena is framed only as far as the extra width reaches: the
   Cave's idol fight spans 677 px at 4:3, so at 16:9 the view still follows Aladdin near its ends; at the end of
   Agrabah Rooftops the arena is the level's last screen, so the extra width can only go to its left, as before.
+  On the screens around the levels the game puts its flyers where they begin just off its own screen, so at 21:9
+  some appear inside a side rather than at its outer edge: the Genie at the Disney / Virgin logo (whole, 13 px in),
+  Aladdin and Abu at "Level Complete" (40 px in), the carpet across the moon (about 30 px left of the 4:3 picture,
+  on the scene's first frame). The Genie's bonus wheel (its curtains), the instructions screen and the full
+  scarab (its rings) are cut off by the screen's edges and stay 4:3; the story cards' dunes at the sides are the
+  picture's edges mirrored, as the picture doesn't carry on across its own edges.
 - Master System: the game's own camera is kept (Aladdin's position is an 8-bit screen coordinate), so near a
   stage's ends the scenery holds still while Aladdin walks for the first stretch of camera travel. Objects wake as
   they come within the original's margins of the view as shown, so those entering from the right act as much

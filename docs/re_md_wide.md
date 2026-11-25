@@ -30,6 +30,8 @@ module's level select and skips its story card (START) until the first frame of 
 4. HUD sprites are moved to the screen edges and kept still while the view slides (`sprite_xoff`, §4).
 5. Gameplay = a level fading in or out, the gameplay or pause loop ran in the last 4 frames, or an iteration of the gameplay
    loop is still under way (PC hooks, §6); Abu's bonus rounds are shown 4:3. The attract mode (title, demos) runs on the original ROM, cheats off (§6).
+   The screens between and around the levels are drawn wide from the VDP alone: plain ones with the backdrop and the
+   sprites at their true places, pictures with their own edges repeated (§6a).
 6. The Rug Ride runs on the 4:3 game's ROM (the cheats only) and is shown with all the extra width behind the carpet:
    the view slid by −E for good, objects the game despawns there drawn on by the module (ghosts, animated by the game's
    own code on a CPU of the module's), the lava wave's cut-off back drawn on (§7).
@@ -399,9 +401,10 @@ the idol on the far pedestal cut at the right edge; in Jafar's hall at the left 
   view behind the carpet. Checked at 21:9 (a ride crash, a death at the Market's slid start, Jafar's Palace's end, a
   death in the idol's arena; the QA's `r2_death` / `r2_pit` / `r2_level_end`): frames shown 4:3 with the level visible
   0 (before: 5-6 per fade), the slide constant over the fade (-128 / 112 / 112 / 128), the first 4:3 frame black.
-* 4:3: logos, title, OPTIONS, the debug screen, story cut-scenes and title cards, the instructions, "Level
-  Complete", the Genie's wheel, the death screen, continue / game over, the ending and credits; Abu's bonus rounds
-  (a 336-px room: 8 px a side more). The Rug Ride is wide, its own way (§7).
+* The screens outside the levels are wide where they can be (§6a): the logos, the title and OPTIONS, "Level
+  Complete", the scarab's halves, the story cards, the title cards, the death and continue screens, the ending and
+  credits. 4:3: the Genie's wheel, the instructions, the full scarab, the debug screen and sound test; Abu's bonus
+  rounds (a 336-px room: 8 px a side more). The Rug Ride is wide, its own way (§7).
 * **Attract mode**: the demos replay recorded input (`$F57C` = 1, the recording at (`$F576`), table `$4B04`, five
   demos), so anything that changes the code they run - the widescreen patches' spawning, a cheat's patch or RAM write
   - changes their course. From power-on through the title routine and while a demo plays, the ROM is the original
@@ -429,6 +432,67 @@ the idol on the far pedestal cut at the right edge; in Jafar's hall at the left 
 * Width changes mid-level: the patches change at a frame where no changed word is at the PC or on the stack
   (`patches_safe`); the extension is drawn from the map at once. Objects in the newly shown columns appear when the
   view next streams their column or row.
+
+## 6a. The other screens wide
+
+The logos, the title, the story cards, "Level Complete" and the rest are drawn by the game on a 320-px screen: plane
+A `$C000`, plane B `$E000`, 64 × 32 cells, no scroll, no window (reg 18 = `$9C`), the name tables' columns 40-63 empty.
+Every frame outside a level (`screen_frame`, at the frame's start, from the VDP alone: nothing to keep for save
+states, rewind or the attract mode) is one of:
+
+* **Plain**: both planes empty in the screen's first and last 8 px on every line - colour 0, or a colour equal to the
+  backdrop's (a picture still black) - or the display off. The planes are cleared in the sides (`screen_line`), so
+  the backdrop fills them, and the sprites are drawn at their true X. That is the logos (black), "Level Complete"
+  (the dark blue backdrop), the scarab's halves (on black: the rings' colours are still black), the black story cards
+  and the red title cards (the backdrop's red at their edges), the death screen, the continue screen, the ending's black scenes
+  and the credits.
+* **A picture** known by its plane B tiles (`picture_kind`): each side repeats the picture's own edge strip
+  (`kScreenSides`, per band of lines: a strip of w px at the edge, mirrored back and forth - the pixel next to the
+  edge is the edge's own, as where the art meets its own mirror - or 0, the picture wrapped at 320 px). Plane A
+  (logo, text, portraits, menus) stays on the 4:3 screen.
+  - **Palace skyline** (the title, OPTIONS, the Sultan's Palace's story card; `$E000` row 31 = `01CC 01CD`…): the art
+    is drawn symmetric (columns 20-39 are columns 19-0 flipped), so it repeats seamlessly at 320 px; but 128 px of it
+    hold the moon (columns 27-31, rows 12-15) and the side domes (from column 7, lines 160 on). Lines 0-47 (stars)
+    wrap; lines 48 on repeat columns 0-6 (56 px: sky gradient, hills) mirrored back and forth - the strip and its
+    mirror are columns 0-6 and 33-39, which meet seamlessly at both ends.
+  - **Night dunes** (the story cards' sky, purple at night, blue in the Rooftops' card; row 18 = `4025 4026 4027`):
+    lines 0-111 (stars) wrap; below, the left side mirrors 40 px of the dunes, the right 128 px, or 16 px where the
+    Cave of Wonders' tiger head stands at the right (columns 27-36, rows 14-21: row 15, column 27 = `400A`). The dunes
+    don't continue across the picture's own edges (its right edge mirrors column 9, not 0), so the sides are its
+    edges mirrored: dunes, not a copy of the picture.
+  - **The ending's moon** (row 4 = `23D9 23DA` at column 12): stars on the backdrop; the left side mirrors columns 0-9,
+    the right columns 24-39, both clear of the moon (columns 10-19).
+* Everything else stays 4:3, pillarboxed with the app's plain-colour bars where its edges are one colour: the Genie's
+  wheel (the curtains run off its edges), the instructions (asked to stay 4:3), the full scarab between its halves'
+  flights (plane B's rings, `$E000`, cut off at the edges: about 45 frames, the screen flashing), the debug screen
+  and sound test.
+
+**Sprites.** On the plain and picture screens sprites are drawn at their true X, so what crosses the screen comes
+from and goes into the sides: the Genie round the Disney / Virgin logo (object 2, screen-fixed, `x` 88 → 613, 7 px
+every 4 frames; he appears at screen x -168 + offset, inside the left side at 21:9, and flies on out of the right
+side), Aladdin and Abu running through "Level Complete" (from x 365-408 to past -128), the scarab's halves flying in
+and out, the ending's carpet (from x -29) and the Genie's cloud on the death screen. Two clips:
+* In a game the widescreen ROM's clip passes screen-fixed pieces up to VDP X 448 + 2E (`CAVE_SCRCLIP`): on these
+  screens the VDP reads X as 10 bits (`sprite_x10`), so X 512-703 are right of the screen, not wrapped to the left.
+* The logos and the title run on the original ROM (the attract mode, §6) and "Level Complete" after the Rug Ride on
+  the 4:3 game's: their clip drops pieces from VDP X `$1BF` (screen x 319). The module draws those itself
+  (`extra_pieces`): as the builder starts (`$1ABA0A`) it places every screen-fixed object's pieces the clip will
+  drop as the builder would (frame +`$14`, piece offsets, flips, the pattern (+`$30` >> 5) + +`$1E` stepped per
+  piece, the shake), and from the next VBlank on (`extra_latch`, `MegaDrive::on_vblank`) draws them behind the game's
+  sprites, from VRAM (the frame's upload writes every piece's tiles), right of the 4:3 screen only. Placed from RAM
+  at the frame's start instead, every fourth frame of the Genie's flight showed his next animation frame's pieces on
+  the old tiles (the animation step runs before the upload). The pieces of the last pass and of the one on screen
+  are kept in save states (save extension version 2); on high frame rate in-betweens they go part of the way back
+  with their object.
+* No screen leaves sprites parked in the sides: traced on every frame of the logos and title (1,000 frames), the
+  Market's end through "Level Complete", the wheel, the scarab and the next story cards, every level's story and title
+  cards, the death and continue screens, and the ending through the credits.
+
+**Transitions.** The screens around these are black when they change: a level fades out wide (§6), then black frames
+(plain, wide), then the next screen. Going from a wide screen to a 4:3 one closes the app's masks at once and coming
+back opens them over 6 frames; every such switch on the way through the game falls on black or on matching sides:
+the scarab's halves meet in the middle on black before the rings light up, the instructions and the wheel fade in
+from black. The picture kinds are told by their tiles, so a picture fading in or out stays wide throughout.
 
 ## 7. The Rug Ride
 
@@ -511,7 +575,7 @@ look-ahead would mean running the game ahead (the player decides the crashes) or
 | 16:10, 2:1, 4:3 levels | `md_apptest.py … 1,3,4 1,8,3,5` | HUD in place in the 4:3 levels, wide levels right |
 | caves | `md_wide_demo.py caves` | disassemble as intended |
 | pop-in (QA F1) | `md_wide_popin.py 0,20,32,40,54,64,80,108,128` (the QA's walk through every wide level) | see §3 (Room for objects) |
-| attract demos | `md_attract.py --cheats …` (40,000 frames from power-on at every width) | RAM identical to widescreen off every frame, with and without cheats |
+| attract demos | `md_attract.py --cheats …` (40,000 frames from power-on at every width) | RAM identical to widescreen off every frame, with and without cheats (also with the logos and title drawn wide, §6a: `md_attract.py 54 128 --cheats invincible,inf_health,inf_lives,inf_apples`, 0 frames differ) |
 | lag frames, shake (QA F3 / F4) | QA `t_tear_all.py`, `t_jitter.py`, `t_shake.py` | held picture still on every frame of the slide zones (Rooftops 10 → 0, Jafar's Quarters 4 → 0 frames moved at 21:9); the Escape shakes as at 4:3 (cliff edge 43/42/41/40 at a constant slide, sprites with it) |
 | level start / respawn (QA F2) | QA `t_app_levelstart.py`, `t_app_respawn.py`; per-frame trace of a respawn | fade-in frames wide and slid, no jump into play; the masks open while the picture is still dark |
 | statue hits (black bars) | the Cave's statues `$35` / `$36` / `$37` hit from both sides, 4:3 / 16:9 / 21:9 | 9 frames inside one loop iteration (`$36`, `$37`) as at 4:3; frames shown 4:3: 6 / 6 / 5 before at 21:9, 0 now |
@@ -526,6 +590,8 @@ look-ahead would mean running the game ahead (the player decides the crashes) or
 | save states | a state saved with a load held / in the middle of a statue's map scan / while a boss framing eases in, holds, eases out / on each of the 13 frames around the idol's kill (16:9, 21:9), run on in a fresh instance | identical to the run it came from (RAM, VRAM, CRAM, `module_state`, picture; the first frame after a load now has the 10-bit sprite X set as `post_frame` sets it - before, a sprite past VDP X 511 showed wrong for that frame) |
 | 4:3 parity | `md_parity.py`: the module at 0 against the bare core, the same random input from power-on (12,000 frames) and in each of the 13 levels from its first frame of play (6,000 each, the Rug Ride included) | RAM, VRAM and picture identical on every frame |
 | Rug Ride, 4:3 against wide | `md_wide_rug.py 20 32 40 54 64 80 108 128`: 8 seeds of the autopilot with random spells (out by the third crash at speeds 8-16), 8 with invincibility, 8 flying the whole ride (6 to its end without a crash, one after two; one out at speed 18), the same input at every width | at every width: 68000 and Z80 RAM identical to 4:3 on every frame (43,350 / 42,703 / 62,121 iterations), the same lag frames, the 4:3 area of the picture identical on every frame shown wide (HUD unanchored); nothing appears in the extension but from something there (a geyser's sparks); every object despawned inside the view (1,704 / 1,673 / 4,994) goes on as a ghost; achievements as at 4:3, to the frame (Magic Carpet Ride at the end of each completed ride, the Genie's wheel) |
+| other screens (§6a) | from power-on through the logos, title and OPTIONS; the Market ended (level-skip code) with and without a Genie token through "Level Complete", the wheel, the scarab and the next story cards; every level's story and title cards; a death and the continue screen; Jafar's Palace ended through the ending and credits; at 54 and 128, per frame: wide or 4:3, sprites in the sides; the app's shots before / after at 16:9 and 21:9 | wide as listed in §6a, the rest 4:3; every switch between wide and 4:3 on black (or the scarab's halves meeting on black); no sprite in the sides but what crosses the screen; the Genie flies out of the right side whole (before: cut at the 4:3 edge, every fourth frame garbled when placed from RAM at the frame's start) |
+| other screens' save states | states every 7 frames of the Genie's exit and on the title, "Level Complete", the scarab, the dunes, the moon and the death screen, at 54 and 128, loaded into a fresh instance as the app does, 40 frames | RAM, picture and frame info identical; without the module's part (an older state) RAM identical and the Genie's pieces right of the 4:3 screen missing for 2 frames (7 once) |
 | Rug Ride ghosts | a pickup across its despawn at 21:9, the sprite layer alone | the same 210 pixels, 6 px further each frame: the takeover doesn't show |
 | Rug Ride save states | `md_wide_rug.py 20 54 80 108 128 --states`: states saved mid-ride (some holding ghosts), loaded into a fresh instance as the app does, run 90 frames | picture and RAM identical to the run they came from; without the module's part (as an older state) RAM identical and only the ghosts it held missing (1-2 frames at 21:9) |
 
