@@ -602,6 +602,13 @@ private:
 
 struct RideView;
 
+// The screens between levels and around the game drawn wide (screen_frame): none, a plain screen (both planes empty at
+// both edges: the backdrop fills the sides, the sprites at their true places), or one of the pictures whose sides are
+// drawn from its own edges (kScreenSides).
+enum class Screen : uint8_t { None, Plain, Palace, Dunes, DunesTiger, Moon };
+struct ExtraPiece { int x, y, w, h, slot, back; uint16_t attr; };   // screen x / y, cells, the move since the last
+                                                                       // pass (px), the pattern word
+
 // Per-session widescreen state the VDP hooks work with (VDP::hook_host).
 struct Wide {
     MegaDrive* md = nullptr;
@@ -615,6 +622,12 @@ struct Wide {
     int dim = 0, dim_lo = 0, dim_hi = 0;    // the fight's sides dimmed: how far (0..15), outside map x [lo, hi) (boss_dim)
     uint16_t t0[ScrollProbe::kWords];
     RideView* ride = nullptr;               // the Rug Ride's (ride_frame, ride_line)
+    Screen screen = Screen::None;           // another screen drawn wide this frame (screen_frame)
+    std::vector<ExtraPiece> extra;          // ...and the sprite pieces the 4:3 clip dropped right of the screen
+    std::vector<ExtraPiece> built, shown;   // those of the builder's last pass, and of the one the VDP's table has
+    bool built_new = false;
+    int16_t built_x[32] = {}, shown_x[32] = {};   // the objects' X at those passes (high frame rate)
+    uint8_t built_t[32] = {}, shown_t[32] = {};   // ...and their types (0: none)
 };
 
 // The slide in force for camera camx (this frame's boss framing)
@@ -624,6 +637,7 @@ int wide_slide(const Wide& w, int camx) {
 
 void boss_frame(Wide& w, bool advance);
 void ride_frame(Wide& w);
+void screen_frame(Wide& w);
 void ride_line(Wide& w, int line, uint8_t* plane_b, uint8_t* sprites);
 
 // The camera a line was scrolled with: from the map plane's H scroll (the camera in RAM may already be the next
@@ -682,6 +696,7 @@ void update_view(Wide& w, bool advance) {
         v.edge_dim = w.dim;
     }
     ride_frame(w);
+    screen_frame(w);
 }
 
 // Before each line is drawn: the slide follows the scroll line by line. On a lag frame the game writes the scroll (and
@@ -1802,6 +1817,188 @@ void ride_line(Wide& w, int line, uint8_t* plane_b, uint8_t* sprites) {
     }
 }
 
+// ---------------------------------------------------------------------------------------------------------------------
+// The other screens wide (docs/re_md_wide.md section 6a). The logos, the title and OPTIONS, the story cards, "Level
+// Complete", the scarab, the death and continue screens and the ending are drawn by the game's own code on a 320-px
+// screen, the planes' name tables holding nothing wider. Told from the VDP as each frame starts (stateless: save states,
+// rewind and the attract mode need nothing kept), outside the levels:
+// * A plain screen: both planes empty (colour 0, or the backdrop's colour) in the screen's first and last 8 px on
+//   every line, or the display off. The backdrop fills the sides (the planes are cleared there) and the sprites are drawn at their true places, so
+//   what flies across the screen - the Genie round the Disney and Virgin logos, Aladdin and Abu running through "Level
+//   Complete", the scarab's halves, the carpet - comes from and goes into the sides instead of being cut at the 4:3
+//   edge. In a game the widescreen ROM's clip already passes screen-fixed objects' pieces up to 448 + 2E (CAVE_SCRCLIP;
+//   the VDP reads their X as 10 bits); on the original ROM (the logos and the title run in the attract mode) and the
+//   Rug Ride's, the 4:3 clip drops pieces from screen x 319 on: the module draws those itself (extra_pieces), so the
+//   game's RAM stays the 4:3 game's.
+// * A picture whose plane B tiles are known (picture_kind): each side repeats the picture's own edge strip, mirrored
+//   back and forth (the title's and the palace card's art is drawn symmetric and meets its own mirror at the edges), or
+//   the picture wrapped (the star rows), per band of lines (kScreenSides); plane A (the logo, text, portraits) stays on
+//   the 4:3 screen. The strips leave out what mustn't be copied: the moon, the domes, the Cave's tiger head.
+// Everything else (the Genie's bonus wheel, the instructions, the full scarab between its halves' flights: pictures
+// cut off by the screen's edges) stays 4:3, with the app's plain-colour bars.
+struct SideBand { int end, left, right; };   // lines below `end`: the edge strip each side repeats (px; 0 = the wrap)
+constexpr SideBand kPalaceSides[] = {{48, 0, 0}, {240, 56, 56}};           // stars wrapped; sky and hills cols 0-6
+constexpr SideBand kDunesSides[] = {{112, 0, 0}, {240, 40, 128}};          // stars wrapped; the dunes at each edge
+constexpr SideBand kDunesTigerSides[] = {{112, 0, 0}, {240, 40, 16}};      // (right of the tiger head)
+constexpr SideBand kMoonSides[] = {{240, 80, 128}};                        // stars left and right of the moon
+
+// A level on screen (play, pause, its fades), the attract mode's demos included: never another screen.
+bool level_shown(const MegaDrive& md) {
+    const uint32_t f = md.module_state[MS_FADE], ms = md.module_state[MS_PLAY];
+    if (f & FADE_OUT) return (((uint32_t)md.frame_count + 1 - f) & PLAY_FRAME) <= FADE_OUT_MAX;
+    if (f) return true;
+    if (!ms) return false;
+    const uint32_t age = ((uint32_t)md.frame_count + 1 - ms) & PLAY_FRAME;
+    return age <= PLAY_RECENT || ((ms & PLAY_BUSY) && age <= PLAY_BUSY_MAX);
+}
+
+// The pictures by their plane B name table ($E000, 64 x 32 cells): the palace skyline (the title, OPTIONS, the Sultan's
+// Palace's story card), the night dunes (the story cards' sky, in blue or purple; with the Cave of Wonders' tiger head
+// on the right in some) and the ending's moon.
+Screen picture_kind(const VDP& v) {
+    if ((v.reg[4] & 7) != 7 || (v.reg[16] & 0x33) != 0x01) return Screen::None;
+    auto b = [&](int row, int col) { return v.vram16(0xE000 + (row * 64 + col) * 2); };
+    if (b(31, 0) == 0x01CC && b(31, 1) == 0x01CD && b(22, 0) == 0x0927 && b(22, 39) == 0x0127) return Screen::Palace;
+    if (b(18, 0) == 0x4025 && b(18, 1) == 0x4026 && b(18, 2) == 0x4027)
+        return b(15, 27) == 0x400A ? Screen::DunesTiger : Screen::Dunes;
+    if (b(4, 12) == 0x23D9 && b(4, 13) == 0x23DA && b(5, 11) == 0x23DF) return Screen::Moon;
+    return Screen::None;
+}
+
+// Both planes empty at both edges of the screen on every line (colour 0, or a colour that is the backdrop's: a picture
+// still black, as the scarab's rings while its halves fly), no window, or the display off.
+bool plain_edges(VDP& v) {
+    if (!v.display_enabled()) return true;
+    const int vp = (v.reg[18] & 0x1F) * 8, hp = (v.reg[17] & 0x1F) * 16;
+    if ((v.reg[18] & 0x80) ? vp < v.active_lines() : vp > 0) return false;   // (a window)
+    if ((v.reg[17] & 0x80) ? hp < 320 : hp > 0) return false;
+    const uint16_t back = v.cram[v.reg[7] & 0x3F] & 0x0EEE;
+    uint8_t px[8];
+    for (int ln = 0; ln < v.active_lines(); ln++)
+        for (int b = 0; b < 2; b++)
+            for (int x0 : {0, 312}) {
+                v.render_plane(px, ln, b != 0, x0, x0 + 8);
+                for (uint8_t p : px)
+                    if ((p & 15) && (v.cram[p & 0x3F] & 0x0EEE) != back) return false;
+            }
+    return true;
+}
+
+// The sprite pieces of screen-fixed objects the original ROM's clip drops (VDP X $1BF and up: screen x 319 on) that the
+// widened screen shows, placed as the builder ($1ABA0A, screen-fixed branch $1ABA60) would: piece k of the object's
+// frame (+$14: a word, pieces - 1, then 12 bytes a piece from +6: its descriptor's short address - +6 the SAT size << 8,
+// +8 its width - x / y offset bytes, +$A the tiles to step on) at VDP x offset + X - $80 (flipped: -offset - width, a
+// byte), y offset + Y - $100, plus the shake; its pattern (+$30 >> 5) + +$1E stepped by each piece before it, flipped
+// by +9 / +$35. The tiles are in VRAM: the frame's upload writes every piece's. Worked out as the builder starts
+// (PC_BUILDER) from the records it reads, and shown from the VBlank after it (extra_latch), as its sprite table is: an
+// object's next animation frame can be in RAM before its tiles are in VRAM.
+constexpr uint32_t PC_BUILDER = 0x1ABA0A;
+void extra_pieces(Wide& w) {
+    const MegaDrive& md = *w.md;
+    const int E = md.vdp.ext;
+    w.built.clear();
+    w.built_new = true;
+    for (int s = 0; s < 32; s++) {
+        const uint32_t a = OBJECTS + s * OBJ_SIZE;
+        w.built_t[s] = md.ram8(a);
+        w.built_x[s] = (int16_t)md.ram16(a + 2);
+    }
+    if (!E || md.rom16(0x1ABA8C) != 0x0443) return;   // (the widescreen ROM's clip lets them through: CAVE_SCRCLIP)
+    for (int s = 0; s < 32; s++) {
+        const uint32_t a = OBJECTS + s * OBJ_SIZE;
+        if (!md.ram8(a) || !(md.ram8(a + 6) & 8) || (md.ram8(a + 7) & 0x20) || (s == 0 && (md.ram8(0xFFF0F2) & 1))) continue;
+        const uint32_t frame = md.ram32(a + 0x14) & 0xFFFFFF;
+        if (!frame || frame + 6 > md.rom.size()) continue;
+        const int n = md.rom16(frame) + 1;
+        if (n > 64 || frame + 6 + 12u * n > md.rom.size()) continue;
+        uint16_t pat = (uint16_t)((md.ram16(a + 0x30) >> 5) + md.ram16(a + 0x1E));
+        const bool hf = md.ram8(a + 9) != 0, vf = md.ram8(a + 0x35) != 0;
+        for (int k = 0; k < n; k++) {
+            const uint32_t e = frame + 6 + 12 * k, desc = md.rom16(e);
+            uint8_t dx = md.rom[e + 2];
+            if (hf) dx = (uint8_t)(-dx - md.rom[(desc + 8) % md.rom.size()]);
+            const uint16_t X = (uint16_t)(dx + md.ram16(a + 2) - 0x80), Y = (uint16_t)(md.rom[e + 3] + md.ram16(a + 4) - 0x100);
+            if (Y < 0x15F && X >= 0x1BF && (int16_t)X < 448 + E) {
+                const int size = (md.rom16((desc + 6) % md.rom.size()) >> 8) & 0x0F;
+                const uint16_t attr = (uint16_t)((pat & 0xE7FF) | (hf ? 0x0800 : 0) | (vf ? 0x1000 : 0));
+                w.built.push_back({(int16_t)X - (int16_t)md.ram16(SHAKE_X) - 128, (int16_t)(Y + md.ram16(SHAKE_Y)) - 128,
+                                   ((size >> 2) & 3) + 1, (size & 3) + 1, s, 0, attr});
+            }
+            pat = (uint16_t)(pat + md.rom16(e + 0xA));
+        }
+    }
+}
+
+// At VBlank (MegaDrive::on_vblank): the builder's last pass goes to the screen with the sprite table the game sends
+// now; each piece's move since the pass before (its object the same kind in the same slot) for in-between pictures.
+void extra_latch(Wide& w) {
+    if (!w.built_new) {
+        for (ExtraPiece& p : w.shown) p.back = 0;
+        return;
+    }
+    w.built_new = false;
+    w.shown = w.built;
+    for (ExtraPiece& p : w.shown)
+        p.back = w.shown_t[p.slot] == w.built_t[p.slot] ? w.shown_x[p.slot] - w.built_x[p.slot] : 0;
+    std::memcpy(w.shown_x, w.built_x, sizeof(w.shown_x));
+    std::memcpy(w.shown_t, w.built_t, sizeof(w.shown_t));
+}
+
+// Before each frame: whether it is another screen drawn wide, and what it needs.
+void screen_frame(Wide& w) {
+    MegaDrive& md = *w.md;
+    VDP& v = md.vdp;
+    w.screen = Screen::None;
+    w.extra.clear();
+    if (!v.ext || w.active || level_shown(md) || !v.h40()) return;
+    w.screen = picture_kind(v);
+    if (w.screen == Screen::None && plain_edges(v)) w.screen = Screen::Plain;
+    if (w.screen == Screen::None) return;
+    if (md.rom16(0x1ABA8C) == 0x0443) w.extra = w.shown;   // (the original clip: subi.w #$80, d3 unpatched)
+    else v.sprite_x10 = true;                              // (CAVE_SCRCLIP's X up to 448 + 2E, past 9 bits)
+}
+
+// A line of another screen drawn wide: plane A's sides empty, plane B's empty or the picture's edge strips, the extra
+// pieces behind the game's sprites.
+void screen_line(Wide& w, int line, uint8_t* plane_a, uint8_t* plane_b, uint8_t* sprites) {
+    VDP& v = w.md->vdp;
+    const int E = v.ext;
+    std::memset(plane_a, 0, E);
+    std::memset(plane_a + 320 + E, 0, E);
+    const SideBand* bands = w.screen == Screen::Palace ? kPalaceSides : w.screen == Screen::Dunes ? kDunesSides
+                          : w.screen == Screen::DunesTiger ? kDunesTigerSides : w.screen == Screen::Moon ? kMoonSides : nullptr;
+    if (!bands) {
+        std::memset(plane_b, 0, E);
+        std::memset(plane_b + 320 + E, 0, E);
+    } else {
+        while (line >= bands->end) bands++;
+        auto source = [](int x, int strip) {   // the picture's pixel a side pixel repeats
+            if (strip == 0) return x < 0 ? x + 320 : x - 320;
+            const int d = (x < 0 ? -1 - x : x - 320) % (2 * strip), k = d < strip ? d : 2 * strip - 1 - d;
+            return x < 0 ? k : 319 - k;
+        };
+        for (int x = -E; x < 0; x++) plane_b[x + E] = plane_b[source(x, bands->left) + E];
+        for (int x = 320; x < 320 + E; x++) plane_b[x + E] = plane_b[source(x, bands->right) + E];
+    }
+    for (const ExtraPiece& p : w.extra) {
+        const int row = line - p.y;
+        if (row < 0 || row >= 8 * p.h) continue;
+        // (an in-between picture: the piece part of the way back to where its object was)
+        const int x0 = p.x + (std::abs(p.back) <= 32 ? (int)std::lround(v.sub_back() * p.back) : 0);
+        const bool hf = (p.attr & 0x0800) != 0, vf = (p.attr & 0x1000) != 0;
+        const int tr = vf ? p.h - 1 - (row >> 3) : row >> 3;
+        uint8_t px[8];
+        for (int c = 0; c < p.w; c++) {
+            const int tc = hf ? p.w - 1 - c : c;
+            v.pattern_row((uint16_t)((p.attr & 0xF800) | ((p.attr + tc * p.h + tr) & 0x7FF)), row & 7, px);
+            for (int k = 0; k < 8; k++) {
+                const int i = x0 + 8 * c + k + E;
+                if (i >= 320 + E && i < 320 + 2 * E && (px[k] & 15) && !(sprites[i] & 15)) sprites[i] = px[k];
+            }
+        }
+    }
+}
+
 int sprite_xoff_hook(void* host, int index, uint16_t attr, int x, int y) {
     const Wide& w = *(Wide*)host;
     return w.active ? sprite_xoff(*w.md, index, attr, x, y) : 0;
@@ -1814,6 +2011,7 @@ void line_hook(void* host, int line, uint8_t* plane_a, uint8_t* plane_b, uint8_t
     VDP& v = md.vdp;
     v.edge_mask_l = v.edge_mask_r = 0;
     v.edge_dim_l = v.edge_dim_r = 0;
+    if (w.screen != Screen::None) return screen_line(w, line, plane_a, plane_b, sprites);
     if (!w.active) return;
     // (The Rug Ride doesn't stream: its planes are 512-px loops of the lava cave the VDP wraps, its "map" nominal.)
     if (rug_ride(md)) return ride_line(w, line, plane_b, sprites);
@@ -2000,7 +2198,12 @@ public:
             // The Rug Ride: objects despawned behind the carpet go on as ghosts, stepped with the game's (RideView)
             md.add_pc_hook(PC_WINDOW_DESPAWN, [this](MegaDrive&) { if (rom_ == Rom::Ride) ride_despawn(*wide_); });
             md.add_pc_hook(PC_ANIMATE, [this](MegaDrive&) { if (rom_ == Rom::Ride) ride_animate(*wide_); });
+            // The other screens: sprite pieces the original ROM's clip drops (extra_pieces)
+            md.add_pc_hook(PC_BUILDER, [this](MegaDrive&) { extra_pieces(*wide_); });
         }
+        wide_->built.clear();
+        wide_->shown.clear();
+        wide_->built_new = false;
         wide_->md = &md;
         wide_->ride = ride_.get();
         if (!wide) ride_->ghosts.clear();   // (4:3: none to draw, none to save)
@@ -2015,6 +2218,7 @@ public:
         md.vdp.hook_flags = cfg.hud_anchor ? 1 : 0;
         Wide* w = wide_.get();
         md.on_frame_start = wide ? std::function<void(MegaDrive&)>([w](MegaDrive&) { update_view(*w, true); }) : nullptr;
+        md.on_vblank = wide ? std::function<void(MegaDrive&)>([w](MegaDrive&) { extra_latch(*w); }) : nullptr;
         md.vdp.view_shift = 0;
         md.vdp.view_shift_b_on = false;
         if (wide) update_view(*w, false);   // (the frame about to be drawn after a width change or a loaded state)
@@ -2051,7 +2255,8 @@ public:
 
     void post_frame(MegaDrive& md, const GameConfig& cfg, FrameInfo& info) override {
         // (the level-edge masks are drawn per line by line_hook, so the HUD stays over them)
-        info.gameplay = cfg.ext > 0 ? wide_->active : wide_view(md);   // (as the frame was drawn)
+        // (as the frame was drawn; another screen drawn wide is shown so too: section 6a)
+        info.gameplay = cfg.ext > 0 ? wide_->active || wide_->screen != Screen::None : wide_view(md);
         sprite_x10(md, cfg.ext);
     }
 
@@ -2063,16 +2268,33 @@ public:
 
     // Save states (rewind too): besides module_state, the Rug Ride's ghosts - objects the game has despawned behind the
     // carpet that the view still shows (RideView): a version byte, their count, then each one's slot address (4 bytes)
-    // and record. Nothing when there are none; an older state (none) has no ghosts.
-    static constexpr uint8_t EXT_VERSION = 1;
+    // and record. Nothing when there are none; an older state (none) has no ghosts. Version 2 adds the sprite pieces the
+    // module draws on the other screens (extra_pieces): whether the builder has passed since the last VBlank, the
+    // pieces of that pass and those on screen (a count each, then 10 bytes a piece).
+    static constexpr uint8_t EXT_VERSION = 1, EXT_VERSION_PIECES = 2;
+    static constexpr size_t PIECE_BYTES = 10, PIECES_MAX = 255;
     std::vector<uint8_t> save_ext() const override {
         std::vector<uint8_t> d;
-        if (ride_->ghosts.empty()) return d;
-        d.push_back(EXT_VERSION);
+        const bool pieces = !wide_->built.empty() || !wide_->shown.empty();
+        if (ride_->ghosts.empty() && !pieces) return d;
+        d.push_back(pieces ? EXT_VERSION_PIECES : EXT_VERSION);
         d.push_back((uint8_t)ride_->ghosts.size());
         for (const RideView::Ghost& g : ride_->ghosts) {
             for (int i = 0; i < 4; i++) d.push_back((uint8_t)(g.addr >> (24 - 8 * i)));
             d.insert(d.end(), g.obj, g.obj + OBJ_SIZE);
+        }
+        if (!pieces) return d;
+        d.push_back(wide_->built_new ? 1 : 0);
+        for (const std::vector<ExtraPiece>* v : {&wide_->built, &wide_->shown}) {
+            const size_t n = std::min(v->size(), PIECES_MAX);
+            d.push_back((uint8_t)n);
+            for (size_t i = 0; i < n; i++) {
+                const ExtraPiece& p = (*v)[i];
+                const uint8_t b[PIECE_BYTES] = {(uint8_t)(p.x >> 8), (uint8_t)p.x, (uint8_t)(p.y >> 8), (uint8_t)p.y, (uint8_t)p.w,
+                                                (uint8_t)p.h, (uint8_t)p.slot, (uint8_t)std::clamp(p.back, -128, 127),
+                                                (uint8_t)(p.attr >> 8), (uint8_t)p.attr};
+                d.insert(d.end(), b, b + PIECE_BYTES);
+            }
         }
         return d;
     }
@@ -2084,7 +2306,9 @@ public:
     // machine the state holds: it runs on the ROM it was saved with (rom_for tells it from RAM, for any version's state).
     void load_ext(const uint8_t* d, size_t n) override {
         ride_->ghosts.clear();
-        if (n >= 2 && d[0] == EXT_VERSION && d[1] <= GHOSTS_MAX && n == 2 + (size_t)d[1] * (4 + OBJ_SIZE))
+        const size_t ghosts_end = n >= 2 ? 2 + (size_t)d[1] * (4 + OBJ_SIZE) : 0;
+        const bool v1 = n >= 2 && d[0] == EXT_VERSION && n == ghosts_end, v2 = n > ghosts_end && d[0] == EXT_VERSION_PIECES;
+        if ((v1 || v2) && d[1] <= GHOSTS_MAX)
             for (int k = 0; k < d[1]; k++) {
                 const uint8_t* e = d + 2 + k * (4 + OBJ_SIZE);
                 RideView::Ghost g;
@@ -2092,7 +2316,29 @@ public:
                 std::memcpy(g.obj, e + 4, OBJ_SIZE);
                 ride_->ghosts.push_back(g);
             }
+        // (the pieces: configure clears them, so they are read first and put back after)
+        std::vector<ExtraPiece> lists[2];
+        bool built_new = false;
+        if (v2 && d[1] <= GHOSTS_MAX) {
+            size_t at = ghosts_end;
+            built_new = d[at++] != 0;
+            for (std::vector<ExtraPiece>& v : lists) {
+                if (at >= n) break;
+                const size_t count = d[at++];
+                if (at + count * PIECE_BYTES > n) break;
+                for (size_t i = 0; i < count; i++, at += PIECE_BYTES) {
+                    const uint8_t* b = d + at;
+                    v.push_back({(int16_t)(b[0] << 8 | b[1]), (int16_t)(b[2] << 8 | b[3]), b[4], b[5], b[6] & 31, (int8_t)b[7],
+                                 (uint16_t)(b[8] << 8 | b[9])});
+                }
+            }
+        }
         if (md_) configure(*md_, cfg_);
+        wide_->built = lists[0];
+        wide_->shown = lists[1];
+        wide_->built_new = built_new;
+        std::memset(wide_->shown_t, 0, sizeof(wide_->shown_t));   // (a loaded state is a cut: no moves)
+        if (md_ && cfg_.ext > 0) update_view(*wide_, false);
     }
 
     std::vector<AchievementDef> achievements() const override {

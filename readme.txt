@@ -548,10 +548,19 @@
   always did; the extra width shows the cave you've flown through, with
   the lava wave chasing you.
 
-  Shown in their original shape: title screens, menus, story scenes and
-  the Mega Drive's bonus rounds. Where such a screen's background is one
-  plain colour, it fills the width in that colour. The SNES STAGE CLEAR
-  screen fills the width with its purple background.
+  Mega Drive screens between and around the levels are drawn wide: the
+  title and options (sky, stars and palace skyline across the width, the
+  logo and menu centred), the story cards, the title cards, "Level
+  Complete", the death and continue screens and the ending. What flies
+  across them - the Genie round the logos, Aladdin and Abu running, the
+  scarab's halves, the carpet - goes on into the sides. The Genie's bonus
+  wheel, the instructions and the full scarab picture stay in their
+  original shape.
+
+  Shown in their original shape: other title screens, menus, story
+  scenes and the Mega Drive's bonus rounds. Where such a screen's
+  background is one plain colour, it fills the width in that colour. The
+  SNES STAGE CLEAR screen fills the width with its purple background.
 
   The SNES staff roll is wide: its night sky, clouds and city run the
   whole width (the moon only once), the credits stay in the middle, and
