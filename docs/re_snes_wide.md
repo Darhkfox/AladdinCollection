@@ -165,7 +165,8 @@ so one side can take both extensions, 2 x 140).
 camera reaches may enter (bit 15 top to bottom: `level_extent`; the Underground River's first 256 px, where its camera
 never goes - a first version stopped at 0 there and showed that column dimmed and mirrored), in a shaft (below), and
 on an arena's screen when the camera is held in x while free in y (`$1A10` set, `$1A12` clear: Jafar, the Cave of Wonders' last event). The
-view is centred on the camera and stops there; an arena's picture is centred on its screen but kept inside the level
+view is centred on the camera and stops there; Jafar's room is centred on its screen whatever the level's extent (an
+open span: **Jafar's fight** below); another arena's picture is centred on its screen but kept inside the level
 where the level is as wide as the picture (the Cave's end: centred, it went a pixel past the level's end once the
 offset closed); a span narrower than the picture is centred. That is where every layer can follow a view that stays
 still while the game's camera moves (`can_stop`): BG1, and BG2 in every level's mode - at a known speed (`$083F` modes
@@ -189,7 +190,7 @@ reaches it again.
 The span changes only at an arena, when the level's width changes (Jafar's room) or into and out of a shaft. The view's
 offset to its new place then closes only as the game's camera moves (at most 4 px a frame, and no more than the camera
 moved; into or out of a shaft, where the camera moves only in y, its move in y counts too): the picture never pans by
-itself while the game's screen holds still. Climbing out of the tower the picture glides from centred to the
+itself while the game's screen holds still (but in Jafar's held room, below). Climbing out of the tower the picture glides from centred to the
 corridor's start over the first ~30 frames of the screen's climb, and back as Aladdin drops in. (A first version
 also stopped at the zones' camera limits and at pages the camera can't enter at its height and slid there by itself:
 in play testing layers moved where the console's don't. `tools/re/snes_motion.py` measures each layer's motion from
@@ -256,16 +257,8 @@ room's picture mirrored at full brightness instead of two dim bands) and single 
 Sultan's Dungeon 2 and Jafar's Palace 2. None has a strip (BG2 mirrored about the edge, as before but undimmed).
 
 **Dimmed** only where the margins can't show what the console would:
-- Where the game paints on its screen what the level beside it doesn't hold (`painted_row`): Jafar's cobra (level
-  `$11`) sets the floor on fire by writing the fire into its room's map (`$4000`, on BG1 since the room was held:
-  rows 21-31) in the 32 columns on its screen only, and in the same frame points BG2 at a spiked arch (`$4800`, rows
-  22-28, mode `$12`: placed by an object). From that frame the margins are dimmed on the lines from the arch's first
-  row down (line 163; the fire's starts at 167), where they show the room's stored floor; the wall above is the
-  room's and stays bright. The dim comes in the frame the fire appears on the game's screen (frame by frame: neither
-  before nor after). The fire's row is found from BG1's vertical scroll taken as signed: as the arch rises the room
-  shakes a few lines above 0 (register 1016-1022). Read as 248-254, the row came out at -87 and the whole side,
-  wall included, was dimmed in every shaking frame, blinking at about 7.5 Hz (`tools/qa` round 2, N2: 672 of 5998
-  fire frames at 106; now none, the only full dims being the fight's fade-out).
+- (Jafar's fire floor was dimmed beside the game's screen once, from the frame the fire appeared: the margins showed
+  the room's stored floor there. Now the fire goes on into the sides: **Jafar's fight** below.)
 - **Jafar's Palace 3's fight** (level `$10`, the user's request at 21:9: "maybe we should have the sides dimmed on
   this battle, and undimmed after so Aladdin can get to the exit"). Its event task (`$80:A5AC`) holds the camera at
   `$10A0` until Aladdin reaches x `$1190` on the floor; then it deletes every object, sets the zone's right limit to
@@ -299,11 +292,11 @@ Sultan's Dungeon 2 and Jafar's Palace 2. None has a strip (BG2 mirrored about th
   no hold; once the boss is beaten the camera is let go only as Aladdin reaches the arena's right wall, and the game
   then walks him on to Jasmine with no input: no way on for the player to find), Jafar (level `$11`: an arena, `$1A10`
   set and `$1A12` clear, then the cobra and its fire floor; the level ends with him, no exit to walk to). They keep
-  their sides bright (Jafar's fire floor dimmed as before).
+  their sides bright (Jafar's: **Jafar's fight** below).
 - Everywhere else the margins show the level as stored, at full brightness, also where the game's camera can't go now:
   a zone's camera limits (`$1A40` / `$1A42`: the Market at Dusk's wait at `$400` and its boss at `$500`, the waits
   before Sultan's Dungeon 3's boss at `$900` and at the end of Jafar's Palace 3 at `$10A0`), an arena (the Cave of Wonders' end, Jafar's
-  room before the fire), the pages the camera can't enter in another page row its screen covers (Agrabah Rooftops,
+  room in the sorcerer's part), the pages the camera can't enter in another page row its screen covers (Agrabah Rooftops,
   Sultan's Dungeon 2, Jafar's Palace 2). Nothing changes the level there, and its objects are drawn as the game has
   them: the sweeps leave those areas as empty as the console's would be. **The Cave of Wonders' end** (level `$04`):
   at its last camera x (`$1A04` = 3840) the camera is held in x (`$1A10` = 1, `$1A12` = 0); the magic carpet (`$6B`)
@@ -322,8 +315,51 @@ data is still the room's: identical to VRAM over the 240 px the map holds beside
 the screen's 33 and the streaming's column each side) and over the screen itself until the fire. Drawn from VRAM, as a
 first version did, the left 40 px at 21:9 with square pixels (280 px on one side) showed the screen's own right edge
 and two columns of zeros. BG2 holding an object's picture (mode `$12`) isn't drawn from data: the cobra's arch,
-scrolled with the camera at 512, is shown on the game's screen only (its map's repeat had shown at the far left at
-21:9).
+scrolled with the camera at 512, goes on into the sides as the game's own spikes repeated (below; its map's 512-px
+repeat had shown at the far left at 21:9 once, over the stored floor).
+
+**Jafar's fight** (level `$11`; `jafar_` / `fire_`, `span`, `take_arch`, `arch_steps`, `build_arch_opt`,
+`painted_entry`). The room is 768 px wide at the fight (`$1A04` grows from `$100` to `$200` as the camera is held,
+`$1A10` = 1, and the event pans it from 256 to 512 at 3 px a frame); the fight is the game's screen at the room's
+right end, x 512-767: Aladdin is held on it (16 px from its sides), the sorcerer stands at x 704, the cobra at 714-728
+with its head and coils swaying past x 768 (cut by the 4:3 screen's edge). Kept inside the room, as the arenas are,
+the view stood at 300-767 at 106: the arena right of centre, 212 px of the room's pillared part beside it, the cobra
+cut at the picture's edge and the fire floor dimmed beside the screen (the user's report at 21:9: "not working well
+at all for the boss fight").
+- **Framing.** While the room is held the span is open (`span`: any x), so the view's target is centred on the camera:
+  at 512 the picture is 406-873 (106), 372-907 (140), 466-813 (46). The span doesn't move with the camera, so the
+  room's own pan closes the offset from the room's end (camera 256, the view at 44) as it moves: 3 px a frame with
+  the camera, centred some 36 frames into the 85-frame pan. With the camera held for good, an offset still open (a
+  state from an older version: the view at 300) closes by itself, a sixteenth of it a frame (1-3 px), in ~45 frames.
+- **The sides.** On the lines of the held room nothing is past the level's ends (`wideShowLo / Hi` the whole width,
+  unless *Past Level Ends: Black*): every layer and the sprites are drawn there - the fireballs (`$A1`) fly out to the
+  picture's edge (deleted 32 px past it, by the widened keep range), the cobra's head and coils show past x 768. The
+  room's layers come from its data (BG2 in the sorcerer's part, BG1 from the BG2 struct once the game points BG1 at
+  the room) and are mirrored tile by tile past the room's ends (`LineLayer::lo / hi` = the level's extent, 0-768): the
+  right side is the room's arched panels and floor going on; the left side is the room as stored, its pillars (x
+  384-511) standing on the wall's band.
+- **The fire.** The cobra sets the floor on fire by writing its room's map (`$4000`, BG1) rows 21-31 in the 32 columns
+  on its screen only (rows 21-23 the wall going down, 24-31 the flames), in the frame it points BG2 at the spiked arch
+  (`$4800`, rows 22-28, mode `$12`; `painted_row`). From that frame (`fire_`) a margin tile of a painted row - BG1's
+  map rows 21-31 (by the map row the PPU reads: where the room's shake scrolls it a few lines above 0, the game's
+  top lines show row 31 too) and every row of the arch - is the screen's own entry for that column, repeated by the
+  row's period (`painted_entry`: the smallest period of the row's columns 8-31 - the flames 12 and 4 tiles, the wall
+  4, the spikes 4; columns 0-7 left out, where the arch's rows 24-25 have a gap at columns 3-4). The flames are
+  animated in VRAM (their tiles rewritten every 8 frames), so the sides burn with the screen; the white flash as the
+  fire starts and the cobra's death flash are palette changes and cover the sides too. The sides change in the frame
+  the screen does: the stored floor before, the fire after, never dimmed.
+- **The arch's wave.** The arch waves by mode 2's offset-per-tile on BG2: its object (type `$88`, script `$84:8E6A`)
+  moves a 24-bit y by a velocity that an acceleration turns round at its centre (`$100`), and each step shifts a table
+  of 32 column scrolls one column on and inserts its y at the front (`$7E:DFC0`, copied into BG3's map by the NMI;
+  details above `kArchType`): the wave travels right a column a step. The PPU's table covers the screen's columns only,
+  so the sides' arch stood flat beside a wave. `Ppu::wideOptOn` / `wideOptV` now give the margin columns their own
+  scroll: right of the screen the entries that have moved past the table's end (40 kept, a step at a time:
+  `take_arch` at the logic's frame wait), left of it the entries the next steps will insert - the script run ahead
+  from the object's y, velocity, acceleration, half and strength (`arch_steps`; with `$1B1A` clear it holds and
+  inserts nothing). The table on the screen is the one the NMI copied; the snapshot may be a step ahead of it (a frame
+  whose logic ran before the picture): they are matched by shifting (`build_arch_opt`). Run ahead over 1,200 frames
+  of the fight, every predicted entry was the one the game then inserted (40 of 40 at each of 23 checks). A change of
+  the strength (`$1B1B`) or the wave switching on shows on the far left as it is read.
 
 **Windows: the lamp's beam** (the Underground River's end, level `$05`). The window effect seen in play is the
 column of light over the lamp (a screen task, `$82:84CB`, every frame from `$82:8514`): colour math (add, fixed
@@ -371,6 +407,8 @@ the band routines' inputs (both snapshots, whether this logic frame's is taken, 
 a level is being played (section 1; an older state: a level index, no demo and the main task in the level loop),
 and (version 5) the level objects deleted, swept or refused since the level's start, whose spawn is running, and the
 Lava Cavern's eased limits (section 4).
+Version 9 adds Jafar's arch (its wave's table, the entries moved past it, the object's motion; an older state: the
+arch's sides flat until the next logic frame, the right side filling in as the wave moves on).
 Version 8 adds a boss fight's dim as it fades (`fight_dim_`, one byte at the end; an older state: dimmed if the fight
 holds Aladdin, no fade). Sultan's Dungeon 3's fight uses the same byte (no new version).
 Version 7 adds the camera's y and whether the span is a shaft's and its offset closes with the camera's y, in the two
@@ -764,10 +802,9 @@ every frame; layer by layer the in-betweens at (1 - k/4) of the frame's move and
 - Inside the Lamp 3's tower is centred; the level holds nothing beside it, so the sides are its gold pillars going on
   as a flat gold wall (their outer tile column reflected outward, their bands running on). The game has no such wall:
   it is made from the pillar's own pixels. Past other levels' ends the sides are their background mirrored.
-- Where Jafar's room grows and the camera is then held, the view keeps its place (the offset only closes while the
-  camera moves), so the arena isn't centred in the picture; beside it the room is shown as stored.
-- Jafar's cobra sets the floor on fire only on the game's screen (section 3): beside it the floor lines show the
-  room's stored floor, dimmed, from the frame the fire appears to the end of the fight.
+- Jafar's room ends at the arena's right edge: the right side is the room mirrored past its end, which the game never
+  shows. The fire and the arch beside the arena are the game's own tiles repeated (it paints them on its screen
+  only), and the arch's wave on the left side is the game's motion worked out ahead.
 - Where the game's camera can't go (a zone's limits, an arena) the margins show the level and the objects the game
   has out there; ones it would only bring out with its camera there don't appear (the events' sweeps empty those
   areas on the console too).
