@@ -198,9 +198,11 @@ achievements of its own: *A Whole New World* (defeat Jafar in all three versions
   the end of the Cave of Wonders, Sultan's Dungeon and Jafar's Palace, Jafar) keep the original camera; their sides
   show the level at full brightness, dimmed only during the boss fights at the ends of Sultan's Dungeon and Jafar's
   Palace (the sides fade dark as the fight begins and Aladdin is kept on the original screen, and fade back in once
-  the boss is beaten and the way on to the exit opens). The final fight with Jafar is framed on its arena, centred,
-  with the cobra in full view; once the cobra sets the floor on fire, the burning floor and the spiked arch over it
-  run on across both sides, with the game's own animated tiles and the arch's wave travelling through them, and the
+  the boss is beaten and the way on to the exit opens) and the final fight with Jafar. That fight is framed on its
+  arena, centred, with the cobra in full view, and its sides are dimmed the same way from the camera's pan into the
+  arena to the ending's fade; once the cobra sets the floor on fire, both sides are the arena going on (the room's
+  pillars on the left give way to its arched panels, as on the right), the burning floor and the spiked arch over it
+  run on across them, with the game's own animated tiles and the arch's wave travelling through them, and the
   fireballs fly on out into the sides. Past a level's ends the sides show only
   its far background, at full brightness: no platforms, props or sprites, nothing that looks like a way on. In the Lava
   Cavern, which scrolls by itself, the screen's limits follow the wide picture's edges (in widescreen only, a small
@@ -369,7 +371,8 @@ gradlew assembleDebug
   pits, crushes or being left behind by the scrolling. Infinite Gems keeps the counter at 99, so every gem completes
   a hundred (an extra heart, then an extra life). Beside Jafar's arena the burning floor and the spiked arch are
   the game's own tiles repeated (the game paints them only on its screen), the arch's wave on the left side worked
-  out ahead from the game's own motion; the room's right side, past its end, is the room mirrored. The carpet rides keep Aladdin within the 4:3 area, and
+  out ahead from the game's own motion; the room's right side, past its end, is the room mirrored, and once the
+  floor burns the left side is the arena mirrored too. The carpet rides keep Aladdin within the 4:3 area, and
   the game's screen-wide boxes (the "ABU NO!" box after the lamp) stay 4:3 with the sides dark outside them.
   Narrowing the picture while Aladdin presses against the Lava Cavern's wall leaves him past the new wall (even
   beside the picture) until the scrolling catches up with him, rather than pushing him. In the levels with a half-speed

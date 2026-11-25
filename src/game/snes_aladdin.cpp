@@ -203,12 +203,17 @@ public:
     // screen. Beaten ($00BD, $83:EB1E), 432 frames on the event opens the right limit ($80:A59E: $1A42 = $7FFF) and
     // Aladdin walks on right to the exit.
     static constexpr int kDungeon3Level = 0x0D, kDungeon3Boss = 0x0A00;
-    // The boss fights that keep Aladdin on the game's screen until won and then let him go on to the exit: the zone's
-    // right limit while the fight is on (from the event's pan to the win's release) and whether the camera is held in
-    // x then too. The margins are dimmed through them, by a fade.
-    struct BossFight { int level, zone_max; bool hold; };
-    static constexpr BossFight kBossFights[] = {{kPalace3Level, kPalace3Boss, true},
-                                                {kDungeon3Level, kDungeon3Boss, false}};
+    // Jafar's fight (level $11): the room grows to 768 px as the camera is held for it ($1A04 from $100 to $200,
+    // $1A10 = 1) and the event pans it to the fight's screen; the sorcerer, then the cobra, fight there, and the level
+    // ends with the cobra (the ending, level $39). A death restarts the level: the room at 512 px, the camera free.
+    static constexpr int kJafarRoom = 0x200;
+    // The boss fights that keep Aladdin on the game's screen until won: the word that marks the fight on (a zone's
+    // right limit from the event's pan to the win's release; Jafar's room grown) and whether the camera is held in x
+    // then too. The margins are dimmed through them, by a fade.
+    struct BossFight { int level; uint32_t addr; int value; bool hold; };
+    static constexpr BossFight kBossFights[] = {{kPalace3Level, kZoneMaxX, kPalace3Boss, true},
+                                                {kDungeon3Level, kZoneMaxX, kDungeon3Boss, false},
+                                                {kJafarLevel, kCamMaxX, kJafarRoom, true}};
     static constexpr int kFadeFrames = 16;        // a fight's dim fades in / out over this many frames (1/32 each)
 
     void configure(Snes& s, const GameConfig& cfg) {
@@ -1411,12 +1416,13 @@ private:
     }
     // The camera held in x while it follows in y: a fixed arena (Jafar's). (Both held: a death's fall.)
     static bool arena(const Snes& s) { return rd16(s, kCamHoldX) && !rd16(s, kCamHoldY); }
-    // A boss fight that holds Aladdin on the game's screen until it is won and then lets him go on (kBossFights: its
-    // zone's right limit, and the camera held in x if the fight holds it; the limit opens once the fight is won).
+    // A boss fight that holds Aladdin on the game's screen until it is won (kBossFights: the word that marks it on -
+    // its zone's right limit, which opens once the fight is won; Jafar's room grown - and the camera held in x if the
+    // fight holds it).
     static bool boss_held(const Snes& s) {
-        const int level = rd8(s, kLevel), zone_max = rd16(s, kZoneMaxX);
+        const int level = rd8(s, kLevel);
         for (const BossFight& b : kBossFights)
-            if (level == b.level && zone_max == b.zone_max && (!b.hold || rd16(s, kCamHoldX))) return true;
+            if (level == b.level && rd16(s, b.addr) == b.value && (!b.hold || rd16(s, kCamHoldX))) return true;
         return false;
     }
     // Whether every layer can follow a view stopped at a level's end (section 3 of docs/re_snes_wide.md): BG2 at a
@@ -1809,6 +1815,9 @@ private:
             jafar_ = arena_ && rd8(s, kLevel) == kJafarLevel;
             fire_ = jafar_ && paint_row_ < 0x10000;
             if (jafar_) level_extent(s, jafar_lo_, jafar_hi_);
+            // On fire, the left side is the fight's screen going on, as the right: mirrored about its left edge (the
+            // room's last camera x). The room's pillars left of it would stand cut off over the fire repeated there.
+            if (fire_) jafar_lo_ = std::max(jafar_lo_, (int)(int16_t)rd16(s, kCamMaxX));
             // the band routine's inputs for the frame on screen (the one its logic finished for this camera)
             if (band_next_.valid && band_next_.cam == cam) band_shown_ = band_next_;
             band_on_ = band_mode(rd16(s, kBgMode));
