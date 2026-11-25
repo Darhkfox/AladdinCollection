@@ -265,16 +265,30 @@ Sultan's Dungeon 2 and Jafar's Palace 2. None has a strip (BG2 mirrored about th
   over 16 frames from the frame the camera is let go (`fight_dim_`, 1/32 of the brightness a frame, `Ppu::wideDimAmt`:
   the PPU darkens by that many 32nds, rounded; 16 is the old half brightness exactly, the fire floor's). No flash: the
   sides' mean brightness steps 2-3 levels (of 255) a frame. Saved with the view (version 8); an older state from the
-  fight opens with the sides dimmed. **The other held fights**, by the same measure: the Market at Dusk's boss
-  (zone limits `$1A40` = `$1A42` = `$500`, no hold; once the boss is beaten the camera is let go only as Aladdin
-  reaches the arena's right wall, and the game then walks him on to Jasmine with no input: no way on for the player to
-  find), Sultan's Dungeon 3's boss (zone limits `$A00` / `$A00`, no hold; beaten, 432 frames on the right limit opens,
-  `$80:A59E`, and Aladdin walks on to the exit: the same shape as Palace 3's, by another mechanism), Jafar (level
-  `$11`: an arena, `$1A10` set and `$1A12` clear, then the cobra and its fire floor; the level ends with him, no exit
-  to walk to). None is the same fight setup; they keep their sides bright (Jafar's fire floor dimmed as before).
+  fight opens with the sides dimmed.
+- **Sultan's Dungeon 3's fight** (level `$0D`, the user's request: the same as Palace 3's). Its event task (`$80:A503`)
+  sets the zone's right limit to `$900` and waits for Aladdin at x `$9F0` or more on the floor (y `$78` or more, a heart
+  left); then it takes his control (`$08DE` = `$CB3B`, as Palace 3's), fades the music, sets the right limit to `$A00`
+  and pans the camera there (`$083D` = 4); at `$A00` it closes the left limit too (`$1A40` = `$1A42` = `$A00`, no
+  hold) and the boss (type `$69`, `$83:EA10`, waiting for `$00BE`) comes out and fights on the game's screen. Beaten
+  (`$83:EADC`, then `$00BD`, `$83:EB1E`), the event waits 240 + 192 frames and opens the right limit (`$80:A59E`:
+  `$1A42` = `$7FFF`, 432 frames after the win): the camera follows Aladdin again and he walks on right to the exit. The
+  same treatment: the margins dimmed from the frame the right limit becomes `$A00` (the pan) until it opens, fading in
+  and out over 16 frames, by the same `fight_dim_` and strength. Both fights are one table (`kBossFights`: the level,
+  the zone's right limit while the fight is on, and whether the camera is held in x then too - Palace 3's is, `$1A10`;
+  the dungeon's isn't), read by `boss_held`. Measured at 106 (a bot beats the boss by real play - walking at it,
+  slashing, throwing, jumping; one hit from above - in some 450 frames): the sides' mean brightness in the fight 30.4
+  / 31.5 (64.5 / 66.5 before; the game's screen 43.5 both ways), back to 64.5 / 66.5 over the 16 frames from the frame
+  the limit opens, 2-3 levels a frame; the run's events on the same frames as before. Jafar's Palace 3's fight is
+  unchanged, pixel for pixel (the fade-in from the event and the fade-out after Jafar, at 106 and 140).
+- **The other held fights**, by the same measure: the Market at Dusk's boss (zone limits `$1A40` = `$1A42` = `$500`,
+  no hold; once the boss is beaten the camera is let go only as Aladdin reaches the arena's right wall, and the game
+  then walks him on to Jasmine with no input: no way on for the player to find), Jafar (level `$11`: an arena, `$1A10`
+  set and `$1A12` clear, then the cobra and its fire floor; the level ends with him, no exit to walk to). They keep
+  their sides bright (Jafar's fire floor dimmed as before).
 - Everywhere else the margins show the level as stored, at full brightness, also where the game's camera can't go now:
-  a zone's camera limits (`$1A40` / `$1A42`: the Market at Dusk's wait at `$400` and its boss at `$500`, Sultan's
-  Dungeon 3's boss at `$A00`, the wait at the end of Jafar's Palace 3 at `$10A0`), an arena (the Cave of Wonders' end, Jafar's
+  a zone's camera limits (`$1A40` / `$1A42`: the Market at Dusk's wait at `$400` and its boss at `$500`, the waits
+  before Sultan's Dungeon 3's boss at `$900` and at the end of Jafar's Palace 3 at `$10A0`), an arena (the Cave of Wonders' end, Jafar's
   room before the fire), the pages the camera can't enter in another page row its screen covers (Agrabah Rooftops,
   Sultan's Dungeon 2, Jafar's Palace 2). Nothing changes the level there, and its objects are drawn as the game has
   them: the sweeps leave those areas as empty as the console's would be. **The Cave of Wonders' end** (level `$04`):
@@ -344,7 +358,7 @@ a level is being played (section 1; an older state: a level index, no demo and t
 and (version 5) the level objects deleted, swept or refused since the level's start, whose spawn is running, and the
 Lava Cavern's eased limits (section 4).
 Version 8 adds a boss fight's dim as it fades (`fight_dim_`, one byte at the end; an older state: dimmed if the fight
-holds Aladdin, no fade).
+holds Aladdin, no fade). Sultan's Dungeon 3's fight uses the same byte (no new version).
 Version 7 adds the camera's y and whether the span is a shaft's and its offset closes with the camera's y, in the two
 words the dimmed range held (version 6 and older: not read, and the view starts where it stops now, as for a state
 made at another width: the user's state from the tower opens centred).

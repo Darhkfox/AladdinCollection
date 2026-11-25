@@ -177,6 +177,18 @@ public:
     // lets the camera go ($80:A622: $1A40 = $11A0, $1A42 = $7FA0, $1A10 = 0) and Aladdin walks on right to the exit.
     // The margins (the corridor behind, the hall on to the exit) are dimmed while the fight holds him, by a fade.
     static constexpr int kPalace3Level = 0x10, kPalace3Boss = 0x11A0;
+    // Sultan's Dungeon 3's end (level $0D; its event task $80:A503): the zone's right limit at $900 until Aladdin
+    // reaches x $9F0 on the floor; then the right limit is set to $A00 and the camera panned there ($083D = 4); there
+    // the left limit closes too ($1A40 = $1A42 = $A00, no hold) and the boss (type $69, $83:EA10) fights on the game's
+    // screen. Beaten ($00BD, $83:EB1E), 432 frames on the event opens the right limit ($80:A59E: $1A42 = $7FFF) and
+    // Aladdin walks on right to the exit.
+    static constexpr int kDungeon3Level = 0x0D, kDungeon3Boss = 0x0A00;
+    // The boss fights that keep Aladdin on the game's screen until won and then let him go on to the exit: the zone's
+    // right limit while the fight is on (from the event's pan to the win's release) and whether the camera is held in
+    // x then too. The margins are dimmed through them, by a fade.
+    struct BossFight { int level, zone_max; bool hold; };
+    static constexpr BossFight kBossFights[] = {{kPalace3Level, kPalace3Boss, true},
+                                                {kDungeon3Level, kDungeon3Boss, false}};
     static constexpr int kFadeFrames = 16;        // a fight's dim fades in / out over this many frames (1/32 each)
 
     void configure(Snes& s, const GameConfig& cfg) {
@@ -1294,10 +1306,13 @@ private:
     }
     // The camera held in x while it follows in y: a fixed arena (Jafar's). (Both held: a death's fall.)
     static bool arena(const Snes& s) { return rd16(s, kCamHoldX) && !rd16(s, kCamHoldY); }
-    // A boss fight that holds Aladdin on the game's screen until it is won and then lets him go on: Jafar's Palace 3's
-    // end (kPalace3Boss: its zone's right limit while the event holds the camera in x; $7FA0 and let go once won).
+    // A boss fight that holds Aladdin on the game's screen until it is won and then lets him go on (kBossFights: its
+    // zone's right limit, and the camera held in x if the fight holds it; the limit opens once the fight is won).
     static bool boss_held(const Snes& s) {
-        return rd8(s, kLevel) == kPalace3Level && rd16(s, kCamHoldX) && rd16(s, kZoneMaxX) == kPalace3Boss;
+        const int level = rd8(s, kLevel), zone_max = rd16(s, kZoneMaxX);
+        for (const BossFight& b : kBossFights)
+            if (level == b.level && zone_max == b.zone_max && (!b.hold || rd16(s, kCamHoldX))) return true;
+        return false;
     }
     // Whether every layer can follow a view stopped at a level's end (section 3 of docs/re_snes_wide.md): BG2 at a
     // known speed (modes 0-8: the parallax shift), or scrolled by the game in a way the module follows line by line
