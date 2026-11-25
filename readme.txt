@@ -541,8 +541,10 @@
   SNES STAGE CLEAR screen fills the width with its purple background.
 
   Narrow climbs: where an SNES level is a tower one screen wide (Inside
-  the Lamp 3), the view is centred on it, with the level mirrored and
-  dimmed at both sides (or black, with Past Level Ends: Black).
+  the Lamp 3), the view is centred on it. Both sides show the sky and
+  columns behind the tower at full brightness, without its statues,
+  platforms or enemies (or black, with Past Level Ends: Black). Past any
+  SNES level's ends the sides likewise show only the background.
 
   Attract-mode demos are recorded button presses. All three games show
   them in their original shape, exactly as recorded, at every width and
