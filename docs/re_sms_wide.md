@@ -431,26 +431,43 @@ story screens are now drawn wide where their picture allows it (`story_screen`, 
   columns for each side, `scene_cell`), so what the game draws into the table is never repeated; the text box's rows
   are `$11BF` at the sides, the hidden column 0 shows the table's own (or, where a rule says so, the left side's).
   Rules: the whole picture (its edges meet: the
-  stalls, rooftops, hills, pillars and towers of 0-7, 9, $B, $E, $F, $19, $1B, $1D, $20-$23; in $1B the lamp's
+  stalls, rooftops, hills, pillars and towers of 0-7, 9, $E, $F, $19, $1B, $1D, $20-$23; in $1B the lamp's
   table, rows 14-19 at columns 10-17, isn't repeated: the sides show columns 22-29 there, the same frame on the wall
   and the frieze in step - the right side reached the table at 21:9 square, `sub0`/`sub1`/`sub`); $A without the claw
   at its left edge: columns 8-15 on the left and 4-31 on the right above row 15; below, the rock floor (rows 16-17 the
   ledge, 18-19 the slab, columns 2-25, the slab's rounded end at 25; small rocks on row 15) is cut at the claw's foot
   (column 1 dark, column 0 a black block `$1100` in the table) and ends at the right in the lava (columns 26-29) with a
-  rock at the edge. Widened, the floor runs on unbroken out of the left edge. Inside the 4:3 picture the gap under the
-  claw's foot is filled (`kSceneFills`, widescreen only): column 1's slab (rows 18-19) from column 17 (1105 / 1109,
-  the tiles that come before the slab's 1106 / 110a at column 2 in its two- and four-column steps), and row 17's ledge
-  at columns 1-3 - where it tapered into the claw's base cells, dark at column 1 - from columns 14-16 (126 127 128,
-  before the 125 at column 4). The VDP asks `bg_entry` only for the columns left of `hw_x0`: for a scene with fills the
-  frame's start moves it to x 34 (column 3 at the shake's 2 px to the right), and `story_bg_entry` returns the fill
-  there or -1 (the table). The claw's foot (row 16) and Abu stay as they are; the fills keep the source cells' priority,
-  as the original slab's. The hidden column shows column 16 and the side 15 down to 5, repeating every 12 (`side0`; the
-  slab's steps in phase; row 15's small rocks from 4-15, whole); the right side is the lava (26-29). (Before: the side's
-  slab ended in a rounded end in the hidden column, the claw's foot over a dark 8-px gap of column 1 - the user wanted
-  it filled; before that the left side was the cave's dark below the stalactites - the floor stopped at the claw, the
-  user's "add a floor to the left side of the statue"; before that, rows 16-19
+  rock at the edge. The claw is drawn in outline (colours 10-12) over the cave's dark, colour 0: its cells at columns
+  1-3, rows 10-17 (`$14E`-`$164`), the foot's outline in rows 16-17 (`$15F`, `$160`/`$161`, `$163`/`$164`, the last two
+  holding the ledge's tip). Under the gem, column 1's rows 17-19 are tile `$100`, colour 0 throughout: the dark there is
+  the background, not a part of the claw. The same claw stands in stage 4's first screen (the Lamp, the level's left
+  end: the same tiles in the same columns, `sms_map.entry`), and there the slab begins under it with its rounded end
+  (`132b` / `132c` at column 2); no other scene, stage or the title draws these tiles ($B keeps them in VRAM, unused). Widened, the floor runs on
+  unbroken out of the left edge, behind the claw (`kSceneFills`, widescreen only): column 1's slab (rows 18-19) from
+  column 17 (1105 / 1109, before the slab's 1106 / 110a at column 2 in its two- and four-column steps), and rows 16-17
+  of columns 1-3 from columns 7-9 (143 143 144 / 128 128 125, before the 140 / 125 at column 4) - behind the claw: a
+  cell made each frame of the claw cell's pixels where they aren't colour 0 and the floor cell's elsewhere (`StoryFills`
+  in `alt_patterns`, bit 15; the claw cell's priority), so every pixel of the claw stays. The VDP asks `bg_entry` only
+  for the columns left of `hw_x0`: for a scene with fills the frame's start moves it to x 34 (column 3 at the shake's
+  2 px to the right), and `story_bg_entry` returns the fill there or -1 (the table). Abu stays as he is. The hidden
+  column shows column 16 and the side 15 down to 5, repeating every 12 (`side0`; the slab's steps in phase; row 15's
+  small rocks from 4-15, whole); the right side is the lava (26-29). (Before: a version filled row 17 of columns 2-3
+  with plain ledge cells - the claw's foot outline was lost there, the user's "part of the statue is missing"; before
+  that the side's slab ended in a rounded end in the hidden column, with the dark column 1 between it and the slab -
+  the user wanted it filled; before that the left side was the cave's dark below the stalactites - the floor stopped
+  at the claw, the user's "add a floor to the left side of the statue"; before that, rows 16-19
   took the water on the left and the floor again on the right: the user's "left/right borders issues", QA state
-  `ready/r.state`.) $10 / $18 / $1A pillars on the left (0-8,
+  `ready/r.state`.) $B (the escape: the lava's drips) has its sides laid out from its own pieces (`kSceneSides`): its
+  drips - arcs of two rows, six cells (116d 116e 116f 136f 136e 136d over 1171 1172 1173 1173 1372 1371) or four
+  (1165-1168 over 1169 1124 1124 1124) - hang in a cluster at the picture's left (columns 0-11, rows 0-11), cut by its
+  edge, and sparsely at the top of its right part; no stretch of its columns carries either edge on (the whole picture
+  repeated put the cluster again in the right side next to the empty right part, and the empty part in the left side:
+  the user's "the save state two cut scene doesnt look right", a state in $B). The left side completes the arcs the edge
+  cuts (a four-arc ending at column 0 in rows 3-4, a six-arc ending at column 2 in rows 5-6, a six-arc ending at
+  column 0 in rows 9-10, a four-arc's top ending at column 1 in row 11) and thins the cluster out with whole arcs
+  further left; the right side has two arcs near the top, as the picture's right part. Each arc whole, with the
+  picture's priority bit; rows 12-19 blank; the hidden column the table's. No other scene uses $B's map ($A shares its
+  metatiles); $C / $D (the fall) stay 4:3. $10 / $18 / $1A pillars on the left (0-8,
   not the throne), the room on the right (0-27); $11 / $13 and $15 / $17 stars on the left (0-12), the balcony / cliff
   carried on on the right (24-31 or 28-31); 4's hidden column, rows 18-19, the left side's (its cells there are bare
   rock without the priority bit, never shown on the hardware: a dark block under the ridge that runs into it from the
@@ -630,7 +647,7 @@ scene 3 at 102 differs in 76 of 954 (the characters in the sides).
 | scene walks | every walk: each frame from 6 before t0 to 8 after at 74 / 102, strips at 74 / 102, the app at 21:9 CRT and square (before / after); scenes as played from the QA playthrough states: RAM, VRAM, CRAM at 74 and 102 against 4:3 (and the plain core) every frame through every story screen into the next stage, without input and with button-1 taps | no doubled or missing character at the hand-over; identical |
 | scene characters under the blanked column | every scene from the title at 74 / 102 against the build before the walks, frame by frame (pictures), and the sprite pixels in the hidden column | scene 4's waiting guard unseen again (turban and foot gone), its hidden column's bottom cells the ridge; characters walking in from the left are drawn whole from their first piece past x 8 (before the walks a sliver in the hidden column for a few frames: 0, 3, 9, $B, $10, $1D, $1E) |
 | scene sides | every scene's table against the ROM model every 10 frames; the tiles the model uses, every 5 frames; the 4:3 edges of every widened scene at 74 | the spell in $10 the only picture drawn over (now repeated from the table); no tile reloads; $A's rule remade |
-| scene shakes, floors | every scene from the title at 74 / 102, frame by frame against the build before (left side, 4:3 part, right side; RAM, VRAM, CRAM); the lines' scrolls of every scene; the user's $A state in the app at 21:9 CRT and square, frames 10-41 | the shaken scenes' sides (8 $A $C $1C; 8 and $C are 4:3) move with the picture: no copy of the table's left part on left shakes; $A's floor carried on to the left at 6..102, unbroken under the claw (still, both shakes, fade in and out); $1B's table not repeated; every other scene's frames identical to before; RAM / VRAM / CRAM identical |
+| scene shakes, floors | every scene from the title at 74 / 102, frame by frame against the build before (left side, 4:3 part, right side; RAM, VRAM, CRAM); the lines' scrolls of every scene; the user's $A state in the app at 21:9 CRT and square, frames 10-41 | the shaken scenes' sides (8 $A $C $1C; 8 and $C are 4:3) move with the picture: no copy of the table's left part on left shakes; $A's floor carried on to the left at 6..102, unbroken behind the claw with every claw pixel kept (still, both shakes, fade in and out); $B's sides laid out from its drips (through its fade-in, shake and fade-out); $1B's table not repeated; every other scene's frames identical to before; RAM / VRAM / CRAM identical |
 | screen changes | GAME START and PASSWORD from the title, a password taken, game over (continue) at 21:9 CRT (tool, app); QA's round-3 replays (`r3_play_e74`, `r3_play_e74b`: to scene $11, and scene $23 to the title), frames where the sides change under a still 4:3 picture | section 5a "A wait before the fade": none but characters walking in a side |
 | screen-fixed texts | READY at stages 0 2 5's (re)start, PAUSE at a stage's start (slid) and mid-stage, TRY AGAIN?, at 0 / 74 / 102 with `hud_anchor` on and off (tool and app) | section 5: centred in the wide picture (READY was E px left at a start before) |
 | screens | `sms_wide_shots.py`, `sms_run_sheet.py` (whole stages 0 1 5 7 at 74 / 102), `sms_app_test.py` (16:9 and 21:9 CRT, 21:9 square) | reviewed: stages, ends, HUD, scenes |
