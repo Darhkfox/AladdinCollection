@@ -611,8 +611,9 @@
   pictures stay where the game puts them; a character who walks off goes
   on into the side), the Genie's intro and the title fill the width with
   their background, and the ending's stars and sea run the whole width.
-  Five scenes whose picture is cut off at its edges stay in their
-  original shape, with black bars.
+  Where a scene's picture is cut off at its edge (the Cave of Wonders,
+  the throne room's door, the statue on the roof), it is drawn against
+  the wide picture's edge, cut there as on the original screen.
 
   Master System traps (the caves' falling and rolling boulders, the
   geysers, spikes and crumbling ledges, and what drops from the Sultan's

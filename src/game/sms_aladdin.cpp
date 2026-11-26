@@ -969,7 +969,11 @@ const SceneRule kSceneRules[SCENES] = {
     {1, {WHOLE}},   // 5 the palace wall: the guards take Aladdin
     {1, {WHOLE}},   // 6 the palace: Jafar and Jasmine (pillars and windows)
     {1, {WHOLE}},   // 7 the dungeon
-    {0, {}},        // 8 night by the sea: a rock cut by the right edge
+    // 8 the Cave of Wonders at night: the tiger head's jaw and fangs cut by the right edge; drawn at the right
+    // (scene_at_right: the wide edge cuts the head where the 4:3 edge did). Left side: the sky's stars (columns 0-24,
+    // 200 px) and the dunes (rows 14-19, columns 0-11: their 6-column waves in phase); right (only a shake's 2 px):
+    // the head's last column
+    {2, {{0, 14, 0, 25, 31, 32}, {14, 20, 0, 12, 31, 32}}},
     {1, {WHOLE}},   // 9 the treasure room
     // $A the lamp's cave: the claw at the left edge isn't repeated; the rock floor (rows 16-19, cols 2-25: the ledge
     // and the slab, its rounded end at 25; small rocks on row 15) is cut at the claw's foot (col 1 dark, col 0 a black
@@ -996,7 +1000,11 @@ const SceneRule kSceneRules[SCENES] = {
     {1, {WHOLE}},   // $16 the Genie's cave under the water: its sides laid out (kSceneSides: the left mirrored, the rock)
     {2, {{0, 8, 0, 13, 0, 13}, {8, 20, 0, 13, 24, 32}}},   // $17 = $15's map
     {1, {{0, 20, 0, 9, 0, 28}}},   // $18 = $10's map
-    {1, {WHOLE}},   // $19 the palace hall (posts)
+    // $19 the palace hall: the post at the right edge (columns 28-31, in front: the priority bit) is drawn at the right
+    // (scene_at_right); the left side carries the plain wall on without it - columns 12-27 (the framed panel at 1-10
+    // isn't repeated: the wide edge would cut it to a stray strip of its frame at some widths), the frieze's 4-column
+    // steps and the floor in phase (column 27 next to the edge)
+    {1, {{0, 20, 12, 28, 28, 32}}},
     {1, {{0, 20, 0, 9, 0, 28}}},   // $1A = $10's map
     // $1B the Sultan's room: the lamp's table (rows 14-19, cols 10-17) in front of the wall isn't repeated (the right
     // side reached it at 21:9 square): the same columns of the next frame along the wall (22-29), frieze in step
@@ -1445,7 +1453,14 @@ bool scene_shakes(int sc) { return sc == 0x08 || sc == 0x0A || sc == 0x0C || sc 
 // wide edge cuts the statue where the 4:3 edge did; the two sit as far from it as at 4:3 and nothing moves in or out;
 // the left side, 2E px, is the sky and railing (columns 0-15, a post every 64 px).
 bool scene_throne(int sc) { return sc == 0x10 || sc == 0x18 || sc == 0x1A; }
-bool scene_at_right(int sc) { return scene_throne(sc) || sc == 0x12; }
+// Scene 8 (Aladdin and the old man - Jafar disguised - at the Cave of Wonders at night): the tiger head's jaw (columns
+// 25-31, rows 11-19) and its fangs at the top (columns 28-31) are cut by the right edge, the dunes and the sky run on to
+// the left; Aladdin walks into the jaw and off the right edge. Drawn at the right: the wide edge cuts the head where the
+// 4:3 edge did and he walks out of the picture there; the left side is the sky and the dunes (kSceneRules).
+// $19 (the palace hall: Jafar finds the lamp with Aladdin) likewise: the post at its right edge stood in the middle of
+// the wide picture, and repeated in the left side, the room's panels beyond it on the right (the user's "the wall on
+// the left shouldn't be there and the wall on the right should be far right").
+bool scene_at_right(int sc) { return scene_throne(sc) || sc == 0x12 || sc == 0x08 || sc == 0x19; }
 // how far a widened scene's picture is drawn to the right (px; 0: centred)
 int story_shift(const Sms& s) {
     return story_wide(s) == STORY_SCENE && s.ram16(MAP) == SCENE_MAPS && scene_at_right(s.ram8(SCENE)) ? s.vdp.ext : 0;

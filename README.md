@@ -264,7 +264,7 @@ achievements of its own: *A Whole New World* (defeat Jafar in all three versions
   console's 64-entry sprite table are drawn as extra sprites. Near a stage's ends the picture slides instead of
   showing black, with the parallax bands holding still with the level; Jafar's room carries its pillars on past
   its ends (dimmed); the stone counter moves to the right edge. The story scenes are wide too: each carries its
-  own picture on into the sides (31 of the 36; the framed pictures, text and characters stay where the game puts
+  own picture on into the sides (all 36; the framed pictures, text and characters stay where the game puts
   them, characters who walk off go on into the sides, and those the game brings in from off its screen walk in
   from the wide picture's edge with their own steps), the Genie's intro and the title fill the width with
   their background, and the ending's starfield and sea run the whole width. Menus, password, game over and the
@@ -466,9 +466,10 @@ gradlew assembleDebug
   Infinite Health keeps the gems, but the guards' grabs, the carpet's crashes, pits and lava still cost a life;
   Invincibility covers all but pits and lava. With Remove Sprite Flicker off, sprites in the sides count towards
   the 8-per-line limit. The attract demos play at 4:3: they replay recorded input, which only stays on its path
-  with the original code. Five story scenes stay 4:3 with black bars, as their picture is cut off by its edges
-  and can't be carried on: night by the sea (a rock at the right edge), the two falls through the collapsing cave
-  (rock walls), the palace garden at night (a roof's slope) and the Genie's cave (lit from the middle). In the
+  with the original code. Where a story scene's picture is cut off by its edge (the Cave of Wonders'
+  tiger head, the throne room's door, a statue on the roof) the picture is drawn against the wide picture's edge so
+  it is cut there, and a few edges are carried on with the scene's own art mirrored (the palace garden's bushes,
+  the Genie's cave under the water). In the
   wide scenes a character the game walks in from off its screen is drawn walking in from the wide picture's edge
   with the game's own frames and speed, reaching the 4:3 edge just when the game brings it there (the scenes'
   timing is the original's; one the game moves in right as a scene starts is already partway across the side as
