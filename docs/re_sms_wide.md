@@ -470,10 +470,14 @@ story screens are now drawn wide where their picture allows it (`story_screen`, 
   metatiles). $C and $D (the fall that follows $B: Aladdin hanging on and falling down a shaft between rock walls -
   lobes outlined in blue and red, 1130 1131 over 1139 113a and flipped for the left wall, the rock's mass black, 114c,
   beyond them) used to stay 4:3 ("rock walls cut by both edges": no stretch of their columns repeats past a wall). Their
-  sides are now the walls' own continuation (`kSceneSides`): the mass beyond them black on the right; on the left $C's
-  wall begins at row 10, with the shaft open above it to the edge - the shaft carried on above, the wall's top on in
-  lobes (1130 1131, 1139 113a) and the mass below - and $D's left wall has an opening (rows 10-15) carried on between
-  the lobes' bottoms (row 9, 1338 1337 1336) and tops (row 16, 1331 1330), the mass above and below. Their hidden column
+  sides now carry the walls on with the walls' own art (`kSceneSides`): the mass beyond them black on the right; on the
+  left the scene's right wall mirrored - its tiles flipped, as the game draws its left walls - in the order it has
+  them. $C's left wall begins at row 10 (an outcrop, its top a lobe) with the shaft open above it to the edge: the
+  mirrored right wall (rows 0-11) stands two columns out, its ledge at rows 8-9 reaching over the outcrop's top, which
+  the hidden column completes; the mass below. $D's left wall has an opening (rows 10-15): its back is the right
+  wall's face there mirrored, one to three columns out, joining the picture's wall at rows 9 and 16; the mass above and
+  below. (A first version ran the tops on as rows of one repeated lobe tile, a comb under $D's upper mass: obviously
+  tiled, the coordinator's review.) Their hidden column
   holds the blank $11BF in $C (rows 0-13): it shows the side's cells (`hidden`). Both shake ($C sideways, $D up and
   down): the sides follow (`scene_shakes` for $C; the rows wrap as the table's for $D). $F (the oasis, the user's
   "margin tilesets not correct"): its edges meet but on rows 18-19, where a bush stands over the sand at the bottom
