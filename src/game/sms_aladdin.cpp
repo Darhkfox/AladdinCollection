@@ -547,6 +547,14 @@ void CamTiles::build(const Sms& s, int st) {
 // repeating every 128 px), at full brightness. The partial cell at the right shows the table's column as the
 // hardware does (not the map's: the hourglass' post there).
 constexpr int ARENA_STAGE = 9, ARENA_FROM = 128, ARENA_PERIOD = 128;
+// Jafar's turn into the snake shakes the screen with the vertical scroll (222 / 224 on alternate frames): on the
+// 222 frames the status rows go 2 lines down (lines 2-17), and their bottom lines, 16 and 17, take the playfield's
+// horizontal scroll (the hardware keeps only lines 0-15 still, reg 0 bit 6): the gems cut 2 lines short and two bits
+// of the status row shown at x 8 and 248 beside them - the user's "the health is glitched here". The 4:3 picture
+// keeps them; widened those lines are drawn as the status bar (its scroll, its stone counter at the right edge).
+bool status_line(const SmsVdp& v, int line) {
+    return line < 16 || (v.ext && line < 18 && (v.reg[0] & 0x40) && ((line + v.vscroll()) % 224) >> 3 < 2);
+}
 // The camera ($C482) stays 128 through the fight; in the snake's part (the second figure's type $C698 = $0B) the snake's
 // knock-backs move it (128 down to ~72). The snake is drawn into the table and scrolls with it, but the game keeps the
 // room still on the screen - the pillars redrawn at screen x 20 and 148 at every camera, the floor (lines 160 on) split
@@ -1030,7 +1038,7 @@ const SceneRule kSceneRules[SCENES] = {
     {1, {WHOLE}},   // $20 Jafar's room: the snake (the floor)
     {1, {WHOLE}},   // $21 Jafar the genie
     {1, {WHOLE}},   // $22 Jafar's room, red
-    {1, {WHOLE}},   // $23 the palace balcony: the end (towers)
+    {1, {{0, 20, 0, 0, 24, 32}}},   // $23 the palace balcony at the end: drawn at the right (the tower), sky on the left
 };
 // Cells inside the 4:3 picture a widened scene draws with a floor behind them (a gap the sides' floor runs across):
 // scene, column, rows [r0, r1), source column. The picture's own cell stays in front: where its pattern has pixels
@@ -1474,7 +1482,14 @@ bool scene_throne(int sc) { return sc == 0x10 || sc == 0x18 || sc == 0x1A; }
 // $19 (the palace hall: Jafar finds the lamp with Aladdin) likewise: the post at its right edge stood in the middle of
 // the wide picture, and repeated in the left side, the room's panels beyond it on the right (the user's "the wall on
 // the left shouldn't be there and the wall on the right should be far right").
-bool scene_at_right(int sc) { return scene_throne(sc) || sc == 0x12 || sc == 0x08 || sc == 0x19; }
+// $20 (Jafar's room: the snake grows out of the right edge, the game writing only the part on its screen into the
+// table, and Abu runs in there) and $23 (the palace balcony at the end: a tower cut by the right edge, the Sultan on
+// its corner just beyond it, and the balcony's railing beginning at the left edge with its end cap) likewise: the
+// snake and the tower are cut by the wide edge as by the 4:3 one; $20's left side is its dark room and floor, $23's
+// the sky (the railing ends at the picture's left edge, as the tower's top ends beside it).
+bool scene_at_right(int sc) {
+    return scene_throne(sc) || sc == 0x12 || sc == 0x08 || sc == 0x19 || sc == 0x20 || sc == 0x23;
+}
 // how far a widened scene's picture is drawn to the right (px; 0: centred)
 int story_shift(const Sms& s) {
     return story_wide(s) == STORY_SCENE && s.ram16(MAP) == SCENE_MAPS && scene_at_right(s.ram8(SCENE)) ? s.vdp.ext : 0;
@@ -1657,12 +1672,6 @@ const WalkStep kWalk11[] = {
     {0x8615, 2, 0}, {0x8615, 2, 0}, {0x8648, 2, 0}, {0x8648, 2, 0}, {0x8648, 2, 0}, {0x8648, 2, 0}, {0x867F, 2, 0},
     {0x867F, 2, 0}, {0x867F, 2, 0}, {0x867F, 2, 0},
 };
-const WalkStep kWalk12[] = {
-    {0x911D, -2, 0}, {0x911D, -2, 0}, {0x911D, -2, 0}, {0x911D, -2, 0}, {0x9038, -2, 0}, {0x9038, -2, 0},
-    {0x9038, -2, 0}, {0x9038, -2, 0}, {0x9063, -2, 0}, {0x9063, -2, 0}, {0x9063, -2, 0}, {0x9063, -2, 0},
-    {0x9092, -2, 0}, {0x9092, -2, 0}, {0x9092, -2, 0}, {0x9092, -2, 0}, {0x90C3, -2, 0}, {0x90C3, -2, 0},
-    {0x90C3, -2, 0}, {0x90C3, -2, 0}, {0x90EE, -2, 0}, {0x90EE, -2, 0}, {0x90EE, -2, 0}, {0x90EE, -2, 0},
-};
 const SceneWalk kSceneWalks[] = {
     {0x00, 0, WALK_IN, 58, 90, -16, 137, 0x0E, 17, 1, 48, kWalk0},   // the market: Aladdin walks in to the bread stall
     {0x00, 1, WALK_IN, 494, 525, -46, 89, 0x0F, 17, 18, 24, kWalk1},   // the market: the guard runs in after him
@@ -1676,8 +1685,6 @@ const SceneWalk kSceneWalks[] = {
     {0x11, 1, WALK_IN, 808, 839, 255, 40, 0x0F, 17, 18, 48, kWalk9},   // night: Jasmine walks in on the balcony
     {0x14, 1, WALK_IN, 298, 305, 238, 96, 0x0F, 17, 18, 24, kWalk10},   // the garden: a guard runs in from the right (put at 240)
     {0x18, 0, WALK_IN, 84, 97, -10, 136, 0x0D, 17, 1, 24, kWalk11, 18},   // the throne room: Aladdin runs in down the hall (waits at -16; from tick 18)
-    {0x20, 1, WALK_IN, 114, 129, 254, 74, 0x0F, 17, 18, 24, kWalk12},   // Jafar's room: Abu runs in (his run off later)
-    {0x23, 4, WALK_SHOWN, 0, 850, 0, 0, 0x00, 0, 0, 0, nullptr},   // the balcony: Iago on the tower
 };
 
 // The scene's clock (section "walks" above)
@@ -2747,12 +2754,14 @@ private:
         const SmsVdp& v = s.vdp;
         if (line < 0 || line >= SmsVdp::kMaxLines) return -1;
         mod.line_early_[line] = -1;
-        if (v.line_irq_line < 0) return -1;
+        const bool shaken = line >= 16 && shows_stage(s) && status_line(v, line);   // (the status rows: see status_line)
+        if (v.line_irq_line < 0) return shaken ? 0 : -1;
         if (line == v.line_irq_line + 1) {   // (the handler to run, before it can have moved the chain on)
             mod.irq_line_ = v.line_irq_line;
             mod.irq_handler_ = v.line_pending ? s.ram16(BAND_NEXT) : 0;
             mod.irq_writes_ = v.hscroll_writes;
         }
+        if (shaken) return 0;
         if (line < 16 || line >= 176 || !(v.reg[0] & 0x10)) return -1;   // (the playfield; line interrupts on)
         if (mod.irq_line_ != v.line_irq_line || line - 1 - mod.irq_line_ > SPLIT_LATE || v.hscroll_writes != mod.irq_writes_)
             return -1;
@@ -2791,8 +2800,8 @@ private:
         // (Jafar's room, drawn at the right: every line below the status bar as the hardware draws it, E px further
         // right - its floor (lines 160 on) is split off at a scroll of its own, which no camera lead explains, and its
         // bottom rows (176 on) hold priority cells sprites pass behind)
-        if (shown_stage(s) == ARENA_STAGE && vs) return line < 16 ? 0 : vs;
-        if ((vs == 0 && !banded) || line < 16 || line >= 176) return 0;
+        if (shown_stage(s) == ARENA_STAGE && vs) return status_line(s.vdp, line) ? 0 : vs;
+        if ((vs == 0 && !banded) || status_line(s.vdp, line) || line >= 176) return 0;
         const int cam = shown_cam(s);
         if (k == mod.cam_band_) return vs - (band_camera(s, s.vdp.reg[8]) - cam);
         const int live = (int16_t)(s.ram16(CAM_X) - cam);    // how far the logic has moved the camera since
@@ -2899,7 +2908,7 @@ private:
             return;
         }
         // status bar: the stone counter (x 192..255) goes to the right edge; the gems stay in the middle
-        if (line < 16 && mod.hud_anchor_) {
+        if (status_line(v, line) && mod.hud_anchor_) {
             for (int x = 255; x >= 192; x--) bg[x + 2 * E] = bg[x + E];
             for (int x = 192; x < 192 + E; x++) bg[x + E] = bg[E];
         }
