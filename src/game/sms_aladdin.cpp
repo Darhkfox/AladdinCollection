@@ -864,8 +864,8 @@ const SceneRule kSceneRules[SCENES] = {
     // from cols 4-15, whole); the right side the lava
     {3, {{0, 15, 8, 16, 4, 32}, {15, 16, 4, 16, 26, 30}, {16, 20, 5, 17, 26, 30}}, 0, 0x1F << 15},
     {1, {WHOLE}},   // $B the escape: the lava's drips (its sides: kSceneSides)
-    {0, {}},        // $C, $D the fall: rock walls cut by the edges
-    {0, {}},
+    {1, {WHOLE}},   // $C, $D the fall: the shaft's walls carried on (kSceneSides)
+    {1, {WHOLE}},
     {1, {WHOLE}},   // $E the Genie appears (hills at both edges)
     {1, {WHOLE}},   // $F the Genie in the oasis
     {1, {{0, 20, 0, 9, 0, 28}}},   // $10 the throne room: pillars on the left (not the throne), the room on the right
@@ -950,9 +950,166 @@ int scene_fill_x(int sc) {   // (the screen x up to which bg_entry is asked: 8 f
 // whole (rows 3-4 a four-arc ending at col 0, 5-6 a six-arc ending at col 2, 9-10 a six-arc ending at col 0, 11 a
 // four-arc's top ending at col 1), and the cluster thinning out with whole arcs further left; right: two arcs, at the
 // top as the picture's right part has them.
-constexpr int SIDE_COLS = 13, SIDE_ROWS = 12;
-struct SceneSides { uint8_t scene; uint16_t left[SIDE_ROWS][SIDE_COLS], right[SIDE_ROWS][SIDE_COLS]; };
+// $C and $D (the fall that follows): a shaft between rock walls - lobes outlined in blue and red (1130 1131 over 1139
+// 113a, flipped for the left wall), the rock's mass black (114c) beyond them. They stayed 4:3 before ("rock walls cut
+// by both edges": no stretch of the picture's columns repeats past a wall); the sides carry the walls on with the
+// walls' own art. Right: the mass beyond the right wall, black. Left (cells composed from the pictures' own): the
+// shaft's left wall is the scene's right wall mirrored (its tiles flipped, as the game draws its left walls), in the
+// order it has them, not a row of one repeated tile. $C: the picture's left wall begins at row 10 (an outcrop, its top
+// a lobe at columns 1-3) with the shaft open above it to the edge; the mirrored right wall (rows 0-11, columns 19-31
+// about column 19) stands two columns out, its ledge at rows 8-9 reaching over the outcrop's top, which the hidden
+// column completes (1130 / 1139 with the picture's 1131 / 113a); the mass below row 12. $D: the mass on the left but
+// for the picture's opening in the left wall (rows 10-15), whose back is the right wall's face there mirrored (rows 9-16,
+// columns 22-31 about column 22), one to three columns out, joining the picture's wall at rows 9 and 16.
+// hidden: the column the hardware blanks, where the table has the blank $11BF ($C rows 0-13: 0 = the table's own).
+constexpr int SIDE_COLS = 13, SIDE_ROWS = 20;
+// rows: the rows the tables are for (0: all; the others follow the scene's rule).
+// $F (the oasis): its picture's edges meet but on rows 18-19, where a bush stands over the sand at the bottom right
+// (cols 28-31: 010f 0121 0325 0126 over 0102 0109 0115 012c, cut by the edge) and the sand runs on at the left: with
+// the whole picture repeated the bush ended in a straight edge over the sand at the right side's start, and the left
+// side's copy of it at the 4:3 picture's left edge (the user's "margin tilesets not correct"). There the bush is
+// finished with its own tiles mirrored, as the game mirrors its bushes: on the right its right half, on the left the
+// whole bush ending at the picture's edge; the sand beyond.
+struct SceneSides { uint8_t scene; uint16_t left[SIDE_ROWS][SIDE_COLS], right[SIDE_ROWS][SIDE_COLS]; uint16_t hidden[SIDE_ROWS]; uint32_t rows; };
 const SceneSides kSceneSides[] = {
+    {0x0F,
+     {
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0x030f, 0x0321, 0x0125, 0x0326, 0x0126, 0x0325, 0x0121, 0x010f, 0x010d, 0x010d, 0x010d, 0x010d, 0x010d},
+         {0x0302, 0x0309, 0x0315, 0x032c, 0x012c, 0x0115, 0x0109, 0x0102, 0x0107, 0x0107, 0x0107, 0x0107, 0x0107},
+     },
+     {
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0x0326, 0x0125, 0x0321, 0x030f, 0x010d, 0x010d, 0x010d, 0x010d, 0x010d, 0x010d, 0x010d, 0x010d, 0x010d},
+         {0x032c, 0x0315, 0x0309, 0x0302, 0x0107, 0x0107, 0x0107, 0x0107, 0x0107, 0x0107, 0x0107, 0x0107, 0x0107},
+     },
+     {}, 0x3u << 18},
+    {0x0C,
+     {
+         {0x0100, 0x0100, 0x1330, 0x1331, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x0100, 0x0100, 0x1339, 0x133a, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x0100, 0x0100, 0x1330, 0x1331, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x0100, 0x1332, 0x1333, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x0100, 0x1334, 0x1335, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x0100, 0x1336, 0x1337, 0x1338, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x0100, 0x0100, 0x1330, 0x1331, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x0100, 0x0100, 0x1339, 0x133a, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x0100, 0x133b, 0x133c, 0x133d, 0x133e, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x133f, 0x1340, 0x1341, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x0100, 0x1342, 0x1333, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x0100, 0x1334, 0x1335, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+     },
+     {
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+     },
+     {0x0100, 0x0100, 0x0100, 0x0100, 0x0100, 0x0100, 0x0100, 0x0100, 0x0100, 0x0100, 0x1130, 0x1139, 0x114c, 0x114c, 0, 0, 0, 0, 0, 0}},
+    {0x0D,
+     {
+         {0x1333, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x034b, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x0345, 0x0346, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x0347, 0x0348, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x0100, 0x0349, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x0100, 0x034a, 0x034b, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x0100, 0x0349, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x0100, 0x034a, 0x034b, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x0100, 0x1344, 0x1345, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+     },
+     {
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c, 0x114c},
+         {0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c},
+         {0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c},
+         {0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c},
+         {0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c},
+         {0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c},
+         {0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c},
+         {0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c},
+         {0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c},
+         {0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c},
+         {0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c},
+         {0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c},
+         {0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c, 0x014c},
+     },
+     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
     {0x0B,
      {   // left: [row][k], k = 0 the column left of the picture's (-1), out to -13
          {0, 0, 0, 0, 0, 0, 0, 0x1371, 0x1372, 0x1173, 0x1173, 0x1172, 0x1171},
@@ -981,7 +1138,8 @@ const SceneSides kSceneSides[] = {
          {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
          {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
          {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-     }},
+     },
+     {}},
 };
 const SceneSides* scene_sides(int sc) {
     for (const SceneSides& d : kSceneSides)
@@ -1067,6 +1225,8 @@ int story_bg_entry(const Sms& s, int vcol, int vrow, uint32_t replaced, int hs) 
     if (vcol > 0 && vcol < 32) return -1;   // (the table)
     const bool side0 = rule && (rule->side0 >> (vrow % 28) & 1);
     if (vcol == 0) {   // (the column the hardware blanks: the table's, or the left side's where the rule says)
+        if (const SceneSides* d = rule ? scene_sides(s.ram8(SCENE)) : nullptr)
+            if (d->hidden[vrow % 28]) return d->hidden[vrow % 28];
         if (!rule || !((rule->col0 | rule->side0) >> (vrow % 28) & 1)) return -1;
         vcol = -1;
     } else if (vcol < 0 && side0) {
@@ -1087,7 +1247,7 @@ int story_bg_entry(const Sms& s, int vcol, int vrow, uint32_t replaced, int hs) 
         if (s.ram16(MAP) != SCENE_MAPS) return 0;
         const int sc = s.ram8(SCENE);
         const SceneRule& r = *scene_rule(sc);
-        if (const SceneSides* d = scene_sides(sc)) {   // (laid out from the scene's pieces)
+        if (const SceneSides* d = scene_sides(sc); d && (!d->rows || (d->rows >> vrow & 1))) {   // (laid out from the scene's pieces)
             const int k = vcol < 0 ? -1 - vcol : vcol - 32;
             const int e = vrow < SIDE_ROWS && k < SIDE_COLS ? (vcol < 0 ? d->left : d->right)[vrow][k] : 0;
             return e ? e : SCENE_VOID;
@@ -1176,6 +1336,15 @@ const WalkStep kWalk4[] = {
     {0x8D21, 1, 0}, {0x8D21, 1, 0}, {0x8D50, 1, 0}, {0x8D50, 1, 0}, {0x8D50, 1, 0}, {0x8D50, 1, 0},
 };
 const WalkStep kWalk5[] = {
+    {0xB193, 5, 2},
+};
+const WalkStep kWalk6[] = {
+    {0x9C47, 4, 1},
+};
+const WalkStep kWalk7[] = {
+    {0xB193, 4, 1},
+};
+const WalkStep kWalk8[] = {
     {0x8E0C, -1, 0}, {0x8E0C, -1, 0}, {0x8E0C, -1, 0}, {0x8E0C, -1, 0}, {0x8E0C, -1, 0}, {0x8E0C, -1, 0},
     {0x8E0C, -1, 0}, {0x8E0C, -1, 0}, {0x8E37, -1, 0}, {0x8E37, -1, 0}, {0x8E37, -1, 0}, {0x8E37, -1, 0},
     {0x8E37, -1, 0}, {0x8E37, -1, 0}, {0x8E37, -1, 0}, {0x8E37, -1, 0}, {0x8E66, -1, 0}, {0x8E66, -1, 0},
@@ -1185,7 +1354,7 @@ const WalkStep kWalk5[] = {
     {0x8EC2, -1, 0}, {0x8EC2, -1, 0}, {0x8EC2, -1, 0}, {0x8EC2, -1, 0}, {0x8EF1, -1, 0}, {0x8EF1, -1, 0},
     {0x8EF1, -1, 0}, {0x8EF1, -1, 0}, {0x8EF1, -1, 0}, {0x8EF1, -1, 0}, {0x8EF1, -1, 0}, {0x8EF1, -1, 0},
 };
-const WalkStep kWalk6[] = {
+const WalkStep kWalk9[] = {
     {0x8D21, 1, 0}, {0x8D21, 1, 0}, {0x8D50, 1, 0}, {0x8D50, 1, 0}, {0x8D50, 1, 0}, {0x8D50, 1, 0}, {0x8D50, 1, 0},
     {0x8D50, 1, 0}, {0x8D50, 1, 0}, {0x8D50, 1, 0}, {0x8D81, 1, 0}, {0x8D81, 1, 0}, {0x8D81, 1, 0}, {0x8D81, 1, 0},
     {0x8D81, 1, 0}, {0x8D81, 1, 0}, {0x8D81, 1, 0}, {0x8D81, 1, 0}, {0x8DAC, 1, 0}, {0x8DAC, 1, 0}, {0x8DAC, 1, 0},
@@ -1194,7 +1363,7 @@ const WalkStep kWalk6[] = {
     {0x8CF6, 1, 0}, {0x8CF6, 1, 0}, {0x8CF6, 1, 0}, {0x8CF6, 1, 0}, {0x8CF6, 1, 0}, {0x8CF6, 1, 0}, {0x8CF6, 1, 0},
     {0x8D21, 1, 0}, {0x8D21, 1, 0}, {0x8D21, 1, 0}, {0x8D21, 1, 0}, {0x8D21, 1, 0}, {0x8D21, 1, 0},
 };
-const WalkStep kWalk7[] = {
+const WalkStep kWalk10[] = {
     {0x8EF1, -1, 0}, {0x8EF1, -1, 0}, {0x8E0C, -1, 0}, {0x8E0C, -1, 0}, {0x8E0C, -1, 0}, {0x8E0C, -1, 0},
     {0x8E0C, -1, 0}, {0x8E0C, -1, 0}, {0x8E0C, -1, 0}, {0x8E0C, -1, 0}, {0x8E37, -1, 0}, {0x8E37, -1, 0},
     {0x8E37, -1, 0}, {0x8E37, -1, 0}, {0x8E37, -1, 0}, {0x8E37, -1, 0}, {0x8E37, -1, 0}, {0x8E37, -1, 0},
@@ -1204,14 +1373,14 @@ const WalkStep kWalk7[] = {
     {0x8EC2, -1, 0}, {0x8EC2, -1, 0}, {0x8EC2, -1, 0}, {0x8EC2, -1, 0}, {0x8EC2, -1, 0}, {0x8EC2, -1, 0},
     {0x8EF1, -1, 0}, {0x8EF1, -1, 0}, {0x8EF1, -1, 0}, {0x8EF1, -1, 0}, {0x8EF1, -1, 0}, {0x8EF1, -1, 0},
 };
-const WalkStep kWalk9[] = {
+const WalkStep kWalk12[] = {
     {0xB934, 0, 0}, {0xB934, 1, 0},
 };
-const WalkStep kWalk10[] = {
+const WalkStep kWalk13[] = {
     {0x9E0C, 1, 0}, {0x9E0C, 1, 0}, {0x9DD1, 1, 0}, {0x9DD1, 1, 0}, {0x9DD1, 1, 0}, {0x9DD1, 1, 0}, {0x9E0C, 1, 0},
     {0x9E0C, 1, 0},
 };
-const WalkStep kWalk11[] = {
+const WalkStep kWalk14[] = {
     {0x843A, -1, 0}, {0x843A, -1, 0}, {0x843A, -1, 0}, {0x843A, -1, 0}, {0x843A, -1, 0}, {0x843A, -1, 0},
     {0x846D, -1, 0}, {0x846D, -1, 0}, {0x846D, -1, 0}, {0x846D, -1, 0}, {0x846D, -1, 0}, {0x846D, -1, 0},
     {0x846D, -1, 0}, {0x846D, -1, 0}, {0x84A0, -1, 0}, {0x84A0, -1, 0}, {0x84A0, -1, 0}, {0x84A0, -1, 0},
@@ -1221,7 +1390,7 @@ const WalkStep kWalk11[] = {
     {0x8508, -1, 0}, {0x8508, -1, 0}, {0x853B, -1, 0}, {0x853B, -1, 0}, {0x853B, -1, 0}, {0x853B, -1, 0},
     {0x853B, -1, 0}, {0x853B, -1, 0}, {0x853B, -1, 0}, {0x853B, -1, 0}, {0x843A, -1, 0}, {0x843A, -1, 0},
 };
-const WalkStep kWalk12[] = {
+const WalkStep kWalk15[] = {
     {0x911D, -2, 0}, {0x911D, -2, 0}, {0x911D, -2, 0}, {0x911D, -2, 0}, {0x9038, -2, 0}, {0x9038, -2, 0},
     {0x9038, -2, 0}, {0x9038, -2, 0}, {0x9063, -2, 0}, {0x9063, -2, 0}, {0x9063, -2, 0}, {0x9063, -2, 0},
     {0x9092, -2, 0}, {0x9092, -2, 0}, {0x9092, -2, 0}, {0x9092, -2, 0}, {0x90C3, -2, 0}, {0x90C3, -2, 0},
@@ -1233,14 +1402,17 @@ const SceneWalk kSceneWalks[] = {
     {0x01, 0, WALK_IN, 365, 389, -8, 137, 0x0E, 17, 1, 48, kWalk2},   // the market: Aladdin comes back for Jasmine
     {0x01, 3, WALK_OUT, 348, 421, 353, 121, 0x1D, 7, 0, 20, kWalk3},   // the market: Abu runs off
     {0x06, 1, WALK_IN, 66, 113, -31, 72, 0x0F, 17, 18, 48, kWalk4},   // the palace: Jasmine walks in
-    {0x10, 1, WALK_IN, 346, 377, 255, 72, 0x0F, 17, 18, 48, kWalk5},   // the throne room: Jasmine walks in (her walk in scene $11)
-    {0x10, 1, WALK_OUT, 592, 720, 326, 72, 0x0F, 17, 18, 48, kWalk6},   // the throne room: Jasmine walks off
-    {0x11, 1, WALK_IN, 808, 839, 255, 40, 0x0F, 17, 18, 48, kWalk7},   // night: Jasmine walks in on the balcony
+    {0x0B, 2, WALK_IN, 1, 14, -52, 74, 0x1D, 13, 0, 1, kWalk5},   // the escape: the carpet swoops in (from the fade-in on)
+    {0x0C, 0, WALK_IN, 49, 73, -78, 59, 0x0E, 17, 1, 1, kWalk6},   // the fall: Aladdin flies in on the carpet
+    {0x0C, 6, WALK_IN, 49, 153, -78, 59, 0x1D, 13, 0, 1, kWalk7},   // the fall: the carpet flies in under him
+    {0x10, 1, WALK_IN, 346, 377, 255, 72, 0x0F, 17, 18, 48, kWalk8},   // the throne room: Jasmine walks in (her walk in scene $11)
+    {0x10, 1, WALK_OUT, 592, 720, 326, 72, 0x0F, 17, 18, 48, kWalk9},   // the throne room: Jasmine walks off
+    {0x11, 1, WALK_IN, 808, 839, 255, 40, 0x0F, 17, 18, 48, kWalk10},   // night: Jasmine walks in on the balcony
     {0x11, 2, WALK_SHOWN, 0, 392, 0, 0, 0x00, 0, 0, 0, nullptr},   // night: Rajah lies on the balcony
-    {0x11, 2, WALK_OUT, 798, 1038, 287, 72, 0x1D, 9, 0, 2, kWalk9},   // night: Rajah pads off
-    {0x18, 1, WALK_OUT, 384, 540, 258, 48, 0x0F, 17, 18, 8, kWalk10},   // the throne room: Jasmine walks off
-    {0x1A, 0, WALK_IN, 98, 141, 267, 136, 0x0D, 17, 1, 48, kWalk11},   // the throne room: Aladdin walks in
-    {0x20, 1, WALK_IN, 114, 129, 254, 74, 0x0F, 17, 18, 24, kWalk12},   // Jafar's room: Abu runs in (his run off later)
+    {0x11, 2, WALK_OUT, 798, 1038, 287, 72, 0x1D, 9, 0, 2, kWalk12},   // night: Rajah pads off
+    {0x18, 1, WALK_OUT, 384, 540, 258, 48, 0x0F, 17, 18, 8, kWalk13},   // the throne room: Jasmine walks off
+    {0x1A, 0, WALK_IN, 98, 141, 267, 136, 0x0D, 17, 1, 48, kWalk14},   // the throne room: Aladdin walks in
+    {0x20, 1, WALK_IN, 114, 129, 254, 74, 0x0F, 17, 18, 24, kWalk15},   // Jafar's room: Abu runs in (his run off later)
     {0x23, 4, WALK_SHOWN, 0, 850, 0, 0, 0x00, 0, 0, 0, nullptr},   // the balcony: Iago on the tower
 };
 
@@ -1266,6 +1438,12 @@ struct StorySprites {
     uint8_t seen[CHARS];    // it has been on the 256 px since
     uint16_t shown = 0;     // the screen they belong to (kind << 8 | scene): another one starts them afresh
     int32_t tick = -1;      // the scene's clock at the writers' last pass on this screen (-1: none yet)
+    int16_t fade = 0;       // uploads since the scene's picture is up with its clock at 0 (the fade-in: FADE_IN)
+    // The clock stands at 0 through a scene's fade-in, FADE_IN uploads from its picture's being up to tick 1. A walk in
+    // is placed by the ticks the fade-in has left (negative ticks): one whose cue comes soon after (the carpet in $B at
+    // tick 1, Aladdin in scene 0 at 58) comes in from the wide edge while the scene fades in, rather than standing in a
+    // side until the clock starts.
+    static constexpr int FADE_IN = 26;
     StorySprites() { clear(); }
     void clear() {
         for (int i = 0; i < 64; i++) { x[i] = NONE; who[i] = fresh[i] = valid[i] = 0; snap[i][0] = snap[i][1] = snap[i][2] = 0; }
@@ -1275,6 +1453,7 @@ struct StorySprites {
     void forget() {
         for (int c = 0; c < CHARS; c++) { at[c] = NONE; seen[c] = 0; }
         tick = -1;
+        fade = 0;
     }
     // the screen the pieces belong to (kind << 8 | scene; kept through a screen's fade-out)
     static uint16_t screen_key(const Sms& m) { return (uint16_t)(story_screen(m) << 8 | m.ram8(SCENE)); }
@@ -1375,14 +1554,18 @@ struct StorySprites {
         // scene's may be drawn over it. (Not the display bit: the VBlank's upload turns the display off around its VRAM
         // writes on some frames.)
         const bool scene_up = m.ram16(MAP) == SCENE_MAPS && tick >= 0;
+        if (kind == STORY_SCENE && scene_up && tick == 0 && fade < 0x7FFF) fade++;
+        // (the walks in: the clock still at 0, the ticks the fade-in has left - see FADE_IN)
+        const int tin = tick == 0 ? std::min(0, fade - FADE_IN) : t;
         if (kind == STORY_SCENE && scene_up && !(v.reg[1] & 0x02)) {   // (8x8 sprites, as all scenes have them)
             for (const SceneWalk& w : kSceneWalks) {
                 if (w.scene != m.ram8(SCENE) || w.ch >= CHARS) continue;
                 int gx, gy;
                 uint16_t ptr;
+                const int tw = w.kind == WALK_IN ? tin : t;
                 if (w.kind == WALK_SHOWN ? t >= w.t0 && t <= w.t1 : w.kind == WALK_IN && t >= w.t0 && t <= w.t1)
                     show[w.ch] = 1;
-                else if (walk_at(w, t, gx, gy, ptr) && gx > -E - 80 && gx < 256 + E + 80) {   // (in reach of a side)
+                else if (walk_at(w, tw, gx, gy, ptr) && gx > -E - 80 && gx < 256 + E + 80) {   // (in reach of a side)
                     walk[w.ch] = 1;
                     walks[w.ch] = &w;
                 }
@@ -1410,7 +1593,7 @@ struct StorySprites {
             const SceneWalk& w = *walks[c];
             int gx, gy;
             uint16_t ptr;
-            walk_at(w, t, gx, gy, ptr);
+            walk_at(w, w.kind == WALK_IN ? tin : t, gx, gy, ptr);
             const uint16_t rec = (uint16_t)(ptr - 8);   // (the pose's record: tile bank, -, tile address)
             const uint32_t tiles = (uint32_t)bank_rd8(m, w.bank, rec) * 0x4000 + (bank_rd16(m, w.bank, (uint16_t)(rec + 2)) & 0x3FFF);
             for (int i = 0; i < w.n; i++) {
@@ -1440,9 +1623,10 @@ struct StorySprites {
             }
         }
     }
-    // save states: the slots' and characters' records and the clock (version 2; version 1 has no clock)
-    static constexpr uint8_t TAG = 'S', VERSION = 2;
-    static constexpr size_t SIZE1 = 2 + 64 * 8 + CHARS * 3 + 2, SIZE = SIZE1 + 4;
+    // save states: the slots' and characters' records, the clock and the fade-in's count (version 3; version 2 has no
+    // count, version 1 no clock)
+    static constexpr uint8_t TAG = 'S', VERSION = 3;
+    static constexpr size_t SIZE1 = 2 + 64 * 8 + CHARS * 3 + 2, SIZE2 = SIZE1 + 4, SIZE = SIZE2 + 2;
     void save(std::vector<uint8_t>& d) const {
         d.push_back(TAG);
         d.push_back(VERSION);
@@ -1452,11 +1636,13 @@ struct StorySprites {
         d.insert(d.end(), {(uint8_t)shown, (uint8_t)(shown >> 8)});
         const uint32_t tk = (uint32_t)tick;
         d.insert(d.end(), {(uint8_t)tk, (uint8_t)(tk >> 8), (uint8_t)(tk >> 16), (uint8_t)(tk >> 24)});
+        d.insert(d.end(), {(uint8_t)fade, (uint8_t)((uint16_t)fade >> 8)});
     }
     // -> the bytes read (0: none)
     size_t load(const uint8_t* d, size_t n) {
         clear();
-        if (n < SIZE1 || d[0] != TAG || (d[1] != 1 && d[1] != VERSION) || (d[1] == VERSION && n < SIZE)) return 0;
+        if (n < SIZE1 || d[0] != TAG || d[1] < 1 || d[1] > VERSION || (d[1] == 2 && n < SIZE2) || (d[1] == 3 && n < SIZE))
+            return 0;
         for (int i = 0; i < 64; i++) {
             const uint8_t* e = d + 2 + 8 * i;
             x[i] = (int16_t)(e[0] | (e[1] << 8));
@@ -1473,6 +1659,8 @@ struct StorySprites {
         shown = (uint16_t)(d[SIZE1 - 2] | (d[SIZE1 - 1] << 8));
         if (d[1] == 1) return SIZE1;
         tick = (int32_t)(d[SIZE1] | (d[SIZE1 + 1] << 8) | (d[SIZE1 + 2] << 16) | ((uint32_t)d[SIZE1 + 3] << 24));
+        if (d[1] == 2) { fade = tick == 0 ? FADE_IN : 0; return SIZE2; }   // (a version-2 state: as if the fade-in were done)
+        fade = (int16_t)(d[SIZE2] | (d[SIZE2 + 1] << 8));
         return SIZE;
     }
 };
@@ -1657,7 +1845,11 @@ public:
             apply_view(m);
             story_rows_ = shows_stage(m) ? 0 : scene_replaced_rows(m);   // (a scene's rows drawn over: section 5a)
             // (a widened scene with cells filled inside its picture: the VDP asks bg_entry for them, kSceneFills)
-            m.vdp.hw_x0 = story_wide(m) == STORY_SCENE ? scene_fill_x(m.ram8(SCENE)) : 8;
+            // (a shaking scene: the table's column 0 shows at x 8-9 on a shake to the right - the column the module draws
+            // in its place, as the sides, takes those 2 px too: $C's hidden column, the blank $11BF there, showed as a
+            // black line in the shaft)
+            m.vdp.hw_x0 = story_wide(m) == STORY_SCENE
+                              ? std::max(scene_fill_x(m.ram8(SCENE)), scene_shakes(m.ram8(SCENE)) ? 10 : 8) : 8;
             make_fills(m);
         };
         // sprite pieces: the player ($23C2), the large second figure ($3C63) and the objects ($0C99), each with
