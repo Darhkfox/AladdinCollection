@@ -43,6 +43,7 @@ constexpr uint32_t SCRIPT_START = 0x4082;
 // ROM code the module watches (PC hooks)
 constexpr uint32_t PC_MAIN_LOOP = 0x1A8C16;   // top of the gameplay loop
 constexpr uint32_t PC_PAUSE_LOOP = 0x1A9230;  // the pause loop
+constexpr uint32_t PC_PAUSE_HANDLED = 0x1A923A;   // the pause loop, back from its input handler ($1B0A46)
 constexpr uint32_t PC_LEVEL_END = 0x1A8E5C;   // a level is over: next level / ending
 constexpr uint32_t PC_DEATH = 0x1A8F82;       // the death screen (Aladdin, Abu and the carpet on black)
 constexpr uint32_t PC_PIT = 0x1A902E;         // fell below the map: a life lost without the death screen
@@ -386,13 +387,18 @@ bool attract(const MegaDrive& md) {
 // statues runs a scan of the whole level map ($1AC386 / $1AC3BC, clearing the blocks of a wall elsewhere) that keeps
 // the 68000 busy for 9 frames. Those frames are play: the iteration is under way from the loop's top
 // (PC_MAIN_LOOP sets PLAY_BUSY) until its frame wait (PC_FRAME_WAIT clears it). (Up to a second of it: a way out of
-// the loop not hooked as leaving it still ends play.)
+// the loop not hooked as leaving it still ends play.) Paused, the pause loop's input handler (`bsr $1B0A46` at
+// $1A9236) can wait too: the Developer Level Skip (pause, then A) waits some 70 frames in it ($1B0B04: two delays,
+// $1B2EAC) before it ends the level. While that call is under way its return address $1A923A lies at $FFEFD0, under
+// the gameplay loop's call of the pause loop ($1A8C20, at $FFEFD4): those frames are play too (they were shown 4:3, the
+// paused level cropped), and so is its return (PC_PAUSE_HANDLED), so the level's fade-out after it is shown wide.
 constexpr uint32_t PLAY_RECENT = 4, PLAY_BUSY_MAX = 60;
+bool pause_handler_waits(const MegaDrive& md) { return md.ram32(0xFFEFD0) == 0x1A923A && md.ram32(TITLE_RET) == 0x1A8C20; }
 bool in_play(const MegaDrive& md) {
     const uint32_t ms = md.module_state[MS_PLAY];
     if (ms == 0 || attract(md)) return false;
     const uint32_t age = ((uint32_t)md.frame_count + 1 - ms) & PLAY_FRAME;
-    return age <= PLAY_RECENT || ((ms & PLAY_BUSY) && age <= PLAY_BUSY_MAX);
+    return age <= PLAY_RECENT || ((ms & PLAY_BUSY) && age <= PLAY_BUSY_MAX) || pause_handler_waits(md);
 }
 
 // A level on screen in a game: in play, fading in (its first frames, before the gameplay loop runs) or fading out. Play
@@ -424,6 +430,14 @@ bool abu_round(const MegaDrive& md) {
     const int level = md.ram8(LEVEL);
     return level == L_ABU_AGRABAH || level == L_ABU_CAVE;
 }
+
+// The Genie's bonus wheel ($1B16E0, called at a level's end from $1A8E78 when Genie tokens are left, $FFF003): a loop
+// of its own with the game's objects, sprite builder and HUD, its result the wheel object's face ($FF7E82) when the
+// button stops it. It runs on the 4:3 game's ROM too (MdAladdin::rom_for), so its RAM and results are the 4:3 game's;
+// its picture is drawn wide from the VDP (Screen::Wheel). Told from the stack, statelessly: the level loop's call
+// leaves its return address $1A8CCA at $FFEFD4 (as TITLE_RET for the title), and while the wheel runs its own return
+// address $1A8E7E lies under it at $FFEFD0 (the next call after it, $1A8E7E's bsr, overwrites it at once).
+bool genie_wheel(const MegaDrive& md) { return md.ram32(0xFFEFD0) == 0x1A8E7E && md.ram32(TITLE_RET) == 0x1A8CCA; }
 
 // The Rug Ride (docs/re_md_wide.md section 7). The carpet flies right at the ride's own pace (the camera moves `speed`
 // px an iteration, 6 at the start and one more every 310 iterations) and Aladdin stays at screen x 120; the obstacles
@@ -612,7 +626,7 @@ struct RideView;
 // The screens between levels and around the game drawn wide (screen_frame): none, a plain screen (both planes empty at
 // both edges: the backdrop fills the sides, the sprites at their true places), or one of the pictures whose sides are
 // drawn from its own edges (kScreenSides).
-enum class Screen : uint8_t { None, Plain, Palace, Dunes, DunesTiger, Moon, Rings };
+enum class Screen : uint8_t { None, Plain, Palace, Dunes, DunesTiger, Moon, Rings, Wheel, Fill };
 struct ExtraPiece { int x, y, w, h, slot, back; uint16_t attr; };   // screen x / y, cells, the move since the last
                                                                        // pass (px), the pattern word
 
@@ -1909,6 +1923,7 @@ constexpr SideBand kPalaceSides[] = {{48, 0, 0}, {240, 56, 56}};           // st
 constexpr SideBand kDunesSides[] = {{112, 0, 0}, {240, 40, 128}};          // stars wrapped; the dunes at each edge
 constexpr SideBand kDunesTigerSides[] = {{112, 0, 0}, {240, 40, 16}};      // (right of the tiger head)
 constexpr SideBand kMoonSides[] = {{240, 80, 128}};                        // stars left and right of the moon
+constexpr SideBand kWheelSides[] = {{240, 16, 16}};                        // the curtains' outer 16 px
 
 // A level on screen (play, pause, its fades), the attract mode's demos included: never another screen.
 bool level_shown(const MegaDrive& md) {
@@ -1932,6 +1947,17 @@ Screen picture_kind(const VDP& v) {
     if (b(4, 12) == 0x23D9 && b(4, 13) == 0x23DA && b(5, 11) == 0x23DF) return Screen::Moon;
     if (b(0, 0) == 0x0005 && b(0, 3) == 0x0006 && b(0, 4) == 0x000B && b(0, 39) == 0x0805 && b(14, 1) == 0x00B5)
         return Screen::Rings;
+    if (b(0, 0) == 0x200C && b(0, 1) == 0x200D && b(10, 0) == 0x2115 && b(10, 39) == 0x2915) return Screen::Wheel;
+    // plane B one tile all round the picture - columns 36-63 and 0-3 (the screen's edges and all the name table beyond
+    // them) on every line: the debug screen's greeting, "AH!, DAVID PERRY, WHAT IS YOUR WISH?", on grey ($00CA; the
+    // face in the middle): the VDP draws the sides from it already
+    const uint16_t t = b(0, 0);
+    if (t & 0x7FF) {
+        bool fill = true;
+        for (int row = 0; row < 28 && fill; row++)
+            for (int col = 36; col < 68 && fill; col++) fill = b(row, col & 63) == t;
+        if (fill) return Screen::Fill;
+    }
     return Screen::None;
 }
 
@@ -2096,8 +2122,11 @@ void screen_line(Wide& w, int line, uint8_t* plane_a, uint8_t* plane_b, uint8_t*
     std::memset(plane_a, 0, E);
     std::memset(plane_a + 320 + E, 0, E);
     const SideBand* bands = w.screen == Screen::Palace ? kPalaceSides : w.screen == Screen::Dunes ? kDunesSides
-                          : w.screen == Screen::DunesTiger ? kDunesTigerSides : w.screen == Screen::Moon ? kMoonSides : nullptr;
-    if (w.screen == Screen::Rings) {
+                          : w.screen == Screen::DunesTiger ? kDunesTigerSides : w.screen == Screen::Moon ? kMoonSides
+                          : w.screen == Screen::Wheel ? kWheelSides : nullptr;
+    if (w.screen == Screen::Fill) {
+        // (plane B's own tile, as the VDP drew it)
+    } else if (w.screen == Screen::Rings) {
         for (int x = -E; x < 0; x++) plane_b[x + E] = ring_index(x, line);
         for (int x = 320; x < 320 + E; x++) plane_b[x + E] = ring_index(x, line);
     } else if (!bands) {
@@ -2284,7 +2313,7 @@ public:
     // title cards around them (Abu's intro before a round) lie between them and the levels on either side.
     enum class Rom { Wide, Attract, Game43 };
     static Rom rom_kind(const MegaDrive& md) {
-        return attract(md) ? Rom::Attract : rug_ride(md) || abu_round(md) ? Rom::Game43 : Rom::Wide;
+        return attract(md) ? Rom::Attract : rug_ride(md) || abu_round(md) || genie_wheel(md) ? Rom::Game43 : Rom::Wide;
     }
     static std::vector<RomPatch> rom_for(const MegaDrive& md, const GameConfig& cfg) {
         switch (rom_kind(md)) {
@@ -2315,6 +2344,7 @@ public:
         md.add_pc_hook(PC_MAIN_LOOP, [play](MegaDrive& m) { play(m); m.module_state[MS_PLAY] |= PLAY_BUSY; });
         md.add_pc_hook(PC_FRAME_WAIT, [](MegaDrive& m) { m.module_state[MS_PLAY] &= ~PLAY_BUSY; });
         md.add_pc_hook(PC_PAUSE_LOOP, play);
+        md.add_pc_hook(PC_PAUSE_HANDLED, play);   // (back from the pause handler: after the level skip's wait, play)
         md.add_pc_hook(PC_LEVEL_END, leave);
         md.add_pc_hook(PC_DEATH, leave);
         md.add_pc_hook(PC_PIT, leave);

@@ -592,7 +592,9 @@
   across them - the Genie round the logos, Aladdin and Abu running, the
   scarab's halves, the carpet - goes on into the sides, and the full
   scarab's flashing rings carry on out to the edges. The Genie's bonus
-  wheel and the instructions stay in their original shape.
+  wheel stands on a wider stage, its curtains going on into the sides
+  (it stops on the same faces as ever). Only the instructions screen
+  stays in its original shape.
 
   Abu's bonus rounds on the Mega Drive are wide too: the room carries on
   into the sides from its own art, while Abu, what falls and the score
