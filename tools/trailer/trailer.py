@@ -266,7 +266,7 @@ def seq(parts, head, sub, game=None):
     return n, render
 
 
-def ui(parts, head, sub, game=None, mask=None, pointer=None):
+def ui(parts, head, sub, game=None, mask=None, pointer=None, fill=None):
     """app screens: parts [(recording, first frame, frames)]; mask: (recording, x, y, w, h) blurred (in the
     recording's pixels); pointer: recording whose clicks get a drawn mouse pointer"""
     n = sum(p[2] for p in parts)
@@ -280,6 +280,9 @@ def ui(parts, head, sub, game=None, mask=None, pointer=None):
             if j < m: break
             j -= m
         rgb = clip(name)[a + j]
+        if fill and fill[0] == name:   # (a region painted black: e.g. a stray notice in a letterbox bar)
+            _, x, y, w, h = fill
+            rgb = rgb.copy(); rgb[y:y + h, x:x + w] = 0
         if mask and mask[0] == name:
             _, x, y, w, h = mask
             rgb = rgb.copy()
@@ -494,7 +497,7 @@ def scene_end(n, name='md_title', a=1100):
 
 # ---------------------------------------------------------------- timeline
 OPT_MASK = ('opt_video', 800, 340, 780, 80)   # the Monitor row's value (the display's name) blurred
-LS_SEGS = {'md': [(125, 95), (350, 70)], 'snes': [(125, 95), (470, 70)], 'sms': [(125, 95), (400, 70)]}
+LS_SEGS = {'md': [(125, 95), (455, 70)], 'snes': [(125, 95), (470, 70)], 'sms': [(125, 95), (455, 70)]}
 
 
 def timeline():
@@ -518,7 +521,7 @@ def timeline():
                                    'More of each level really drawn at the sides: scenery, enemies and items', 'md')),
         ('md_rug',     plain('md_rug', [(120, S(4.5))], 'THE RUG RIDE, WIDE',
                              'The cave behind the carpet, with the lava wave chasing you', 'md')),
-        ('md_title',   ui([('md_title', 150, 90), ('md_title', 480, 120), ('md_title', 820, 60), ('md_title', 1150, 60)],
+        ('md_title',   ui([('md_title', 250, 90), ('md_title', 480, 120), ('md_title', 845, 60), ('md_title', 1150, 60)],
                           'THE SCREENS AROUND THE LEVELS TOO',
                           'The Genie flies round the logos into the sides; the title, story cards and Level Complete are wide',
                           'md')),
@@ -531,14 +534,13 @@ def timeline():
                              'The tower\'s gold pillars run on into the sides as a solid gold wall', 'snes')),
         ('sms_wide',   scene_wide3('sms_cmp', 40, S(7), S(2.0), S(4.4), 'MASTER SYSTEM, WIDE',
                                    'Beyond its 256-pixel background, everything is drawn from the level map', 'sms')),
-        ('sms_story',  ui([('sms_story', 200, 270), ('sms_intro', 1000, 90)], 'WIDE STORY SCENES',
+        ('sms_story',  ui([('sms_story', 250, 270), ('sms_intro', 1000, 90)], 'WIDE STORY SCENES',
                           'Each scene\'s picture carried on into the sides; characters walk in from the edge\n'
                           'The Genie\'s intro and the title fill the width too', 'sms')),
         ('square',     scene_wipe('md_sq', 'md_sq_sq', 30, S(3.5), 'CRT OR SQUARE PIXELS',
                                   'Each console\'s picture as on a 4:3 TV, or square pixels', 'CRT', 'SQUARE', 'md')),
-        ('hud',        scene_wipe('md_hud_hud0', 'md_hud', 30, S(3.5), 'HUD RE-ANCHORED',
-                                  'The status display moves out to the screen\'s edges - or stays put', 'ORIGINAL',
-                                  'RE-ANCHORED', 'md')),
+        ('hud',        seq([('md_hud_hud0', 30, 105, 'ORIGINAL PLACE'), ('md_hud', 135, 105, 'RE-ANCHORED')],
+                           'HUD RE-ANCHORED', 'The status display moves out to the screen\'s edges - or stays put', 'md')),
         # ---- playing
         ('ls',         ui([('ls_md',) + tuple(LS_SEGS['md'][0]), ('ls_md',) + tuple(LS_SEGS['md'][1]),
                            ('ls_snes',) + tuple(LS_SEGS['snes'][0]), ('ls_snes',) + tuple(LS_SEGS['snes'][1]),
@@ -550,7 +552,8 @@ def timeline():
                           'AIQY invincibility - plus infinite health, lives and more')),
         ('ach',        ui([('ui_toast', 30, 160), ('ui_ach', 100, 260)], 'ACHIEVEMENTS',
                           '54 to earn across the three games, with pop-ups and an Achievements page\n'
-                          'Export to CSV: Playnite\'s columns and a badge for each one')),
+                          'Export to CSV: Playnite\'s columns and a badge for each one',
+                          fill=('ui_toast', 0, 942, 1920, 138))),
         ('states',     ui([('st_md', 60, 230)], 'SAVE STATES', 'Five slots per game - F5 saves, F9 loads')),
         ('rewind',     plain('snes_rew', [(240, S(3.8))], 'REWIND', 'Hold R or the left trigger: up to the last minute',
                              'snes', chips=[None], kicker=False)),
@@ -560,7 +563,7 @@ def timeline():
                           'Where the SNES version slowed down, its CPU does the frame\'s work faster:\n'
                           'busy scenes keep a steady 60 frames a second. Off: the original\'s speed', 'snes')),
         # ---- sound
-        ('music',      ui([('mp_md', 40, 180), ('mp_sms', 40, 180)], 'MUSIC PLAYER & SOUND TEST',
+        ('music',      ui([('mp_md', 100, 180), ('mp_sms', 100, 180)], 'MUSIC PLAYER & SOUND TEST',
                           'Every tune and effect, played by each game\'s own sound driver, with channel meters')),
         ('mdplus',     ui([('mp_mdplus', 60, 150), ('mp_mdplus', 450, 130), ('mp_mdplus', 750, 140)],
                           'MD+ CD SOUNDTRACKS',
@@ -584,7 +587,7 @@ def timeline():
                           'Widescreen, filters, shaders and colours switch at once from the menu', 'md',
                           mask=OPT_MASK)),
         ('plus',       scene_features([('snes_lamp1', 60), ('md_cave', 60)], S(2.8),
-                                      ['High Frame Rate on 100 Hz+ displays',
+                                      ['High Frame Rate for 100 Hz+ displays (PC)',
                                        'Black frame insertion, V-Sync, integer scaling',
                                        'Xbox, PlayStation and other pads, hot-plugged',
                                        'No sprite flicker  \u2022  screenshots with F12',
@@ -619,6 +622,7 @@ MUSIC = [('title', 'bed_mdp_title', 0.0), ('md', 'own', 0.0), ('md_wide', 'bed_m
          ('montage', 'bed_msu_awnw', 0.0)]
 XFADE = 1.0
 TARGET_RMS = 2600.0
+GAIN = {'bed_msu_agrabah': 1.3, 'bed_msu_awnw': 1.5}
 SR = 48000
 
 
@@ -634,7 +638,7 @@ def own_parts():
     """per scene of an 'own' section: [(recording, first frame, frames)]"""
     return {
         'md': [('md_market', 0, S(5))], 'snes': [('snes_market', 30, S(5))], 'sms': [('sms_market', 20, S(5))],
-        'music': [('mp_md', 40, 180), ('mp_sms', 40, 180)],
+        'music': [('mp_md', 100, 180), ('mp_sms', 100, 180)],
         'mdplus': [('mp_mdplus', 60, 150), ('mp_mdplus', 450, 130), ('mp_mdplus', 750, 140)],
         'msu': [('mp_snes', 60, 130), ('mp_snes', 450, 110), ('snes_msu_play', 140, 210)],
     }
@@ -684,7 +688,7 @@ def make_bed(scenes):
                 piece = np.concatenate([piece, np.zeros((a1 - a0 - len(piece), 2), np.float32)])
             body = piece[s0 - a0:s1 - a0]
             r = float(np.sqrt((body ** 2).mean())) if len(body) else 0.0
-            if r > 1: piece = piece * min(4.0, max(0.3, TARGET_RMS / r))
+            if r > 1: piece = piece * min(4.0, max(0.3, TARGET_RMS / r)) * GAIN.get(rec, 1.0)
         env = np.ones(len(piece), np.float32)
         if k > 0: env[:xf] = np.linspace(0, 1, xf)
         if k + 1 < len(MUSIC): env[-xf:] = np.linspace(1, 0, xf)
