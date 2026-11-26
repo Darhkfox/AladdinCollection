@@ -36,8 +36,9 @@ module's level select and skips its story card (START) until the first frame of 
 6. The Rug Ride runs on the 4:3 game's ROM (the cheats only) and is shown with all the extra width behind the carpet:
    the view slid by −E for good, objects the game despawns there drawn on by the module (ghosts, animated by the game's
    own code on a CPU of the module's), the lava wave's cut-off back drawn on (§7).
-7. Abu's bonus rounds run on the 4:3 game's ROM too and are drawn wide around the 4:3 view: the room's map mirrored at
-   its ends, plane B's picture wrapped, the sprite pieces the 4:3 clip drops drawn by the module (§6b).
+7. Abu's bonus rounds and the Genie's wheel run on the 4:3 game's ROM too and are drawn wide around the 4:3 view: the
+   room's map mirrored at its ends, plane B's picture wrapped, the sprite pieces the 4:3 clip drops drawn by the module
+   (§6b); the wheel's curtains mirrored (§6a).
 
 ## 1. Camera and streaming
 
@@ -473,8 +474,16 @@ the idol on the far pedestal cut at the right edge; in Jafar's hall at the left 
   0 (before: 5-6 per fade), the slide constant over the fade (-128 / 112 / 112 / 128), the first 4:3 frame black.
 * The screens outside the levels are wide where they can be (§6a): the logos, the title and OPTIONS, "Level
   Complete", the scarab's halves, the story cards, the title cards, the death and continue screens, the ending and
-  credits, the full scarab. 4:3: the Genie's wheel, the instructions, the debug screen and sound test. Abu's bonus
-  rounds (§6b) and the Rug Ride (§7) are wide, each its own way.
+  credits, the full scarab, the Genie's wheel, the debug screen's greeting and page (the sound test is a list on
+  OPTIONS, wide with it). 4:3: only the instructions (asked to stay 4:3) and the attract demos (below). Abu's bonus
+  rounds (§6b), the Genie's wheel (§6a) and the Rug Ride (§7) run on the 4:3 game's ROM, wide by drawing only.
+* Also play: the Developer Level Skip's wait. Paused, the pause loop's input handler (`bsr $1B0A46` at `$1A9236`) runs
+  the skip (pause, then A: `$1B0B04`) through two delays (`$1B2EAC`, some 70 frames) before it sets `$F0E9` and returns;
+  the pause loop's top doesn't run meanwhile, so those frames were shown 4:3 (the paused level cropped, the bars in its
+  edge colours) and the fade-out after them too (play had been left 70 frames before). While that call is under way its
+  return address `$1A923A` lies at `$FFEFD0` under the gameplay loop's call of the pause loop (`$1A8C20` at `$FFEFD4`):
+  those frames count as play (`pause_handler_waits`, stateless), and the handler's return (`$1A923A`) refreshes play,
+  so the fade-out is wide as after any level's end.
 * **Attract mode**: the demos replay recorded input (`$F57C` = 1, the recording at (`$F576`), table `$4B04`, five
   demos), so anything that changes the code they run - the widescreen patches' spawning, a cheat's patch or RAM write
   - changes their course. From power-on through the title routine and while a demo plays, the ROM is the original
@@ -544,8 +553,26 @@ states, rewind or the attract mode) is one of:
     band: no seam shows), then rings 1.5 px wider each with their dither alternating, in the colours that come next
     in the cycle - 2, 1, 0 (the backdrop's), 15, 14 - so they run on outward with the rest. Before, the sides showed
     the backdrop (colour 0) flashing behind the app's bars.
-* Everything else stays 4:3, pillarboxed with the app's plain-colour bars where its edges are one colour: the Genie's
-  wheel (the curtains run off its edges), the instructions (asked to stay 4:3), the debug screen and sound test.
+  - **The Genie's wheel** (`Screen::Wheel`: row 0 = `200C 200D`…, row 10 columns 0 / 39 = `2115` / `2915`): a stage, red
+    curtains drawn back with gold ropes either side (the right half the left one's tiles flipped), the floor and its
+    spotlight below, "Bonus" over it; the Genie's head (the wheel: his mouth shows the faces) is plane A in the middle,
+    the HUD and the token count sprites. The curtains run off both edges; each side mirrors the curtains' outer 16 px
+    back and forth, so the curtain goes on in folds, the rope that runs off the edge in swags across it (as a draped
+    proscenium) and the floor's dark edge along the bottom; the head, "Bonus", the HUD stay where the game has them.
+    The wheel runs on the 4:3 game's ROM (`genie_wheel`, `rom_for`): it is a loop of its own (`$1B16E0`, called from
+    `$1A8E78` at a level's end while Genie tokens are left, `$FFF003`) with the game's objects, sprite builder and
+    HUD, its result the face the wheel object (`$FF7E82`) shows when C stops it, so the widescreen ROM's clip and its
+    screen-fixed marks changed the sprite table in RAM. Told from the stack: the level loop's call leaves `$1A8CCA` at
+    `$FFEFD4`, and while the wheel runs its return address `$1A8E7E` lies at `$FFEFD0` (the next call after it,
+    `$1A8E7E`'s own `bsr`, overwrites it at once). The switch comes at the first safe frame boundary: from the Market,
+    one frame into the wheel (its set-up's first frame on the widescreen ROM); from the Rug Ride none (already there);
+    back to the widescreen ROM as the next screen starts.
+  - **A plane B filled with one tile** all round the picture (`Screen::Fill`: columns 36-63 and 0-3 the same tile on
+    every line): the debug screen's greeting ("AH!, DAVID PERRY, WHAT IS YOUR WISH?" on grey `$00CA`, the face in the
+    middle). The VDP draws the sides from the tile already; plane A's sides are cleared as on every picture. (The debug
+    screen's page after it, text on black, is plain.)
+* Everything else stays 4:3, pillarboxed with the app's plain-colour bars where its edges are one colour: the
+  instructions (a picture cut off by the screen's edges - the table and the tent's drapes; asked to stay 4:3).
 
 **Sprites.** On the plain and picture screens sprites are drawn at their true X, so what crosses the screen comes
 from and goes into the sides: the Genie round the Disney / Virgin logo (object 2, screen-fixed, `x` 88 → 613, 7 px
@@ -714,6 +741,8 @@ look-ahead would mean running the game ahead (the player decides the crashes) or
 | 4:3 parity | `md_parity.py`: the module at 0 against the bare core, the same random input from power-on (12,000 frames) and in each of the 13 levels from its first frame of play (6,000 each, the Rug Ride included) | RAM, VRAM and picture identical on every frame |
 | Rug Ride, 4:3 against wide | `md_wide_rug.py 20 32 40 54 64 80 108 128`: 8 seeds of the autopilot with random spells (out by the third crash at speeds 8-16), 8 with invincibility, 8 flying the whole ride (6 to its end without a crash, one after two; one out at speed 18), the same input at every width | at every width: 68000 and Z80 RAM identical to 4:3 on every frame (43,350 / 42,703 / 62,121 iterations), the same lag frames, the 4:3 area of the picture identical on every frame shown wide (HUD unanchored); nothing appears in the extension but from something there (a geyser's sparks); every object despawned inside the view (1,704 / 1,673 / 4,994) goes on as a ghost; achievements as at 4:3, to the frame (Magic Carpet Ride at the end of each completed ride, the Genie's wheel) |
 | other screens (§6a) | from power-on through the logos, title and OPTIONS; the Market ended (level-skip code) with and without a Genie token through "Level Complete", the wheel, the scarab and the next story cards; every level's story and title cards; a death and the continue screen; Jafar's Palace ended through the ending and credits; at 54 and 128, per frame: wide or 4:3, sprites in the sides; the app's shots before / after at 16:9 and 21:9 | wide as listed in §6a, the rest 4:3; every switch between wide and 4:3 on black (or the scarab's halves meeting on black); no sprite in the sides but what crosses the screen; the Genie flies out of the right side whole (before: cut at the 4:3 edge, every fourth frame garbled when placed from RAM at the frame's start) |
+| Genie's wheel (§6a) | `md_wide_bonus.py 54 128 --wheel <the user's state>`: the user's save state (the wheel after the Escape), the Market and the Rug Ride with two tokens ended by the level skip, C every 150 frames; the app at 2560x1080, 21:9 and 16:9 (CRT) | every frame of the wheel wide (before: 4:3 with bars); results (tokens, faces, lives, apples, gems) as at 4:3; RAM identical to 4:3 on every frame of the wheel from the state and from the Rug Ride; from the Market (a level played on the widescreen ROM) what the level left differs at first - the RAM sprite table's screen-fixed marks and the stack, and in the wheel's first 25 frames (its set-up's first frame still on the widescreen ROM) a few work bytes at `$FFEE07`-`$EE13` - then nothing but a stack byte below the stack pointer (`$FFEFC5`) on 7 frames |
+| level skip's wait, greeting | the Market paused and skipped (with and without a token) through "Level Complete", the wheel, the scarab and the next story at 128; power-on through OPTIONS and the debug screen; a scan of the title, OPTIONS, the debug screen, a game's start, the Market's end and the Escape's deaths and continue screen for a plane B filled with one tile | no frame shown 4:3 any more from the skip to the story (before: 75 frames of the paused level and its fade); the greeting wide; the fill found on the greeting only |
 | other screens' save states | states every 7 frames of the Genie's exit and on the title, "Level Complete", the scarab, the dunes, the moon and the death screen, at 54 and 128, loaded into a fresh instance as the app does, 40 frames | RAM, picture and frame info identical; without the module's part (an older state) RAM identical and the Genie's pieces right of the 4:3 screen missing for 2 frames (7 once) |
 | Rug Ride ghosts | a pickup across its despawn at 21:9, the sprite layer alone | the same 210 pixels, 6 px further each frame: the takeover doesn't show |
 | Rug Ride save states | `md_wide_rug.py 20 54 80 108 128 --states`: states saved mid-ride (some holding ghosts), loaded into a fresh instance as the app does, run 90 frames | picture and RAM identical to the run they came from; without the module's part (as an older state) RAM identical and only the ghosts it held missing (1-2 frames at 21:9) |
