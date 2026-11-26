@@ -537,10 +537,23 @@ void CamTiles::build(const Sms& s, int st) {
 }
 
 // Jafar's room (stage 9) is the boss arena: a 384-px map the camera crosses 0..136, all of it within Aladdin's
-// reach. Past its ends there is no level: the widened view carries the room's pillars on there (its middle part,
-// x 128..255, repeats every 128 px; the hourglass at the right end is not repeated), dimmed (FrameInfo dim), the way
-// the Castle of Illusion port shows its arenas.
+// reach; the hourglass stands at its right end and Jafar fights beside it, the snake (drawn into the table, as wide
+// as the screen allows) taking its place. The widened view is drawn at the right: its right edge is the original's
+// (view_slide -E), so nothing is ever shown beyond what the 4:3 game shows on the right - before, the right side
+// showed the room's end dimmed as a dark box with the bright bands above and below it (the user's "why is there a
+// big box to the right?"), and in the snake's part the hourglass from the level's map popped in there whenever a hit
+// pushed the snake and the camera back (the table holds the snake over it: "the hourglass keeps appearing"). The
+// left side shows the room on to the left, and past its left end its pillars carry on (its middle part, x 128..255,
+// repeating every 128 px), at full brightness. The partial cell at the right shows the table's column as the
+// hardware does (not the map's: the hourglass' post there).
 constexpr int ARENA_STAGE = 9, ARENA_FROM = 128, ARENA_PERIOD = 128;
+// The camera ($C482) stays 128 through the fight; in the snake's part (the second figure's type $C698 = $0B) the snake's
+// knock-backs move it (128 down to ~72). The snake is drawn into the table and scrolls with it, but the game keeps the
+// room still on the screen - the pillars redrawn at screen x 20 and 148 at every camera, the floor (lines 160 on) split
+// off at a scroll of its own - and the tiles then hold the snake's art: the level's map, scrolled by the camera, is the
+// room no more (it put the hourglass, and tiles of other art, in the sides). So the left side shows the room as the
+// table holds it, in both parts: the 4:3 picture's left part again 128 px further left (the pillars' rhythm), never
+// the snake.
 
 // The camera's range: the original view shows world x [lo, hi + 256). A map can end before the camera's limit
 // allows (stages 0, 1 and 8, Jafar's room): the map's end counts.
@@ -599,10 +612,11 @@ int band_camera(const Sms& s, int hs) {
 // (the camera itself stays the original's - Aladdin's position is an 8-bit screen X). The view's left edge (world
 // x) is camera - E, kept within the level [lo, hi + 256): the view holds still at the level's first / last pixel
 // while the camera covers the E px next to the end, then follows it. A level narrower than the view is centred (the
-// rest masked). Jafar's room keeps the original camera (its sides are dimmed scenery). From the camera alone, so
-// save states and width changes need nothing more.
+// rest masked). Jafar's room is drawn at the right (ARENA_STAGE, below): its view ends where the original's does.
+// From the camera alone, so save states and width changes need nothing more.
 int view_slide(const Sms& s, int cam, int E) {
-    if (!shows_stage(s) || shown_stage(s) == ARENA_STAGE || E == 0) return 0;
+    if (!shows_stage(s) || E == 0) return 0;
+    if (shown_stage(s) == ARENA_STAGE) return -E;
     int lo, hi;
     level_bounds(s, lo, hi);
     const int end = hi + 256, vw = 256 + 2 * E;
@@ -2158,6 +2172,9 @@ public:
             // (a shaking scene: the table's column 0 shows at x 8-9 on a shake to the right - the column the module draws
             // in its place, as the sides, takes those 2 px too: $C's hidden column, the blank $11BF there, showed as a
             // black line in the shaft)
+            // (Jafar's room: the partial cell at the right is the table's, as on the hardware - its map still has the
+            // hourglass where the snake is drawn into the table)
+            m.vdp.hw_right_partial_out = !(shows_stage(m) && shown_stage(m) == ARENA_STAGE);
             m.vdp.hw_x0 = story_wide(m) == STORY_SCENE
                               ? std::max(scene_fill_x(m.ram8(SCENE)), scene_shakes(m.ram8(SCENE)) ? 10 : 8) : 8;
             make_fills(m);
@@ -2273,15 +2290,14 @@ public:
             return;
         }
         if (E == 0) return;
-        // What lies outside the level: only where it is narrower than the view (view_slide centres it), and the sides
-        // of Jafar's room (shown dimmed)
+        // What lies outside the level: only where it is narrower than the view (view_slide centres it); Jafar's room
+        // carries its pillars on at full brightness (bg_entry)
         const int cam = shown_cam(s), view = cam - E + view_slide(s, cam, E);
         int lo, hi;
         level_bounds(s, lo, hi);
         const int left = std::clamp(lo - view, 0, E), right = std::clamp(view + 256 + 2 * E - (hi + 256), 0, E);
         if (shown_stage(s) == ARENA_STAGE) {
-            info.dim_left = left;
-            info.dim_right = right;
+            // (nothing: no dimmed box)
         } else {
             info.mask_left = left;
             info.mask_right = right;
@@ -2772,6 +2788,10 @@ private:
             k = mod.line_early_[line] >= 0 ? mod.line_early_[line]   // (drawn with its split on time: line_scroll)
                                            : std::min(3, s.vdp.line_hscroll_writes[line] - s.vdp.line_hscroll_writes[0]);
         if (line >= 0 && line < SmsVdp::kMaxLines) mod.line_band_[line] = (int8_t)k;
+        // (Jafar's room, drawn at the right: every line below the status bar as the hardware draws it, E px further
+        // right - its floor (lines 160 on) is split off at a scroll of its own, which no camera lead explains, and its
+        // bottom rows (176 on) hold priority cells sprites pass behind)
+        if (shown_stage(s) == ARENA_STAGE && vs) return line < 16 ? 0 : vs;
         if ((vs == 0 && !banded) || line < 16 || line >= 176) return 0;
         const int cam = shown_cam(s);
         if (k == mod.cam_band_) return vs - (band_camera(s, s.vdp.reg[8]) - cam);
@@ -2812,7 +2832,13 @@ private:
         if (mod.line_band_[line % SmsVdp::kMaxLines] != mod.cam_band_) return -1;   // a parallax band: it repeats every 256 px
         const int hs = v.reg[8];
         int wx = band_camera(s, hs) + hs + vcol * 8;
-        if (shown_stage(s) == ARENA_STAGE) {   // past the arena's ends: its pillars carry on (dimmed by post_frame)
+        if (shown_stage(s) == ARENA_STAGE) {   // past the arena's ends: its pillars carry on
+            // (the room as the table holds it, 128 px further left - see JAFAR_SNAKE - or 256 where that would be the
+            // column the hardware blanks, x 0-7: the game leaves the snake's wrapped cells there; the blanked column
+            // itself shows x 128-135)
+            const int sx = vcol * 8 + hs;   // (the cell's screen x)
+            if (sx < 8)
+                return v.name_entry(sx + ARENA_PERIOD >= 8 ? vcol + ARENA_PERIOD / 8 : vcol, vrow) & 0x1FFF;
             const int lo = s.ram16(CAM_MIN), end = lo + s.ram16(MAP_STRIDE) * 16;
             if (wx < lo || wx >= end) wx = lo + ARENA_FROM + (((wx - lo - ARENA_FROM) % ARENA_PERIOD) + ARENA_PERIOD) % ARENA_PERIOD;
         }
@@ -2864,6 +2890,10 @@ private:
         // colour the original picture shows at its own edges, so the box stays 256 px wide.
         // (Sprites stay: they can cross the border as in the original.)
         if (line >= 176) {
+            if (shown_stage(s) == ARENA_STAGE) {   // (drawn at the right: the picture at 2E..2E + 255, no right side)
+                std::memset(bg, bg[2 * E] & 0x1F, 2 * E);
+                return;
+            }
             std::memset(bg, bg[E] & 0x1F, E);
             std::memset(bg + 256 + E, bg[E + 255] & 0x1F, E);
             return;
