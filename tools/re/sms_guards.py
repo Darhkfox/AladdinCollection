@@ -107,21 +107,15 @@ def run_stage(st, E, frames):
 
 def run_sub(st, sub, E, frames=1300):
     s = boot(E, st)
-    tries = 0
+    for _ in range(150 if st == 6 else 0):   # (the palace's start doesn't take every change: a few steps in)
+        s.mframes(1, 'RIGHT')
     while s.ram8(0xC49F) != sub:
-        was, before = s.ram8(0xC49F), (s.save(), s.save_ext())
+        was = s.ram8(0xC49F)
         s.set8(0xC4A0, 1 if sub < was else 2)
-        for _ in range(120):
+        for _ in range(120):   # (he comes in from the top: landed by then)
             s.mframes(1, 0)
-        if s.ram8(0xC49F) == was or s.ram8(0xC200) != st + 2:
-            # (not taken here - the palace's start, say: a few steps further in)
-            s.load(before[0])
-            s.load_ext(before[1])
-            tries += 1
-            if tries > 10:
-                return [('%d.%d' % (st, sub), 'not reached', 0, '', 0, 0, 0, [])]
-            for _ in range(60):
-                s.mframes(1, 'RIGHT')
+        if s.ram8(0xC49F) == was or s.ram8(0xC200) != st + 2 or s.ram8(0xC438) or s.ram8(0xC461):
+            return [('%d.%d' % (st, sub), 'not reached', 0, '', 0, 0, 0, [])]
     drive(s, 2)
     y0 = s.ram8(0xC400)
     ev = []
