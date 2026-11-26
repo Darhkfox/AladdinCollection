@@ -196,8 +196,9 @@ achievements of its own: *A Whole New World* (defeat Jafar in all three versions
   the Disney and Virgin logos, Aladdin and Abu running through "Level Complete", the scarab's halves, the carpet
   across the moon. The full scarab's flashing rings carry on out to the screen's edges, and the Genie's bonus wheel
   stands on a wider stage (its curtains and their gold ropes go on into the sides; the wheel runs on the original
-  game, unchanged, so it stops on the same faces). Only the instructions screen stays 4:3 (its picture is cut off by
-  the screen's edges). Abu's bonus rounds are wide:
+  game, unchanged, so it stops on the same faces; with Re-anchor HUD on, its status bar goes to the screen's edges as
+  in the levels). The instructions screen is wide too: the tent's drapes and poles go on into the sides, the table
+  and its labels stay as they are. Abu's bonus rounds are wide:
   they run on the original game, unchanged (Abu's reach, what falls and where, the score), and the room carries on
   into the sides from its own art (Agrabah's street and stalls, the Cave's rock walls, mirrored at the room's ends),
   with whatever bounces or rolls out of the room going on into the sides. The attract demos stay 4:3; they play
@@ -453,8 +454,8 @@ gradlew assembleDebug
   On the screens around the levels the game puts its flyers where they begin just off its own screen, so at 21:9
   some appear inside a side rather than at its outer edge: the Genie at the Disney / Virgin logo (whole, 13 px in),
   Aladdin and Abu at "Level Complete" (40 px in), the carpet across the moon (about 30 px left of the 4:3 picture,
-  on the scene's first frame). The instructions screen is cut off by the screen's edges and stays 4:3, as do the
-  attract demos (see above); the story cards' dunes at the sides are the picture's edges mirrored, as the
+  on the scene's first frame). The attract demos stay 4:3 (see above); the instructions screen's sides are its tent
+  mirrored (the table ends inside the picture, so beyond it is the tent's dark); the story cards' dunes at the sides are the picture's edges mirrored, as the
   picture doesn't carry on across its own edges. In Abu's bonus rounds the sides are the room's own art mirrored
   (Abu still stops where the original stops him, at the posts in Agrabah), and what the game brings in at the
   original screen's edge appears there as in the original (the Cave's rolling boulder, half in the side).

@@ -593,8 +593,9 @@
   scarab's halves, the carpet - goes on into the sides, and the full
   scarab's flashing rings carry on out to the edges. The Genie's bonus
   wheel stands on a wider stage, its curtains going on into the sides
-  (it stops on the same faces as ever). Only the instructions screen
-  stays in its original shape.
+  (it stops on the same faces as ever), with the status bar out at the
+  screen's edges when Re-anchor HUD is on, and the instructions screen's
+  tent goes on into the sides.
 
   Abu's bonus rounds on the Mega Drive are wide too: the room carries on
   into the sides from its own art, while Abu, what falls and the score
