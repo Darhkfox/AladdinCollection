@@ -590,12 +590,16 @@
   logo and menu centred), the story cards, the title cards, "Level
   Complete", the death and continue screens and the ending. What flies
   across them - the Genie round the logos, Aladdin and Abu running, the
-  scarab's halves, the carpet - goes on into the sides. The Genie's bonus
-  wheel, the instructions and the full scarab picture stay in their
-  original shape.
+  scarab's halves, the carpet - goes on into the sides, and the full
+  scarab's flashing rings carry on out to the edges. The Genie's bonus
+  wheel and the instructions stay in their original shape.
 
-  Shown in their original shape: other title screens, menus, story
-  scenes and the Mega Drive's bonus rounds. Where such a screen's
+  Abu's bonus rounds on the Mega Drive are wide too: the room carries on
+  into the sides from its own art, while Abu, what falls and the score
+  are exactly the original's.
+
+  Shown in their original shape: other title screens, menus and story
+  scenes. Where such a screen's
   background is one plain colour, it fills the width in that colour. The
   SNES STAGE CLEAR screen fills the width with its purple background.
 

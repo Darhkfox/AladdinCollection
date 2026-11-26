@@ -15,7 +15,8 @@ Abu in his cage and freed), `md_wide_apples.py` (the out-of-apples apples `$61` 
 attract mode at every width, with and without cheats, against widescreen off), `md_apptest.py` (the real app's
 autotest on level states: HUD, pillarboxing as the player sees them), `md_wide_rug.py` (the Rug Ride at 4:3 and wide
 with the same input: RAM, lag, the 4:3 area of the picture, ghosts, achievements; `--states` its save states),
-`md_parity.py` (the module at 4:3 against the bare core, every level). `md_util.start_play` starts a level through the
+`md_parity.py` (the module at 4:3 against the bare core, every level), `md_wide_bonus.py` (Abu's bonus rounds: RAM at
+every width against 4:3, from the story card and from a 4:3 state; `--rewind`). `md_util.start_play` starts a level through the
 module's level select and skips its story card (START) until the first frame of play.
 
 **Recipe**
@@ -29,12 +30,14 @@ module's level select and skips its story card (START) until the first frame of 
    room from objects out of sight (the tile pool compacted), and the sprite clip covers ±2E (§3).
 4. HUD sprites are moved to the screen edges and kept still while the view slides (`sprite_xoff`, §4).
 5. Gameplay = a level fading in or out, the gameplay or pause loop ran in the last 4 frames, or an iteration of the gameplay
-   loop is still under way (PC hooks, §6); Abu's bonus rounds are shown 4:3. The attract mode (title, demos) runs on the original ROM, cheats off (§6).
+   loop is still under way (PC hooks, §6). The attract mode (title, demos) runs on the original ROM, cheats off (§6).
    The screens between and around the levels are drawn wide from the VDP alone: plain ones with the backdrop and the
    sprites at their true places, pictures with their own edges repeated (§6a).
 6. The Rug Ride runs on the 4:3 game's ROM (the cheats only) and is shown with all the extra width behind the carpet:
    the view slid by −E for good, objects the game despawns there drawn on by the module (ghosts, animated by the game's
    own code on a CPU of the module's), the lava wave's cut-off back drawn on (§7).
+7. Abu's bonus rounds run on the 4:3 game's ROM too and are drawn wide around the 4:3 view: the room's map mirrored at
+   its ends, plane B's picture wrapped, the sprite pieces the 4:3 clip drops drawn by the module (§6b).
 
 ## 1. Camera and streaming
 
@@ -470,8 +473,8 @@ the idol on the far pedestal cut at the right edge; in Jafar's hall at the left 
   0 (before: 5-6 per fade), the slide constant over the fade (-128 / 112 / 112 / 128), the first 4:3 frame black.
 * The screens outside the levels are wide where they can be (§6a): the logos, the title and OPTIONS, "Level
   Complete", the scarab's halves, the story cards, the title cards, the death and continue screens, the ending and
-  credits. 4:3: the Genie's wheel, the instructions, the full scarab, the debug screen and sound test; Abu's bonus
-  rounds (a 336-px room: 8 px a side more). The Rug Ride is wide, its own way (§7).
+  credits, the full scarab. 4:3: the Genie's wheel, the instructions, the debug screen and sound test. Abu's bonus
+  rounds (§6b) and the Rug Ride (§7) are wide, each its own way.
 * **Attract mode**: the demos replay recorded input (`$F57C` = 1, the recording at (`$F576`), table `$4B04`, five
   demos), so anything that changes the code they run - the widescreen patches' spawning, a cheat's patch or RAM write
   - changes their course. From power-on through the title routine and while a demo plays, the ROM is the original
@@ -529,10 +532,20 @@ states, rewind or the attract mode) is one of:
     edges mirrored: dunes, not a copy of the picture.
   - **The ending's moon** (row 4 = `23D9 23DA` at column 12): stars on the backdrop; the left side mirrors columns 0-9,
     the right columns 24-39, both clear of the moon (columns 10-19).
+  - **The full scarab** between its halves' flights (`Screen::Rings`, row 0 = `0005 0005 0005 0006 000B`…, row 14
+    column 1 = `00B5`; about 46 frames after each "Level Complete", the scarab itself sprites). Plane B (no scroll,
+    palette line 0) holds concentric rings round (159.5, 114), colour 12 at the centre and 11, 10, 9, 8, 6, 5, 4, 3
+    outward (7 isn't drawn), 20-31 px apart and wider outward, each boundary a band of alternate columns in the two
+    colours (the picture's right half is its left half's tiles flipped, so the columns' phase is mirrored about the
+    centre), cut off by the screen at radius 160-195. The game cycles all 16 colours of line 0 one step a frame
+    (`$000` … `$007`, `$00F` … `$02F`, back down to `$006`; colour 0, the backdrop, among them), so the rings run
+    through the picture. The sides go on with the rings (`ring_index`): the art's boundaries per column phase, fitted
+    to the picture (the model gives 95% of the art's 16 edge columns' pixels, the rest single columns of a dithered
+    band: no seam shows), then rings 1.5 px wider each with their dither alternating, in the colours that come next
+    in the cycle - 2, 1, 0 (the backdrop's), 15, 14 - so they run on outward with the rest. Before, the sides showed
+    the backdrop (colour 0) flashing behind the app's bars.
 * Everything else stays 4:3, pillarboxed with the app's plain-colour bars where its edges are one colour: the Genie's
-  wheel (the curtains run off its edges), the instructions (asked to stay 4:3), the full scarab between its halves'
-  flights (plane B's rings, `$E000`, cut off at the edges: about 45 frames, the screen flashing), the debug screen
-  and sound test.
+  wheel (the curtains run off its edges), the instructions (asked to stay 4:3), the debug screen and sound test.
 
 **Sprites.** On the plain and picture screens sprites are drawn at their true X, so what crosses the screen comes
 from and goes into the sides: the Genie round the Disney / Virgin logo (object 2, screen-fixed, `x` 88 → 613, 7 px
@@ -560,6 +573,47 @@ and out, the ending's carpet (from x -29) and the Genie's cloud on the death scr
 back opens them over 6 frames; every such switch on the way through the game falls on black or on matching sides:
 the scarab's halves meet in the middle on black before the rings light up, the instructions and the wheel fade in
 from black. The picture kinds are told by their tiles, so a picture fading in or out stays wide throughout.
+
+## 6b. Abu's bonus rounds
+
+Levels 2 (Abu in Agrabah) and 6 (Abu in the Cave): one room, a 21 × 18 block map (336 × 288 px), under a camera that
+never moves (the inits `$1B6394` / `$1B6478` set `$F173`, the camera code returns at once): camX 0, camY 16, so the
+4:3 view is map x 16..335, y 32..255 (map x 0..15, the first block column, is never shown at 4:3). Plane A at `$C000`
+is the map (H scroll −16, V scroll 32; the plane holds map x [0, 368): past x 336 the streaming's leftovers), plane B
+at `$E000` the header's 512 × 256 picture (+`$1C`: Agrabah's dunes and sky `$12A660`, the Cave's curtain `$12AD70`;
+reg 11 = 0, one scroll for the whole screen - Agrabah's is the Market's scroll routine `$1AAA88`, whose cloud drift
+`$F09E` slides the whole picture). The rounds' own per-frame routine (`$1B5B94` / `$1B5D3A` → `$1B634E`) runs a
+script at (`$F132`: `$2128` / `$24FC`) through the Rug Ride's command table (`$20C0`): what falls, where and when. Abu
+(object `$83`, slot 0) walks object x 18..306 (screen x 2..290): inside the 4:3 view, against the game's own limits
+(in Agrabah the wooden posts at screen x 3 and 291 mark them). Things fall from above the screen at x 8..278 (their
+sprites within the 4:3 view but for a few px at the left edge); some leave it sideways - in the Cave the boulder
+(`$7D`, from x 8 on across to x 401), rocks bouncing away (`$7C`, out to x 382, then their dust `$84`) - and the game
+despawns them there, out of its view.
+
+* **The 4:3 game's ROM** (`rom_for`: `Rom::Game43`, the Rug Ride's): the widescreen patches' despawn window, sprite
+  clip and spawning would change the round (objects kept alive, another sprite table in RAM, other timing), so the
+  rounds run on the cheats-only ROM, switched at a safe frame as for the ride (one frame after the play-order script
+  sets the level, some 200 frames before the round's init, in Abu's intro; back as the next level's story starts).
+  Their RAM, score and spawns are the 4:3 game's, to the cycle; the module only draws.
+* **Shown wide** (`wide_view` no longer leaves them out), with no slide (the 4:3 view is the middle of the picture)
+  and no masks; the HUD anchored to the edges as in every level; sprite X read as 9 bits (the 4:3 ROM's clip).
+* **Plane A's sides** (`abu_line`): the room's own map, mirrored at its ends - a side pixel at map x −1 − k or
+  2W − 1 − k (W = 336) shows map x k, so the art carries on seamlessly from the room's edges (back and forth if a view
+  were ever wider than the room). Agrabah: the street, its stalls and awnings and the buildings beyond the posts;
+  the Cave: its rock walls, thicker. Map x 0..15 left of the 4:3 view is the map's own (the plane holds it); past map
+  x 336 the plane's leftovers are replaced. The room repeated instead (map x + 336) cuts the buildings and the rocks
+  off at a straight seam; mirrored, nothing shows a seam. Plane B: the VDP's own wrap (both pictures are seamless
+  512-px loops the game's levels scroll endlessly).
+* **No dimming.** The sides read as scenery: in Agrabah the posts stand at Abu's limits at both ends of the 4:3 view
+  and the street goes on behind them; in the Cave the walls close the room.
+* **Sprites in the sides**: the 4:3 clip (`$1ABA0A`) drops map objects' pieces at VDP X ≥ `$1BF` (screen x 319 on)
+  and left of VDP X 0. `extra_pieces` (as the builder starts) now places, in these rounds, map objects' pieces too
+  (the builder's `$1ABA98` branch: X = offset + x − d7, Y = offset + y − d6 − `$100`, d7 / d6 the camera, the offset
+  flipped by +9 / +`$35`), drawn from the next VBlank on behind the game's sprites on both sides (`draw_extra`): a
+  rock bouncing away flies on into the right side and turns to dust there, the boulder rolls out of the view's right
+  edge whole. What the 4:3 game itself brings in at its edge comes in the same way: the Cave's boulder appears with
+  its centre at screen x −8 (half of it in the 4:3 view, the rest in the side), as at 4:3. Their save states keep the
+  pieces (save extension version 2, as on the other screens).
 
 ## 7. The Rug Ride
 
@@ -663,6 +717,12 @@ look-ahead would mean running the game ahead (the player decides the crashes) or
 | other screens' save states | states every 7 frames of the Genie's exit and on the title, "Level Complete", the scarab, the dunes, the moon and the death screen, at 54 and 128, loaded into a fresh instance as the app does, 40 frames | RAM, picture and frame info identical; without the module's part (an older state) RAM identical and the Genie's pieces right of the 4:3 screen missing for 2 frames (7 once) |
 | Rug Ride ghosts | a pickup across its despawn at 21:9, the sprite layer alone | the same 210 pixels, 6 px further each frame: the takeover doesn't show |
 | Rug Ride save states | `md_wide_rug.py 20 54 80 108 128 --states`: states saved mid-ride (some holding ghosts), loaded into a fresh instance as the app does, run 90 frames | picture and RAM identical to the run they came from; without the module's part (as an older state) RAM identical and only the ghosts it held missing (1-2 frames at 21:9) |
+| Abu's bonus rounds (§6b) | `md_wide_bonus.py 54 128` (seeds 1, 2 from the story card; a 4:3 state from inside the round; again with invincibility, infinite health / lives / apples); the game's own way in (the Market with Abu's token, ended by the level skip) at 54 / 128 | 68000 and Z80 RAM identical to 4:3 on every frame of the rounds (1,278-1,728 frames from the card, 584-1,477 from the state; before: different from the story card's first frames on); the ROM switches one frame after the script sets the level, 200 frames before the round's init, and back as the next level's story starts; every frame of the round shown wide, its fade-out included |
+| Abu's bonus rounds' sides | headless renders at 54 / 128 over random play; the app at 2560x1080, 21:9 and 16:9 (CRT), states in mid-round | the street / rocks mirrored at the room's ends without a seam; rocks bouncing out of the room fly on into the right side and turn to dust there, the boulder rolls out whole; nothing parked in the sides |
+| full scarab (§6a) | the Market ended by the level skip through "Level Complete", the scarab's halves, the full scarab and the next story card, at 54 / 128; the app at 2560x1080 | the 46 frames of rings wide (before: 4:3 with flashing bars); no seam at the 4:3 edges, the rings running outward with the palette cycle |
+| rewind (bonus, scarab) | `md_wide_bonus.py --rewind`, the same for the scarab sequence and the Market: a state every 2 frames loaded back from the end, one frame run, its picture against the forward run's | 0 rewound frames differ at 54 / 128 |
+| high frame rate (bonus, scarab) | Abu's rounds and the scarab at 21:9 with 4 pictures a frame against 1 | RAM and the frames' pictures identical; the sides of the in-betweens move with the 4:3 part (the Cave's shake); `hfr_test.py md` passes, `md_attract.py 54 128` (with and without cheats) and `md_parity.py` 0 differences |
+| Escape's lava floor | the user's state (Escape from the Cave, camera (309, 110), Aladdin in the first lava pit) at 4:3 / 21:9; the level from its start at 4:3 with no cheat, walking into the pit | the row of patterned blocks along the bottom (lines 218-223) is the map's last block row (row 21, map y 344-349: its lower cells, name-table word `$C002` - tile 2, palette line 2, in front - where the lava pits are), in the original at 4:3 too, whenever the camera is at its lowest (camY 109-110) over the pits; not a widescreen artefact |
 
 ## 9. High frame rate
 
