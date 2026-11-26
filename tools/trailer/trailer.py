@@ -330,8 +330,8 @@ def scene_title(n, name='md_title', a=1100):
         ta = ease((i - S(0.5)) / S(0.8))
         f = centered_text(f, [('THREE CLASSIC VERSIONS  \u2022  ONE COLLECTION', F_BOLD, 44, GOLD, 300),
                               ('Aladdin Collection', F_DECO, 150, WHITE, 352),
-                              ('PC EDITION', F_BOLD, 62, WHITE, 560),
-                              ('Mega Drive  \u2022  Super Nintendo  \u2022  Master System', F_REG, 40, SUBC, 660)], ta)
+                              ('PC & ANDROID', F_BOLD, 62, WHITE, 560),
+                              ('Mega Drive / Genesis  \u2022  Super Nintendo  \u2022  Master System', F_REG, 40, SUBC, 660)], ta)
         f = overlay(f, logo.resize((200, 198), Image.LANCZOS), ((VW - 200) // 2, 60), ta)
         if i > n - S(0.5): f = fade(f, (n - i) / S(0.5))
         return f
@@ -480,7 +480,7 @@ def scene_end(n, name='md_title', a=1100):
         f = dim(backdrop(canvas(name, a + (i % 600))), 62)
         f = centered_text(f, [
             ('Aladdin Collection', F_DECO, 120, WHITE, 120),
-            ('PC EDITION  \u2022  V1.0  \u2022  WINDOWS & ANDROID  \u2022  FREE', F_BOLD, 48, GOLD, 300),
+            ('PC & ANDROID  \u2022  V1.0  \u2022  FREE', F_BOLD, 48, GOLD, 300),
             ('github.com/Darhkfox/AladdinCollection', F_BOLD, 48, WHITE, 395),
             ('Requires your own ROMs \u2014 not included', F_REG, 38, SUBC, 480),
             ('Aladdin (USA) for Mega Drive / Genesis   \u2022   Aladdin (USA) for SNES   \u2022   '
@@ -506,7 +506,7 @@ def timeline():
         ('title',      scene_title(S(5.5))),
         ('launcher',   ui([('ui_launcher', 100, 180), ('ui_launcher', 450, 300)], 'ONE LAUNCHER, THREE ALADDINS',
                           'The Mega Drive, Super Nintendo and Master System games, each with a live preview\n'
-                          'Keyboard, gamepad or mouse', pointer='ui_launcher')),
+                          'Keyboard, gamepad or mouse')),
         ('style',      ui([('ui_style', 280, 110), ('ui_style', 570, 170)], 'TWO MENU STYLES',
                           'Arabian Nights or Classic, for the launcher and every menu')),
         ('md',         plain('md_market', [(0, S(5))], 'MEGA DRIVE / GENESIS',
