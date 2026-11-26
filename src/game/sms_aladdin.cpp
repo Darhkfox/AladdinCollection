@@ -863,7 +863,7 @@ const SceneRule kSceneRules[SCENES] = {
     // the side cols 15 down to 5, repeating every 12 (the slab's two- and four-column steps in phase; row 15's rocks
     // from cols 4-15, whole); the right side the lava
     {3, {{0, 15, 8, 16, 4, 32}, {15, 16, 4, 16, 26, 30}, {16, 20, 5, 17, 26, 30}}, 0, 0x1F << 15},
-    {1, {WHOLE}},   // $B the escape: the lava's drips
+    {1, {WHOLE}},   // $B the escape: the lava's drips (its sides: kSceneSides)
     {0, {}},        // $C, $D the fall: rock walls cut by the edges
     {0, {}},
     {1, {WHOLE}},   // $E the Genie appears (hills at both edges)
@@ -891,22 +891,102 @@ const SceneRule kSceneRules[SCENES] = {
     {1, {WHOLE}},   // $22 Jafar's room, red
     {1, {WHOLE}},   // $23 the palace balcony: the end (towers)
 };
-// Cells inside the 4:3 picture a widened scene shows from another source column (a gap the sides' floor runs across),
-// with the source cells' own priority: scene, column, rows [r0, r1), source column. The VDP asks bg_entry for the
-// columns left of hw_x0, which the frame's start moves past them (and the shake's 2 px) for such a scene. At 4:3 and
-// widescreen off the table is drawn as it is.
-// $A: under the claw's foot the slab (rows 18-19) and its ledge (row 17) stop at col 1 / taper over cols 2-3 (the
-// claw's base cells, ledge only on row 17): col 1 takes the slab of col 17 (1105 / 1109, as before the slab's 1106 /
-// 110a at col 2) and row 17's cols 1-3 the ledge of cols 14-16 (126 127 128, as before the 125 at col 4).
+// Cells inside the 4:3 picture a widened scene draws with a floor behind them (a gap the sides' floor runs across):
+// scene, column, rows [r0, r1), source column. The picture's own cell stays in front: where its pattern has pixels
+// (not colour 0, the background) they are its, elsewhere the source cell's show through - a cell of its own pattern
+// made at the frame's start (StoryFills, SmsVdp::alt_patterns, bit 15), with the picture cell's priority, flips and
+// palette; a blank picture cell (tile $100) is the source cell as it is. The VDP asks bg_entry for the columns left of
+// hw_x0, which the frame's start moves past them (and the shake's 2 px) for such a scene. At 4:3 and widescreen off
+// the table is drawn as it is.
+// $A: the floor stops at the claw. Its slab (rows 18-19) begins flat at col 2, col 1 dark; the claw's base (cols 1-3,
+// rows 16-17: its foot's outline over the dark, the ledge's tip in col 3) has the floor's top rows (16-17) only from
+// col 4 on. The claw is the same in stage 4's first screen (the same tiles in the same columns: there the slab begins
+// under it with a rounded end, 132b / 132c, nothing beyond). Widened, the floor runs on behind it: col 1's slab from col
+// 17 (1105 / 1109, before the slab's 1106 / 110a at col 2), and rows 16-17 of cols 1-3 behind the claw from cols 7-9
+// (143 143 144 / 128 128 125, before the 140 / 125 at col 4); every pixel of the claw is kept.
 struct SceneFill { uint8_t scene, col, r0, r1, src; };
 constexpr SceneFill kSceneFills[] = {
-    {0x0A, 1, 18, 20, 17}, {0x0A, 1, 17, 18, 14}, {0x0A, 2, 17, 18, 15}, {0x0A, 3, 17, 18, 16},
+    {0x0A, 1, 18, 20, 17}, {0x0A, 1, 16, 18, 7}, {0x0A, 2, 16, 18, 8}, {0x0A, 3, 16, 18, 9},
 };
+// The fills' cells made for the frame: the picture cell's pattern over the source's (by the picture cell's pattern)
+struct StoryFills {
+    static constexpr int MAX = 16;
+    uint8_t tiles[MAX * 32] = {};
+    int first = 0, count = 0;
+    static void pixels(const uint8_t* p, int e, uint8_t out[8][8]) {   // (screen orientation)
+        for (int y = 0; y < 8; y++)
+            for (int x = 0; x < 8; x++) {
+                const int ty = (e & 0x400) ? 7 - y : y, tx = (e & 0x200) ? 7 - x : x;
+                const uint8_t* r = p + ty * 4;
+                const int b = 7 - tx;
+                out[y][x] = (uint8_t)(((r[0] >> b) & 1) | (((r[1] >> b) & 1) << 1) | (((r[2] >> b) & 1) << 2) |
+                                      (((r[3] >> b) & 1) << 3));
+            }
+    }
+};
+int scene_cell(const Sms& s, int sc, int col, int row);
+// a fill's cell: the picture's own over the source's; *composite: whether it is a made cell (pattern = the picture's)
+int fill_cell(const Sms& s, const SceneFill& f, int row, bool* composite) {
+    const int fg = scene_cell(s, f.scene, f.col, row), bg = scene_cell(s, f.scene, f.src, row);
+    const uint8_t* p = &s.vdp.vram[(fg & 0x1FF) * 32];
+    bool blank = true;
+    for (int i = 0; i < 32; i++) blank = blank && !p[i];
+    *composite = !blank && ((fg ^ bg) & 0x800) == 0;
+    return blank ? bg : fg;
+}
 int scene_fill_x(int sc) {   // (the screen x up to which bg_entry is asked: 8 for none)
     int x = 8;
     for (const SceneFill& f : kSceneFills)
         if (f.scene == sc) x = std::max(x, (f.col + 1) * 8 + 2);
     return x;
+}
+// Sides laid out from a scene's own pieces where no stretch of its columns carries it on (kSceneSides: cell rows 0-11,
+// 13 columns out from each edge, 0 = the blank background; rows 12-19 blank).
+// $B (the escape): the lava's drips hang in a cluster at the picture's left (cols 0-11, rows 0-11), cut by its edge,
+// and sparsely at the top of its right part. Repeated whole, the right side was the cluster again next to the empty
+// right part and the left side the empty right part - the user's "save state two cut scene doesnt look right". The
+// drips are arcs of two rows, six cells (116d 116e 116f 136f 136e 136d over 1171 1172 1173 1173 1372 1371) or four
+// (1165-1168 over 1169 1124 1124 1124), with the priority bit as in the picture. Left: the arcs the edge cuts made
+// whole (rows 3-4 a four-arc ending at col 0, 5-6 a six-arc ending at col 2, 9-10 a six-arc ending at col 0, 11 a
+// four-arc's top ending at col 1), and the cluster thinning out with whole arcs further left; right: two arcs, at the
+// top as the picture's right part has them.
+constexpr int SIDE_COLS = 13, SIDE_ROWS = 12;
+struct SceneSides { uint8_t scene; uint16_t left[SIDE_ROWS][SIDE_COLS], right[SIDE_ROWS][SIDE_COLS]; };
+const SceneSides kSceneSides[] = {
+    {0x0B,
+     {   // left: [row][k], k = 0 the column left of the picture's (-1), out to -13
+         {0, 0, 0, 0, 0, 0, 0, 0x1371, 0x1372, 0x1173, 0x1173, 0x1172, 0x1171},
+         {0, 0, 0x136d, 0x136e, 0x136f, 0x116f, 0x116e, 0x116d, 0, 0, 0, 0, 0},
+         {0, 0, 0x1371, 0x1372, 0x1173, 0x1173, 0x1172, 0x1171, 0, 0, 0, 0, 0},
+         {0x1167, 0x1166, 0x1165, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0x1124, 0x1124, 0x1169, 0, 0, 0x136d, 0x136e, 0x136f, 0x116f, 0x116e, 0x116d, 0, 0},
+         {0x116f, 0x116e, 0x116d, 0, 0, 0x1371, 0x1372, 0x1173, 0x1173, 0x1172, 0x1171, 0, 0},
+         {0x1173, 0x1172, 0x1171, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0x1168, 0x1167, 0x1166, 0x1165, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0x1124, 0x1124, 0x1124, 0x1169, 0, 0, 0},
+         {0x136e, 0x136f, 0x116f, 0x116e, 0x116d, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0x1372, 0x1173, 0x1173, 0x1172, 0x1171, 0, 0, 0, 0, 0x1168, 0x1167, 0x1166, 0x1165},
+         {0x1166, 0x1165, 0, 0, 0, 0, 0, 0, 0, 0x1124, 0x1124, 0x1124, 0x1169},
+     },
+     {   // right: [row][k], k = 0 the column right of the picture's (32), out to 44
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0x116d, 0x116e, 0x116f, 0x136f, 0x136e, 0x136d, 0, 0, 0, 0, 0},
+         {0, 0, 0x1171, 0x1172, 0x1173, 0x1173, 0x1372, 0x1371, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0x1165, 0x1166, 0x1167, 0x1168, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0x1169, 0x1124, 0x1124, 0x1124, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+     }},
+};
+const SceneSides* scene_sides(int sc) {
+    for (const SceneSides& d : kSceneSides)
+        if (d.scene == sc) return &d;
+    return nullptr;
 }
 const SceneRule* scene_rule(int sc) { return sc >= 0 && sc < SCENES && kSceneRules[sc].n ? &kSceneRules[sc] : nullptr; }
 
@@ -978,8 +1058,12 @@ int story_bg_entry(const Sms& s, int vcol, int vrow, uint32_t replaced, int hs) 
                                 ? scene_rule(s.ram8(SCENE)) : nullptr;
     if (vcol > 0 && vcol < 32 && rule && !(replaced >> (vrow % 28) & 1))
         for (const SceneFill& f : kSceneFills)   // (inside the picture: a gap the sides' floor runs across)
-            if (f.scene == s.ram8(SCENE) && f.col == vcol && vrow % 28 >= f.r0 && vrow % 28 < f.r1)
-                return scene_cell(s, f.scene, f.src, vrow % 28);
+            if (f.scene == s.ram8(SCENE) && f.col == vcol && vrow % 28 >= f.r0 && vrow % 28 < f.r1) {
+                bool comp = false;
+                const int e = fill_cell(s, f, vrow % 28, &comp);
+                return comp && s.vdp.alt_patterns && (e & 0x1FF) >= s.vdp.alt_first &&
+                               (e & 0x1FF) < s.vdp.alt_first + s.vdp.alt_count ? e | 0x8000 : e;
+            }
     if (vcol > 0 && vcol < 32) return -1;   // (the table)
     const bool side0 = rule && (rule->side0 >> (vrow % 28) & 1);
     if (vcol == 0) {   // (the column the hardware blanks: the table's, or the left side's where the rule says)
@@ -1003,6 +1087,11 @@ int story_bg_entry(const Sms& s, int vcol, int vrow, uint32_t replaced, int hs) 
         if (s.ram16(MAP) != SCENE_MAPS) return 0;
         const int sc = s.ram8(SCENE);
         const SceneRule& r = *scene_rule(sc);
+        if (const SceneSides* d = scene_sides(sc)) {   // (laid out from the scene's pieces)
+            const int k = vcol < 0 ? -1 - vcol : vcol - 32;
+            const int e = vrow < SIDE_ROWS && k < SIDE_COLS ? (vcol < 0 ? d->left : d->right)[vrow][k] : 0;
+            return e ? e : SCENE_VOID;
+        }
         for (int i = 0; i < r.n; i++) {
             const SceneBand& b = r.band[i];
             if (vrow < b.r0 || vrow >= b.r1) continue;
@@ -1569,6 +1658,7 @@ public:
             story_rows_ = shows_stage(m) ? 0 : scene_replaced_rows(m);   // (a scene's rows drawn over: section 5a)
             // (a widened scene with cells filled inside its picture: the VDP asks bg_entry for them, kSceneFills)
             m.vdp.hw_x0 = story_wide(m) == STORY_SCENE ? scene_fill_x(m.ram8(SCENE)) : 8;
+            make_fills(m);
         };
         // sprite pieces: the player ($23C2), the large second figure ($3C63) and the objects ($0C99), each with
         // hl = the piece's 16-bit screen X just before the "off screen" test (`ld a,h`)
@@ -1941,6 +2031,55 @@ private:
     uint8_t page_[64] = {};   // each sprite table buffer entry's page as the writers left it (uploaded at the VBlank)
     StorySprites story_;      // the story screens' sprite pieces (story_.upload at the VBlank)
     uint32_t story_rows_ = 0; // a widened scene's rows the scene has drawn over (scene_replaced_rows, each frame)
+    StoryFills fills_;        // the fills' made cells (kSceneFills, make_fills at the frame's start)
+    // The made cells of a widened scene's fills, from VRAM as it is (the scenes reload no tiles; a fade changes colours
+    // only): the picture cell's pixels, the source cell's where they are 0. alt_patterns points at them while such a
+    // scene is shown (stage 7 points it at its own copies when it uses them).
+    void make_fills(Sms& m) {
+        SmsVdp& v = m.vdp;
+        fills_.count = 0;
+        const int sc = m.ram8(SCENE);
+        if (story_wide(m) == STORY_SCENE && m.ram16(MAP) == SCENE_MAPS)
+            for (const SceneFill& f : kSceneFills) {
+                if (f.scene != sc) continue;
+                for (int row = f.r0; row < f.r1; row++) {
+                    bool comp = false;
+                    const int fg = fill_cell(m, f, row, &comp);
+                    if (!comp) continue;
+                    const int pat = fg & 0x1FF;
+                    const int lo = fills_.count ? std::min(fills_.first, pat) : pat;
+                    const int hi = fills_.count ? std::max(fills_.first + fills_.count, pat + 1) : pat + 1;
+                    if (hi - lo > StoryFills::MAX) continue;   // (out of the buffer's reach: drawn as the picture's)
+                    if (fills_.count && lo < fills_.first) {   // (the range grows down: move what is made)
+                        std::memmove(fills_.tiles + (fills_.first - lo) * 32, fills_.tiles, fills_.count * 32);
+                        std::memset(fills_.tiles, 0, (fills_.first - lo) * 32);
+                    }
+                    fills_.first = lo;
+                    fills_.count = hi - lo;
+                    const int bg = scene_cell(m, f.scene, f.src, row);
+                    uint8_t a[8][8], b[8][8];
+                    StoryFills::pixels(&v.vram[pat * 32], fg, a);
+                    StoryFills::pixels(&v.vram[(bg & 0x1FF) * 32], bg, b);
+                    uint8_t* out = fills_.tiles + (pat - lo) * 32;
+                    for (int ty = 0; ty < 8; ty++) {   // (in the picture cell's own orientation)
+                        uint8_t r[4] = {};
+                        for (int tx = 0; tx < 8; tx++) {
+                            const int y = (fg & 0x400) ? 7 - ty : ty, x = (fg & 0x200) ? 7 - tx : tx;
+                            const uint8_t c = a[y][x] ? a[y][x] : b[y][x];
+                            for (int k = 0; k < 4; k++) r[k] |= (uint8_t)(((c >> k) & 1) << (7 - tx));
+                        }
+                        std::memcpy(out + ty * 4, r, 4);
+                    }
+                }
+            }
+        if (fills_.count) {
+            v.alt_patterns = fills_.tiles;
+            v.alt_first = fills_.first;
+            v.alt_count = fills_.count;
+        } else if (v.alt_patterns == fills_.tiles) {
+            v.alt_patterns = nullptr;
+        }
+    }
     SectionTiles s7_;    // stage 7's sections' reloaded tiles (made from ROM when first needed)
     CamTiles cam_tiles_;   // stages 0 and 1's camera-animated tiles by phase, and their walls (made when first needed)
     uint8_t anim_buf_[ANIM_TILES * 32] = {};   // the frame's tiles 257-273 for the VDP (anim_tiles)
