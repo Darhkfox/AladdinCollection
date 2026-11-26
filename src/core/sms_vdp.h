@@ -39,6 +39,10 @@ public:
     // Extra pixels rendered on each side (0 = original 256 px).
     int  ext = 0;
     bool sprite_limit = true;       // 8 sprites per line, as the hardware
+    // Without the sprite limit: draw the table's entries last to first (the first in the list is in front). A module
+    // undoing a game's order rotation (a game that reverses its table every other frame, to share the 8 a line, makes
+    // overlapping sprites swap places every frame - flicker the limit's removal doesn't remove). Not in save states.
+    bool sprite_rev = false;
     bool ignore_left_blank = false; // ignore reg 0 bit 5 (the blanked leftmost column) - used in widescreen
     // Mark sprite pixels in the frame buffer (kSpritePixel) so the front end can treat scenery and sprites apart.
     bool mark_sprites = false;

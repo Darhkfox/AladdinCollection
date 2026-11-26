@@ -567,6 +567,9 @@ constexpr int SLOT_BIAS = 0x40000, SLOT_CREDIT = 0x8000;
 // module_state[7] bits 23 / 24: the palace's neighbouring guard may be drawn at its place on the left / right
 // (palace_guards)
 constexpr uint32_t GUARD_ARMED_LEFT = 1u << 23, GUARD_ARMED_RIGHT = 1u << 24;
+// module_state[7] bit 25: a widened story scene's table, uploaded reversed (odd frames), is drawn in the buffer's order
+// (SmsVdp::sprite_rev; without the sprite limit only): see StorySprites::upload
+constexpr uint32_t STORY_ORDER = 1u << 25;
 // module_state[6]: bits 0-15 the undrawn objects, bits 16-23 how far Aladdin is left behind past the original
 // screen's left edge (push_left)
 constexpr uint32_t UNDRAWN_BITS = 0xFFFF;
@@ -986,9 +989,11 @@ const SceneRule kSceneRules[SCENES] = {
     {3, {{0, 6, 0, 13, 0, 13}, {6, 8, 0, 13, 24, 32}, {8, 20, 0, 13, 28, 32}}},   // $11 night: sky, the balcony carries on
     {1, {{0, 20, 0, 16, 0, 16}}},   // $12 the roof at night: sky and railing
     {3, {{0, 6, 0, 13, 0, 13}, {6, 8, 0, 13, 24, 32}, {8, 20, 0, 13, 28, 32}}},   // $13 = $11's map
-    {0, {}},        // $14 the garden at night: a roof's slope cut by the left edge
+    // $14 the garden at night: the roof's slope and the bushes cut by the left edge, the wall at the right: its sides
+    // laid out (kSceneSides, rows 0-17); the floor's rows 18-19 repeat columns 0-1 / 30-31
+    {1, {{0, 20, 0, 2, 30, 32}}},
     {2, {{0, 8, 0, 13, 0, 13}, {8, 20, 0, 13, 24, 32}}},   // $15 the cliff at night: sky, the cliff carries on
-    {0, {}},        // $16 the Genie's cave: lit from the middle, rock at the right edge
+    {1, {WHOLE}},   // $16 the Genie's cave under the water: its sides laid out (kSceneSides: the left mirrored, the rock)
     {2, {{0, 8, 0, 13, 0, 13}, {8, 20, 0, 13, 24, 32}}},   // $17 = $15's map
     {1, {{0, 20, 0, 9, 0, 28}}},   // $18 = $10's map
     {1, {WHOLE}},   // $19 the palace hall (posts)
@@ -1254,6 +1259,106 @@ const SceneSides kSceneSides[] = {
          {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
      },
      {}},
+    // $14 (the garden at night): left, the roof's slope (133 134 over its fill 132, the sky 100 above) rising on two
+    // columns a row, and the bushes (rows 10-16) mirrored about the picture's left edge - the game mirrors its bushes
+    // (335 is 135 flipped): the cluster cut there is finished by its mirror image and the roof's fill goes on beyond;
+    // row 17 the lawn's edge. Right: the wall (128). Rows 18-19 by the rule.
+    {0x14,
+     {
+         {0x0100, 0x0100, 0x0100, 0x0100, 0x0100, 0x0100, 0x0100, 0x0100, 0x0100, 0x0100, 0x0100, 0x0100, 0x0100},
+         {0x0100, 0x0100, 0x0100, 0x0100, 0x0100, 0x0100, 0x0100, 0x0100, 0x0100, 0x0100, 0x0100, 0x0134, 0x0133},
+         {0x0100, 0x0100, 0x0100, 0x0100, 0x0100, 0x0100, 0x0100, 0x0100, 0x0100, 0x0134, 0x0133, 0x0132, 0x0132},
+         {0x0100, 0x0100, 0x0100, 0x0100, 0x0100, 0x0100, 0x0100, 0x0134, 0x0133, 0x0132, 0x0132, 0x0132, 0x0132},
+         {0x0100, 0x0100, 0x0100, 0x0100, 0x0100, 0x0134, 0x0133, 0x0132, 0x0132, 0x0132, 0x0132, 0x0132, 0x0132},
+         {0x0100, 0x0100, 0x0100, 0x0134, 0x0133, 0x0132, 0x0132, 0x0132, 0x0132, 0x0132, 0x0132, 0x0132, 0x0132},
+         {0x0100, 0x0134, 0x0133, 0x0132, 0x0132, 0x0132, 0x0132, 0x0132, 0x0132, 0x0132, 0x0132, 0x0132, 0x0132},
+         {0x0133, 0x0132, 0x0132, 0x0132, 0x0132, 0x0132, 0x0132, 0x0132, 0x0132, 0x0132, 0x0132, 0x0132, 0x0132},
+         {0x0132, 0x0132, 0x0132, 0x0132, 0x0132, 0x0132, 0x0132, 0x0132, 0x0132, 0x0132, 0x0132, 0x0132, 0x0132},
+         {0x0132, 0x0132, 0x0132, 0x0132, 0x0132, 0x0132, 0x0132, 0x0132, 0x0132, 0x0132, 0x0132, 0x0132, 0x0132},
+         {0x0332, 0x0332, 0x0332, 0x0135, 0x0338, 0x0331, 0x0335, 0x0332, 0x0332, 0x0332, 0x0332, 0x0332, 0x0332},
+         {0x0335, 0x0135, 0x0338, 0x0331, 0x0339, 0x0331, 0x0331, 0x0335, 0x0332, 0x0332, 0x0332, 0x0332, 0x0332},
+         {0x0336, 0x033b, 0x0339, 0x0331, 0x0339, 0x0331, 0x0338, 0x0331, 0x0335, 0x0332, 0x0332, 0x0332, 0x0332},
+         {0x0331, 0x0331, 0x0339, 0x0331, 0x033a, 0x0331, 0x0339, 0x0331, 0x0331, 0x0332, 0x0332, 0x0332, 0x0332},
+         {0x0331, 0x0331, 0x033a, 0x0331, 0x0331, 0x033c, 0x0339, 0x0331, 0x0331, 0x0332, 0x0332, 0x0332, 0x0332},
+         {0x0336, 0x033b, 0x0331, 0x033c, 0x0331, 0x013b, 0x0337, 0x0337, 0x0136, 0x0335, 0x0332, 0x0332, 0x0332},
+         {0x0331, 0x0331, 0x0336, 0x033b, 0x0331, 0x0331, 0x0331, 0x0331, 0x013b, 0x0136, 0x0335, 0x0332, 0x0332},
+         {0x012d, 0x012d, 0x012d, 0x012d, 0x012d, 0x012d, 0x012d, 0x012d, 0x012d, 0x012d, 0x012d, 0x012d, 0x012d},
+         {0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000},
+         {0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000},
+     },
+     {
+         {0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128},
+         {0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128},
+         {0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128},
+         {0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128},
+         {0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128},
+         {0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128},
+         {0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128},
+         {0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128},
+         {0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128},
+         {0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128},
+         {0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128},
+         {0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128},
+         {0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128},
+         {0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128},
+         {0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128},
+         {0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128},
+         {0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128},
+         {0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128, 0x0128},
+         {0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000},
+         {0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000},
+     },
+     {}, 0x3FFFF},
+    // $16 (the Genie's cave under the water): right, the rock's black mass (10a: the rock wall's face runs down to the
+    // left inside the picture, its mass solid to the right edge); left, the picture's columns 0-12 mirrored about its
+    // left edge - the light shafts, the weed and the rock lump cut there finished by their mirror image (the Genie and
+    // the lamp are drawn into the table, never from ROM: not repeated).
+    {0x16,
+     {
+         {0x0303, 0x0302, 0x0308, 0x0301, 0x0308, 0x0308, 0x0308, 0x0308, 0x0308, 0x0308, 0x0308, 0x0308, 0x0308},
+         {0x0304, 0x0303, 0x0308, 0x0302, 0x0301, 0x0301, 0x0301, 0x0301, 0x0308, 0x0308, 0x0308, 0x0308, 0x0308},
+         {0x0300, 0x0300, 0x0308, 0x0303, 0x0302, 0x0302, 0x0302, 0x0302, 0x0302, 0x0302, 0x0302, 0x0302, 0x0302},
+         {0x0300, 0x0300, 0x0308, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300},
+         {0x0300, 0x0300, 0x0302, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300},
+         {0x0300, 0x0300, 0x0303, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300},
+         {0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300},
+         {0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300},
+         {0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300},
+         {0x0300, 0x0300, 0x031d, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300},
+         {0x031d, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300},
+         {0x0305, 0x030b, 0x0300, 0x030b, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300},
+         {0x0305, 0x030b, 0x0300, 0x030c, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300},
+         {0x0306, 0x030d, 0x0300, 0x030d, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300},
+         {0x0307, 0x0306, 0x0305, 0x0305, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300},
+         {0x0304, 0x0307, 0x0306, 0x0306, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300},
+         {0x0309, 0x0304, 0x0307, 0x0307, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300, 0x0300},
+         {0x0315, 0x0316, 0x0317, 0x031a, 0x011a, 0x0306, 0x0305, 0x0305, 0x0305, 0x0305, 0x0300, 0x0300, 0x0305},
+         {0x0311, 0x0312, 0x031b, 0x0310, 0x0310, 0x0310, 0x0310, 0x0311, 0x0310, 0x0310, 0x031b, 0x0310, 0x0314},
+         {0x030f, 0x030e, 0x030e, 0x030e, 0x030e, 0x030f, 0x030f, 0x030f, 0x030e, 0x030e, 0x030e, 0x030e, 0x030e},
+     },
+     {
+         {0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a},
+         {0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a},
+         {0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a},
+         {0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a},
+         {0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a},
+         {0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a},
+         {0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a},
+         {0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a},
+         {0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a},
+         {0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a},
+         {0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a},
+         {0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a},
+         {0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a},
+         {0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a},
+         {0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a},
+         {0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a},
+         {0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a},
+         {0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a},
+         {0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a},
+         {0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a, 0x010a},
+     },
+     {}, 0},
 };
 const SceneSides* scene_sides(int sc) {
     for (const SceneSides& d : kSceneSides)
@@ -1334,7 +1439,13 @@ bool scene_shakes(int sc) { return sc == 0x08 || sc == 0x0A || sc == 0x0C || sc 
 // throne, and whoever the game brings in or takes out beyond the 4:3 edge comes and goes at the door, as in the
 // original; the left side, 2E px, is the hall's pillars (the rule's columns 0-8). The text box (lines 160-191) stays
 // centred. Those coming from the left walk the longer hall (kSceneWalks: $10 and $18's Aladdin).
-bool scene_at_right(int sc) { return sc == 0x10 || sc == 0x18 || sc == 0x1A; }
+// $12 (the roof at night: Aladdin and Jasmine on the carpet by the railing) likewise: its statue - a curled finial on
+// the railing at the picture's right edge, columns 29-31, cut by it - stood cut in half beside the sky and railing the
+// right side carried on (the user's "the statue is cut in half, maybe move it to far right"). Drawn at the right, the
+// wide edge cuts the statue where the 4:3 edge did; the two sit as far from it as at 4:3 and nothing moves in or out;
+// the left side, 2E px, is the sky and railing (columns 0-15, a post every 64 px).
+bool scene_throne(int sc) { return sc == 0x10 || sc == 0x18 || sc == 0x1A; }
+bool scene_at_right(int sc) { return scene_throne(sc) || sc == 0x12; }
 // how far a widened scene's picture is drawn to the right (px; 0: centred)
 int story_shift(const Sms& s) {
     return story_wide(s) == STORY_SCENE && s.ram16(MAP) == SCENE_MAPS && scene_at_right(s.ram8(SCENE)) ? s.vdp.ext : 0;
@@ -1394,7 +1505,7 @@ int story_bg_entry(const Sms& s, int vcol, int vrow, uint32_t replaced, int hs) 
             // (the throne room's far left, drawn at the right: the hall's thin pillar, column 8, one cell with its
             // outline at its left, cut in half by the view's edge - 21:9 CRT, the edge at -148 - showed as a bare
             // lavender strip with its base's fragment; there the gap beside it, column 0: the wall and its band go on)
-            if (vcol < 0 && col == 8 && scene_at_right(sc)) {
+            if (vcol < 0 && col == 8 && scene_throne(sc)) {
                 const int lx = -s.vdp.ext - story_shift(s);   // (the view's left edge in the picture)
                 if ((lx & 7) && vcol == (lx >> 3)) col = 0;
             }
@@ -1506,12 +1617,18 @@ const WalkStep kWalk9[] = {
     {0x8EF1, -1, 0}, {0x8EF1, -1, 0}, {0x8EF1, -1, 0}, {0x8EF1, -1, 0}, {0x8EF1, -1, 0}, {0x8EF1, -1, 0},
 };
 const WalkStep kWalk10[] = {
+    {0x853A, -2, 0}, {0x853A, -2, 0}, {0x853A, -2, 0}, {0x853A, -2, 0}, {0x8575, -2, 0}, {0x8575, -2, 0},
+    {0x8575, -2, 0}, {0x8575, -2, 0}, {0x85B0, -2, 0}, {0x85B0, -2, 0}, {0x85B0, -2, 0}, {0x85B0, -2, 0},
+    {0x85EB, -2, 0}, {0x85EB, -2, 0}, {0x85EB, -2, 0}, {0x85EB, -2, 0}, {0x8626, -2, 0}, {0x8626, -2, 0},
+    {0x8626, -2, 0}, {0x8626, -2, 0}, {0x865F, -2, 0}, {0x865F, -2, 0}, {0x865F, -2, 0}, {0x865F, -2, 0},
+};
+const WalkStep kWalk11[] = {
     {0x8572, 2, 0}, {0x8572, 2, 0}, {0x8572, 2, 0}, {0x8572, 2, 0}, {0x85A5, 2, 0}, {0x85A5, 2, 0}, {0x85A5, 2, 0},
     {0x85A5, 2, 0}, {0x85DC, 2, 0}, {0x85DC, 2, 0}, {0x85DC, 2, 0}, {0x85DC, 2, 0}, {0x8615, 2, 0}, {0x8615, 2, 0},
     {0x8615, 2, 0}, {0x8615, 2, 0}, {0x8648, 2, 0}, {0x8648, 2, 0}, {0x8648, 2, 0}, {0x8648, 2, 0}, {0x867F, 2, 0},
     {0x867F, 2, 0}, {0x867F, 2, 0}, {0x867F, 2, 0},
 };
-const WalkStep kWalk11[] = {
+const WalkStep kWalk12[] = {
     {0x911D, -2, 0}, {0x911D, -2, 0}, {0x911D, -2, 0}, {0x911D, -2, 0}, {0x9038, -2, 0}, {0x9038, -2, 0},
     {0x9038, -2, 0}, {0x9038, -2, 0}, {0x9063, -2, 0}, {0x9063, -2, 0}, {0x9063, -2, 0}, {0x9063, -2, 0},
     {0x9092, -2, 0}, {0x9092, -2, 0}, {0x9092, -2, 0}, {0x9092, -2, 0}, {0x90C3, -2, 0}, {0x90C3, -2, 0},
@@ -1528,8 +1645,9 @@ const SceneWalk kSceneWalks[] = {
     {0x0C, 6, WALK_IN, 49, 153, -78, 59, 0x1D, 13, 0, 1, kWalk7},   // the fall: the carpet flies in under him
     {0x10, 0, WALK_IN, 18, 49, -15, 136, 0x0D, 17, 1, 48, kWalk8},   // the throne room: Aladdin walks in down the hall (waits at -16 walking on the spot)
     {0x11, 1, WALK_IN, 808, 839, 255, 40, 0x0F, 17, 18, 48, kWalk9},   // night: Jasmine walks in on the balcony
-    {0x18, 0, WALK_IN, 84, 97, -10, 136, 0x0D, 17, 1, 24, kWalk10, 18},   // the throne room: Aladdin runs in down the hall (waits at -16; from tick 18)
-    {0x20, 1, WALK_IN, 114, 129, 254, 74, 0x0F, 17, 18, 24, kWalk11},   // Jafar's room: Abu runs in (his run off later)
+    {0x14, 1, WALK_IN, 298, 305, 238, 96, 0x0F, 17, 18, 24, kWalk10},   // the garden: a guard runs in from the right (put at 240)
+    {0x18, 0, WALK_IN, 84, 97, -10, 136, 0x0D, 17, 1, 24, kWalk11, 18},   // the throne room: Aladdin runs in down the hall (waits at -16; from tick 18)
+    {0x20, 1, WALK_IN, 114, 129, 254, 74, 0x0F, 17, 18, 24, kWalk12},   // Jafar's room: Abu runs in (his run off later)
     {0x23, 4, WALK_SHOWN, 0, 850, 0, 0, 0x00, 0, 0, 0, nullptr},   // the balcony: Iago on the tower
 };
 
@@ -1546,14 +1664,22 @@ int scene_tick(const Sms& m) { return (uint16_t)(0 - m.ram16(0xCF79)); }
 // px further right, every piece (on the 256 px or parked; the table's own entries hidden): the wide picture's right
 // edge crosses him where the 4:3 screen's does, so he is shown exactly as much as at 4:3 and moves as there. Nothing
 // else touches him (Aladdin on the carpet is 110 px away when he roars; Jasmine walks in after he has gone).
-struct SceneOut { uint8_t scene, ch; };
+// Jafar in $14 (the garden at night, list character 2 from tick 419 - before, the carpet): he creeps in from -17 to
+// x 0 at 1 px in 4 and stays there, his body at the 4:3 picture's left edge (x 0-7 blanked: he shows from x 8 on).
+// Widened he stood whole in the left side, or popped up there as he first reached the 256 px. He is drawn E + 8 px
+// further left: the wide picture's left edge crosses him where the 4:3 screen's visible edge (x 8) does.
+// side: +1 drawn E px further right, -1 E + 8 px further left; from tick t0 to t1 (the character's list slot may
+// hold another before).
+struct SceneOut { uint8_t scene, ch; int8_t side; uint16_t t0, t1; };
 constexpr SceneOut kSceneOuts[] = {
-    {0x11, 2},   // night: Rajah at the balcony's right edge
+    {0x11, 2, +1, 0, 0xFFFF},     // night: Rajah at the balcony's right edge
+    {0x14, 2, -1, 419, 0xFFFF},   // the garden: Jafar at its left edge
 };
-bool scene_out(int sc, int ch) {
+// how far character ch is drawn out at tick t (0: as the game has it)
+int scene_out(int sc, int ch, int t, int E) {
     for (const SceneOut& o : kSceneOuts)
-        if (o.scene == sc && o.ch == ch) return true;
-    return false;
+        if (o.scene == sc && o.ch == ch && t >= o.t0 && t <= o.t1) return o.side > 0 ? E : -(E + 8);
+    return 0;
 }
 
 // The sprites of a widened story screen. The writers' pieces (hooks before their "off screen" test: hl = the piece's
@@ -1684,6 +1810,13 @@ struct StorySprites {
         }
         if (kind != STORY_SCENE && kind != STORY_ENDING) return;
         const bool rev = m.ram8(FRAMES) & 1;   // (the upload's order: reversed on odd frames)
+        // The game reverses its table every other frame (the 8 sprites a line shared out by turns): where sprites
+        // overlap they swap places every frame - Aladdin's feet and the carpet in $11 as he rises on it, 20 px
+        // flickering, the same at 4:3 (the user's "parts of Aladdin flash"). Without the sprite limit nothing is
+        // shared out by it: a widened scene's reversed table is drawn back in the buffer's order (the writers': Aladdin
+        // first, in front), steady. With the limit the turns stay, as on the hardware.
+        if (kind == STORY_SCENE && rev) m.module_state[MS_PLACEMENT] |= STORY_ORDER;
+        v.sprite_rev = (m.module_state[MS_PLACEMENT] & STORY_ORDER) != 0;
         const int E = v.ext, shift = (v.reg[0] & 0x08) ? 8 : 0;
         const int vs = -story_shift(m);   // (the view in the picture's X: a scene drawn at the right shows -2E..255)
         auto add = [&](int sx, uint8_t y, uint8_t pat, const uint8_t* data) {
@@ -1730,10 +1863,9 @@ struct StorySprites {
         for (int i = 0; i < 64; i++) {
             const int slot = rev ? 63 - i : i;
             if (!valid[slot] || x[slot] == NONE) continue;
-            if (kind == STORY_SCENE && scene_up && scene_out(sc, who[slot])) {   // (kSceneOuts: E px further right)
+            if (const int out = kind == STORY_SCENE && scene_up ? scene_out(sc, who[slot], t, E) : 0) {   // (kSceneOuts)
                 m.module_state[i >> 4] |= (uint32_t)PAGE_HIDDEN << ((i & 15) * 2);
-                if ((x[slot] >= 0 && x[slot] < 256) || (show[who[slot]] && !walk[who[slot]]))
-                    add(x[slot] + E - shift, snap[slot][0], snap[slot][2], nullptr);
+                add(x[slot] + out - shift, snap[slot][0], snap[slot][2], nullptr);   // (every piece: cut by the view)
                 continue;
             }
             if (x[slot] >= 0 && x[slot] < 256) {
@@ -1975,6 +2107,7 @@ public:
         s.on_vblank = nullptr;
         s.on_frame_start = nullptr;
         v.sprite_shift = 0;
+        v.sprite_rev = false;
         v.line_shift = wide ? line_shift : nullptr;
         v.line_scroll = line_scroll;   // (every width, 4:3 too: a visual fix to the original, see line_scroll)
         std::memset(line_early_, -1, sizeof(line_early_));
@@ -2004,6 +2137,7 @@ public:
         s.on_vblank = [](Sms& m) { m.module_state[MS_CAM_NEXT] = m.ram16(CAM_X) | ((uint32_t)m.ram8(FRAMES) << 16); };
         s.on_frame_start = [this](Sms& m) {
             apply_view(m);
+            m.vdp.sprite_rev = (m.module_state[MS_PLACEMENT] & STORY_ORDER) != 0;   // (the table uploaded last)
             story_rows_ = shows_stage(m) ? 0 : scene_replaced_rows(m);   // (a scene's rows drawn over: section 5a)
             // (a widened scene with cells filled inside its picture: the VDP asks bg_entry for them, kSceneFills)
             // (a shaking scene: the table's column 0 shows at x 8-9 on a shake to the right - the column the module draws
@@ -2108,6 +2242,7 @@ public:
             for (int w = 0; w < 4; w++) m.module_state[w] = 0;
             for (int i = 0; i < 64; i++)
                 m.module_state[i >> 4] |= (uint32_t)page_[rev ? 63 - i : i] << ((i & 15) * 2);
+            m.module_state[MS_PLACEMENT] &= ~STORY_ORDER;   // (set again by a widened scene's upload)
             if (shows_stage(m)) {
                 extra_sprites(m);
                 palace_guards(m, ((m.ram8(FRAMES) - moved_at_) & 0xFF) <= GUARD_STILL);
@@ -2380,7 +2515,7 @@ private:
             if (s.rom8(QUEUE_LOOP_COUNT) > QUEUE_SLOTS) resize_queue(s, QUEUE_SLOTS, s.rom8(QUEUE_LOOP_COUNT));
         }
         // (the slot being timed, slot_begin, stays: it is the frame's; so do the palace guards' bits)
-        s.module_state[MS_PLACEMENT] = PLACED_AT_WAKE | ((was & PLACED_AT_WAKE) ? was & (SLOT_START | SLOT_PARITY | SLOT_OPEN | SLOT_FREE | GUARD_ARMED_LEFT | GUARD_ARMED_RIGHT) : 0);
+        s.module_state[MS_PLACEMENT] = PLACED_AT_WAKE | ((was & PLACED_AT_WAKE) ? was & (SLOT_START | SLOT_PARITY | SLOT_OPEN | SLOT_FREE | GUARD_ARMED_LEFT | GUARD_ARMED_RIGHT | STORY_ORDER) : 0);
     }
 
     Sms* sms_ = nullptr;

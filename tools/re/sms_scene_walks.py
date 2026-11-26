@@ -41,6 +41,7 @@ SPECS = [
     (0x0C, 6, 'IN', 49, 59, 'the fall: the carpet flies in under him'),
     (0x10, 0, 'IN', 18, 120, 'the throne room: Aladdin walks in down the hall (waits at -16 walking on the spot)'),
     (0x11, 1, 'IN', 808, 886, 'night: Jasmine walks in on the balcony'),
+    (0x14, 1, 'IN', 298, 380, 'the garden: a guard runs in from the right (put at 240)'),
     (0x18, 0, 'IN', 84, 128, 'the throne room: Aladdin runs in down the hall (waits at -16; from tick 18)', 18),
     (0x20, 1, 'IN', 114, (0x20, 1, 402, 494), "Jafar's room: Abu runs in (his run off later)"),
     (0x23, 4, 'SHOWN', 0, 850, 'the balcony: Iago on the tower'),
