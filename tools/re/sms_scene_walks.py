@@ -24,6 +24,11 @@ import sms_re as R
 
 # (scene, character, kind, t0, w, note) - checked by eye at 21:9 CRT and square pixels (section 5a). IN: the game's
 # walk in is steady from t0 to w (the cycle is taken there); OUT: from w to t0; SHOWN: drawn from t0 to w.
+# The throne room ($10 $18 $1A) is drawn at the wide picture's right (scene_at_right): its door is the view's right
+# edge, so those who come and go through it need no walk; those from the left walk the longer hall.
+# A 7th value ts: the walk in is drawn from that tick only (the clock stands at 17 in $18 while Jasmine speaks: a
+# walk begun before would stand mid-hall through her text) and, where the game's speed can't bring the character
+# from beyond the view's edge by t0, is played faster (its cycle and its steps alike) from there.
 SPECS = [
     (0x00, 0, 'IN', 58, 138, 'the market: Aladdin walks in to the bread stall'),
     (0x00, 1, 'IN', 494, 640, 'the market: the guard runs in after him'),
@@ -33,13 +38,11 @@ SPECS = [
     (0x0B, 2, 'IN', 1, 9, 'the escape: the carpet swoops in (from the fade-in on)'),
     (0x0C, 0, 'IN', 49, 59, 'the fall: Aladdin flies in on the carpet'),
     (0x0C, 6, 'IN', 49, 59, 'the fall: the carpet flies in under him'),
-    (0x10, 1, 'IN', 346, (0x11, 1, 808, 886), 'the throne room: Jasmine walks in (her walk in scene $11)'),
-    (0x10, 1, 'OUT', 592, 520, 'the throne room: Jasmine walks off'),
+    (0x10, 0, 'IN', 18, 120, 'the throne room: Aladdin walks in down the hall (waits at -16 walking on the spot)'),
     (0x11, 1, 'IN', 808, 886, 'night: Jasmine walks in on the balcony'),
     (0x11, 2, 'SHOWN', 0, 392, 'night: Rajah lies on the balcony'),
     (0x11, 2, 'OUT', 798, 745, 'night: Rajah pads off'),
-    (0x18, 1, 'OUT', 384, 342, 'the throne room: Jasmine walks off'),
-    (0x1A, 0, 'IN', 98, 208, 'the throne room: Aladdin walks in'),
+    (0x18, 0, 'IN', 84, 128, 'the throne room: Aladdin runs in down the hall (waits at -16; from tick 18)', 18),
     (0x20, 1, 'IN', 114, (0x20, 1, 402, 494), "Jafar's room: Abu runs in (his run off later)"),
     (0x23, 4, 'SHOWN', 0, 850, 'the balcony: Iago on the tower'),
 ]
@@ -181,9 +184,10 @@ def cpp(entries):
     lines.append('const SceneWalk kSceneWalks[] = {')
     for i, e in enumerate(entries):
         cyc = ('kWalk%d' % i) if e['cyc'] else 'nullptr'
-        lines.append('    {0x%02X, %d, WALK_%s, %d, %d, %d, %d, 0x%02X, %d, %d, %d, %s},   // %s' % (
+        ts = ', %d' % e['ts'] if e.get('ts') is not None else ''
+        lines.append('    {0x%02X, %d, WALK_%s, %d, %d, %d, %d, 0x%02X, %d, %d, %d, %s%s},   // %s' % (
             e['sc'], e['c'], e['kind'], e['t0'], e['t1'], e['x'], e['y'], e['bank'], e['n'], e['base'],
-            len(e['cyc']), cyc, e['note']))
+            len(e['cyc']), cyc, ts, e['note']))
     lines.append('};')
     return '\n'.join(lines)
 
@@ -206,9 +210,10 @@ if __name__ == '__main__':
             cache[sc] = record(sc)
         return cache[sc]
     out = []
-    for sc, c, kind, t0, t1, note in SPECS:
+    for sc, c, kind, t0, t1, note, *ts in SPECS:
         e = entry(get, sc, c, kind, t0, t1)
         e['note'] = note
+        e['ts'] = ts[0] if ts else None
         out.append(e)
         print('// scene %02X char %d %s t0 %d t1 %d x %d y %d cycle %d' % (sc, c, kind, e['t0'], e['t1'], e['x'], e['y'], len(e['cyc'])), file=sys.stderr)
     print(cpp(out))
