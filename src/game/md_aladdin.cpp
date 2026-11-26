@@ -412,10 +412,17 @@ bool in_gameplay(const MegaDrive& md) {
     return (f != 0 && !attract(md)) || in_play(md);
 }
 
-// Gameplay shown wide: all but Abu's bonus rounds (a 336-px room), which stay 4:3.
-bool wide_view(const MegaDrive& md) {
+// Gameplay shown wide (Abu's bonus rounds too: abu_line).
+bool wide_view(const MegaDrive& md) { return in_gameplay(md); }
+
+// Abu's bonus rounds (docs/re_md_wide.md section 6b): one 336-px room (a 21 x 18 block map) under a camera that never
+// moves ($FFF173), the 4:3 view its map x 16..335, Abu kept to object x 18..306 (inside it) by the game. They run on the
+// 4:3 game's ROM (MdAladdin::rom_for), so their RAM is the 4:3 game's to the cycle; the module only draws: plane A's
+// sides from the room's own map mirrored at its ends, plane B's 512-px picture wrapped by the VDP, and the sprite pieces
+// the 4:3 clip drops (extra_pieces).
+bool abu_round(const MegaDrive& md) {
     const int level = md.ram8(LEVEL);
-    return in_gameplay(md) && level != L_ABU_AGRABAH && level != L_ABU_CAVE;
+    return level == L_ABU_AGRABAH || level == L_ABU_CAVE;
 }
 
 // The Rug Ride (docs/re_md_wide.md section 7). The carpet flies right at the ride's own pace (the camera moves `speed`
@@ -605,7 +612,7 @@ struct RideView;
 // The screens between levels and around the game drawn wide (screen_frame): none, a plain screen (both planes empty at
 // both edges: the backdrop fills the sides, the sprites at their true places), or one of the pictures whose sides are
 // drawn from its own edges (kScreenSides).
-enum class Screen : uint8_t { None, Plain, Palace, Dunes, DunesTiger, Moon };
+enum class Screen : uint8_t { None, Plain, Palace, Dunes, DunesTiger, Moon, Rings };
 struct ExtraPiece { int x, y, w, h, slot, back; uint16_t attr; };   // screen x / y, cells, the move since the last
                                                                        // pass (px), the pattern word
 
@@ -691,12 +698,13 @@ void update_view(Wide& w, bool advance) {
     w.shift_a_on = false;
     w.active = v.ext != 0 && wide_view(md);
     if (w.active && rug_ride(md)) v.view_shift = -v.ext;   // (every plane and line alike: the 4:3 picture as it is)
-    else if (w.active) {
+    else if (w.active && !abu_round(md)) {
         apply_slide(w, line_camera(md, 0, md.ram8(SWAP_PLANES) != 0), 0);
         v.edge_dim = w.dim;
     }
     ride_frame(w);
     screen_frame(w);
+    if (w.active && abu_round(md)) w.extra = w.shown;   // (the 4:3 view in the middle, no slide: abu_line)
 }
 
 // Before each line is drawn: the slide follows the scroll line by line. On a lag frame the game writes the scroll (and
@@ -704,7 +712,7 @@ void update_view(Wide& w, bool advance) {
 // camera against the new scroll: a one-frame jump of the picture the slide holds still.
 void pre_line_hook(void* host, int line) {
     Wide& w = *(Wide*)host;
-    if (!w.active || rug_ride(*w.md)) return;
+    if (!w.active || rug_ride(*w.md) || abu_round(*w.md)) return;
     MegaDrive& md = *w.md;
     const int c = line_camera(md, line, md.ram8(SWAP_PLANES) != 0);
     if (c != w.cam) apply_slide(w, c, line);
@@ -1922,6 +1930,8 @@ Screen picture_kind(const VDP& v) {
     if (b(18, 0) == 0x4025 && b(18, 1) == 0x4026 && b(18, 2) == 0x4027)
         return b(15, 27) == 0x400A ? Screen::DunesTiger : Screen::Dunes;
     if (b(4, 12) == 0x23D9 && b(4, 13) == 0x23DA && b(5, 11) == 0x23DF) return Screen::Moon;
+    if (b(0, 0) == 0x0005 && b(0, 3) == 0x0006 && b(0, 4) == 0x000B && b(0, 39) == 0x0805 && b(14, 1) == 0x00B5)
+        return Screen::Rings;
     return Screen::None;
 }
 
@@ -1964,9 +1974,15 @@ void extra_pieces(Wide& w) {
         w.built_x[s] = (int16_t)md.ram16(a + 2);
     }
     if (!E || md.rom16(0x1ABA8C) != 0x0443) return;   // (the widescreen ROM's clip lets them through: CAVE_SCRCLIP)
+    // In Abu's bonus rounds (on the 4:3 game's ROM) map objects too: the branch at $1ABA98, placed against the camera
+    // in d7 / d6 (X = offset + x - d7, Y = offset + y - d6 - $100, the offset flipped vertically by +$35 as well);
+    // pieces left of VDP X 0 are dropped too (the compare is unsigned) and drawn where they reach into the view.
+    const bool abu = abu_round(md);
+    const int camx = (int16_t)md.cpu.r[7], camy = (int16_t)md.cpu.r[6];
     for (int s = 0; s < 32; s++) {
         const uint32_t a = OBJECTS + s * OBJ_SIZE;
-        if (!md.ram8(a) || !(md.ram8(a + 6) & 8) || (md.ram8(a + 7) & 0x20) || (s == 0 && (md.ram8(0xFFF0F2) & 1))) continue;
+        const bool fixed = (md.ram8(a + 6) & 8) != 0;
+        if (!md.ram8(a) || !(fixed || abu) || (md.ram8(a + 7) & 0x20) || (s == 0 && (md.ram8(0xFFF0F2) & 1))) continue;
         const uint32_t frame = md.ram32(a + 0x14) & 0xFFFFFF;
         if (!frame || frame + 6 > md.rom.size()) continue;
         const int n = md.rom16(frame) + 1;
@@ -1975,9 +1991,11 @@ void extra_pieces(Wide& w) {
         const bool hf = md.ram8(a + 9) != 0, vf = md.ram8(a + 0x35) != 0;
         for (int k = 0; k < n; k++) {
             const uint32_t e = frame + 6 + 12 * k, desc = md.rom16(e);
-            uint8_t dx = md.rom[e + 2];
+            uint8_t dx = md.rom[e + 2], dy = md.rom[e + 3];
             if (hf) dx = (uint8_t)(-dx - md.rom[(desc + 8) % md.rom.size()]);
-            const uint16_t X = (uint16_t)(dx + md.ram16(a + 2) - 0x80), Y = (uint16_t)(md.rom[e + 3] + md.ram16(a + 4) - 0x100);
+            if (vf && !fixed) dy = (uint8_t)(-dy - md.rom[(desc + 9) % md.rom.size()]);
+            const uint16_t X = (uint16_t)(dx + md.ram16(a + 2) - (fixed ? 0x80 : camx));
+            const uint16_t Y = (uint16_t)(dy + md.ram16(a + 4) - (fixed ? 0 : camy) - 0x100);
             if (Y < 0x15F && X >= 0x1BF && (int16_t)X < 448 + E) {
                 const int size = (md.rom16((desc + 6) % md.rom.size()) >> 8) & 0x0F;
                 const uint16_t attr = (uint16_t)((pat & 0xE7FF) | (hf ? 0x0800 : 0) | (vf ? 0x1000 : 0));
@@ -2018,28 +2036,10 @@ void screen_frame(Wide& w) {
     else v.sprite_x10 = true;                              // (CAVE_SCRCLIP's X up to 448 + 2E, past 9 bits)
 }
 
-// A line of another screen drawn wide: plane A's sides empty, plane B's empty or the picture's edge strips, the extra
-// pieces behind the game's sprites.
-void screen_line(Wide& w, int line, uint8_t* plane_a, uint8_t* plane_b, uint8_t* sprites) {
-    VDP& v = w.md->vdp;
+// The extra pieces on a line, behind the game's sprites, right of the 4:3 screen (and left of it: `left`).
+void draw_extra(const Wide& w, int line, uint8_t* sprites, bool left) {
+    const VDP& v = w.md->vdp;
     const int E = v.ext;
-    std::memset(plane_a, 0, E);
-    std::memset(plane_a + 320 + E, 0, E);
-    const SideBand* bands = w.screen == Screen::Palace ? kPalaceSides : w.screen == Screen::Dunes ? kDunesSides
-                          : w.screen == Screen::DunesTiger ? kDunesTigerSides : w.screen == Screen::Moon ? kMoonSides : nullptr;
-    if (!bands) {
-        std::memset(plane_b, 0, E);
-        std::memset(plane_b + 320 + E, 0, E);
-    } else {
-        while (line >= bands->end) bands++;
-        auto source = [](int x, int strip) {   // the picture's pixel a side pixel repeats
-            if (strip == 0) return x < 0 ? x + 320 : x - 320;
-            const int d = (x < 0 ? -1 - x : x - 320) % (2 * strip), k = d < strip ? d : 2 * strip - 1 - d;
-            return x < 0 ? k : 319 - k;
-        };
-        for (int x = -E; x < 0; x++) plane_b[x + E] = plane_b[source(x, bands->left) + E];
-        for (int x = 320; x < 320 + E; x++) plane_b[x + E] = plane_b[source(x, bands->right) + E];
-    }
     for (const ExtraPiece& p : w.extra) {
         const int row = line - p.y;
         if (row < 0 || row >= 8 * p.h) continue;
@@ -2053,10 +2053,105 @@ void screen_line(Wide& w, int line, uint8_t* plane_a, uint8_t* plane_b, uint8_t*
             v.pattern_row((uint16_t)((p.attr & 0xF800) | ((p.attr + tc * p.h + tr) & 0x7FF)), row & 7, px);
             for (int k = 0; k < 8; k++) {
                 const int i = x0 + 8 * c + k + E;
-                if (i >= 320 + E && i < 320 + 2 * E && (px[k] & 15) && !(sprites[i] & 15)) sprites[i] = px[k];
+                const bool side = (i >= 320 + E && i < 320 + 2 * E) || (left && i >= 0 && i < E);
+                if (side && (px[k] & 15) && !(sprites[i] & 15)) sprites[i] = px[k];
             }
         }
     }
+}
+
+// The full scarab's rings (Screen::Rings: plane B, palette line 0, no scroll; the scarab itself is sprites): concentric
+// rings round (159.5, 114), colour 12 at the centre and 11, 10, 9, 8, 6, 5, 4, 3 outward, 20-31 px apart and wider
+// outward, each boundary dithered in alternate columns (the right half is the left half's tiles flipped, so the columns'
+// phase is mirrored about the centre), cut off by the 320-px screen. The game cycles all 16 colours of line 0 (the
+// backdrop, colour 0, among them) one step a frame, so the rings run through the picture. The sides go on with the
+// rings: the art's boundaries per column phase (fitted to the picture: 95% of its edge columns' pixels as the art has
+// them, the rest a column of a dithered boundary), then rings 1.5 px wider each, their dither alternating, in the
+// colours that come next in the cycle (2, 1, 0 - the backdrop's -, 15, ...), so they run on with the rest.
+constexpr float kRingBounds[2][8] = {{21.4f, 31.9f, 52.1f, 86.2f, 97.7f, 120.3f, 160.1f, 196.1f},
+                                     {11.0f, 42.9f, 63.1f, 76.0f, 108.7f, 133.3f, 145.3f, 170.9f}};
+constexpr uint8_t kRingColours[9] = {12, 11, 10, 9, 8, 6, 5, 4, 3};
+uint8_t ring_index(int x, int y) {
+    const float d = std::hypot(x - 159.5f, y - 114.0f);
+    const int p = (x < 160 ? x : 319 - x) & 1;
+    int r = 0;
+    while (r < 8 && d > kRingBounds[p][r]) r++;
+    if (r < 8) return kRingColours[r];
+    const float last = (kRingBounds[0][7] + kRingBounds[1][7]) / 2, off = kRingBounds[p][7] - last;
+    float t = last, w = last - (kRingBounds[0][6] + kRingBounds[1][6]) / 2;
+    for (int k = 1; k < 32; k++) {
+        w += 1.5f;
+        t += w;
+        if (d <= t + (k & 1 ? -off : off)) break;
+        r++;
+    }
+    return (uint8_t)((3 - (r - 8)) & 15);
+}
+
+// A line of another screen drawn wide: plane A's sides empty, plane B's empty or the picture's edge strips, the extra
+// pieces behind the game's sprites.
+void screen_line(Wide& w, int line, uint8_t* plane_a, uint8_t* plane_b, uint8_t* sprites) {
+    VDP& v = w.md->vdp;
+    const int E = v.ext;
+    std::memset(plane_a, 0, E);
+    std::memset(plane_a + 320 + E, 0, E);
+    const SideBand* bands = w.screen == Screen::Palace ? kPalaceSides : w.screen == Screen::Dunes ? kDunesSides
+                          : w.screen == Screen::DunesTiger ? kDunesTigerSides : w.screen == Screen::Moon ? kMoonSides : nullptr;
+    if (w.screen == Screen::Rings) {
+        for (int x = -E; x < 0; x++) plane_b[x + E] = ring_index(x, line);
+        for (int x = 320; x < 320 + E; x++) plane_b[x + E] = ring_index(x, line);
+    } else if (!bands) {
+        std::memset(plane_b, 0, E);
+        std::memset(plane_b + 320 + E, 0, E);
+    } else {
+        while (line >= bands->end) bands++;
+        auto source = [](int x, int strip) {   // the picture's pixel a side pixel repeats
+            if (strip == 0) return x < 0 ? x + 320 : x - 320;
+            const int d = (x < 0 ? -1 - x : x - 320) % (2 * strip), k = d < strip ? d : 2 * strip - 1 - d;
+            return x < 0 ? k : 319 - k;
+        };
+        for (int x = -E; x < 0; x++) plane_b[x + E] = plane_b[source(x, bands->left) + E];
+        for (int x = 320; x < 320 + E; x++) plane_b[x + E] = plane_b[source(x, bands->right) + E];
+    }
+    draw_extra(w, line, sprites, false);
+}
+
+// A line of Abu's bonus rounds (abu_round): the room is 336 px of map (21 blocks) under a fixed camera, the 4:3 view
+// its map x 16..335, and the plane holds map x [L, L + 368) - past the map's right end the streaming's leftovers. The
+// sides show the room's own map mirrored at its ends (map x -1 - k and 2W - 1 - k show map x k), back and forth if the
+// view were ever wider than the room: the street and its stalls, the cave's rock walls, carried on seamlessly from the
+// art at the room's edges; map x 0..15, left of the 4:3 view, is the map's own. Plane B (the dunes and sky, the cave's
+// curtain: 512-px pictures the game scrolls endlessly) is the VDP's own wrap. Sprites: the pieces the 4:3 clip drops
+// (extra_pieces) on both sides.
+void abu_line(Wide& w, int line, uint8_t* plane_a, uint8_t* sprites) {
+    const MegaDrive& md = *w.md;
+    const VDP& v = md.vdp;
+    const int E = v.ext, TW = 320 + 2 * E;
+    const int W = md.ram16(MAP_W) * 16, H = md.ram16(MAP_H) * 16, L = md.ram16(STREAM_X);
+    const LineView lv = line_view(md, line, false);
+    if (W > 0 && lv.my >= 0 && lv.my < H) {
+        const uint32_t row = md.ram32(MAP_ROWS + 64 * (lv.my >> 4)) & 0xFFFFFF;
+        const uint32_t defs = md.ram32(MAP_DEFS) & 0xFFFFFF;
+        const int cell_row = ((lv.my >> 3) & 1) * 4;
+        uint8_t px[8];
+        int cell = -1;
+        for (int x = 0; x < TW; x++) {
+            if (x == E) x = 320 + E;   // (the 4:3 view as the VDP drew it)
+            const int mx = lv.mx0 + x - E;
+            if (mx >= 0 && mx < W && mx >= L && mx < L + 368) continue;   // (the plane holds it)
+            int src = mx % (2 * W);
+            if (src < 0) src += 2 * W;
+            if (src >= W) src = 2 * W - 1 - src;
+            if (src >> 3 != cell) {
+                cell = src >> 3;
+                const uint16_t blk = md.ram16(row + 2 * (src >> 4));
+                const uint32_t ad = defs + blk + cell_row + ((src >> 3) & 1) * 2;
+                v.pattern_row(ad >= 0xFF0000 ? md.ram16(ad) : md.rom16(ad), lv.my & 7, px);
+            }
+            plane_a[x] = px[src & 7];
+        }
+    }
+    draw_extra(w, line, sprites, true);
 }
 
 int sprite_xoff_hook(void* host, int index, uint16_t attr, int x, int y) {
@@ -2075,6 +2170,7 @@ void line_hook(void* host, int line, uint8_t* plane_a, uint8_t* plane_b, uint8_t
     if (!w.active) return;
     // (The Rug Ride doesn't stream: its planes are 512-px loops of the lava cave the VDP wraps, its "map" nominal.)
     if (rug_ride(md)) return ride_line(w, line, plane_b, sprites);
+    if (abu_round(md)) return abu_line(w, line, plane_a, sprites);
     const int E = v.ext, TW = 320 + 2 * E;
     if (w.shift_a_on) v.plane_a_drawn_with(w.shift_a[line]);
     if (w.shift_a_on && w.shift_a[line] != v.view_shift)   // plane A's own slide (the renderer used the view's)
@@ -2183,15 +2279,17 @@ public:
     // routine runs or a demo plays the ROM is the original, no cheat touches RAM and the picture is 4:3; the ROM
     // switches at the first frame boundary where it is safe (pre_frame) - the title's own screens lie between a game's
     // start and its first level, and between the demo flag and the demo's level.
-    // The Rug Ride runs on the 4:3 game's ROM (the cheats, none of the widescreen patches): its view is widened by
-    // drawing only (RideView), so the ride is the 4:3 game's to the cycle. The stories and title cards around it lie
-    // between it and the levels on either side.
-    enum class Rom { Wide, Attract, Ride };
-    static Rom rom_kind(const MegaDrive& md) { return attract(md) ? Rom::Attract : rug_ride(md) ? Rom::Ride : Rom::Wide; }
+    // The Rug Ride and Abu's bonus rounds run on the 4:3 game's ROM (the cheats, none of the widescreen patches): their
+    // views are widened by drawing only (RideView, abu_line), so they are the 4:3 game's to the cycle. The story and
+    // title cards around them (Abu's intro before a round) lie between them and the levels on either side.
+    enum class Rom { Wide, Attract, Game43 };
+    static Rom rom_kind(const MegaDrive& md) {
+        return attract(md) ? Rom::Attract : rug_ride(md) || abu_round(md) ? Rom::Game43 : Rom::Wide;
+    }
     static std::vector<RomPatch> rom_for(const MegaDrive& md, const GameConfig& cfg) {
         switch (rom_kind(md)) {
         case Rom::Attract: return {};
-        case Rom::Ride: { GameConfig c = cfg; c.ext = 0; return patch_list(c); }
+        case Rom::Game43: { GameConfig c = cfg; c.ext = 0; return patch_list(c); }
         default: return patch_list(cfg);
         }
     }
@@ -2256,8 +2354,8 @@ public:
             md.add_pc_hook(PC_COL_RET, [this](MegaDrive& m) { if (wide_rom()) line2_filled(m); });
             md.add_pc_hook(PC_ROW_RET, [this](MegaDrive& m) { if (wide_rom()) line2_filled(m); });
             // The Rug Ride: objects despawned behind the carpet go on as ghosts, stepped with the game's (RideView)
-            md.add_pc_hook(PC_WINDOW_DESPAWN, [this](MegaDrive&) { if (rom_ == Rom::Ride) ride_despawn(*wide_); });
-            md.add_pc_hook(PC_ANIMATE, [this](MegaDrive&) { if (rom_ == Rom::Ride) ride_animate(*wide_); });
+            md.add_pc_hook(PC_WINDOW_DESPAWN, [this](MegaDrive&) { if (rom_ == Rom::Game43) ride_despawn(*wide_); });
+            md.add_pc_hook(PC_ANIMATE, [this](MegaDrive&) { if (rom_ == Rom::Game43) ride_animate(*wide_); });
             // The other screens: sprite pieces the original ROM's clip drops (extra_pieces)
             md.add_pc_hook(PC_BUILDER, [this](MegaDrive&) { extra_pieces(*wide_); });
         }
@@ -2321,9 +2419,9 @@ public:
     }
 
     // Sprite X read as 10 bits only in play (the other screens, shown 4:3, may leave junk in the upper bits), and not
-    // in the Rug Ride (the 4:3 game's ROM: X 0..$1BE, as on the real chip)
+    // in the Rug Ride or Abu's bonus rounds (the 4:3 game's ROM: X 0..$1BE, as on the real chip)
     static void sprite_x10(MegaDrive& md, int E) {
-        md.vdp.sprite_x10 = E > 0 && in_gameplay(md) && !rug_ride(md) && (448 + 2 * E > 512 || sprite_left(E) > 0);
+        md.vdp.sprite_x10 = E > 0 && in_gameplay(md) && !rug_ride(md) && !abu_round(md) && (448 + 2 * E > 512 || sprite_left(E) > 0);
     }
 
     // Save states (rewind too): besides module_state, the Rug Ride's ghosts - objects the game has despawned behind the
