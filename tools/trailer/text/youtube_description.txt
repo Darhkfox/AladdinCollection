@@ -1,0 +1,47 @@
+Aladdin Collection – PC Edition V1.0: all three classic versions of Disney's Aladdin – Mega Drive / Genesis (Virgin Games, 1993), Super Nintendo (Capcom, 1993) and Master System (SIMS, 1994) – in one launcher for Windows and Android, with true widescreen up to 21:9 and a load of modern extras.
+
+⬇️ Download (free): https://github.com/Darhkfox/AladdinCollection/releases/latest
+💻 Source code: https://github.com/Darhkfox/AladdinCollection
+
+⚠️ You need your own ROMs – no game data is included. It needs these versions:
+• Aladdin (Mega Drive) – Aladdin (U) [!].bin (USA)
+• Aladdin (SNES) – Aladdin (USA).sfc
+• Aladdin (Master System) – Disney's Aladdin (Europe).sms
+On Windows, put them next to the exe or in a roms folder (zipped is fine; they're found by their contents, so file names don't matter). On Android, tap Add ROMs.
+
+✨ Features
+• One launcher for all three games, with live previews – keyboard, gamepad or mouse
+• Two menu styles: Arabian Nights or Classic
+• Widescreen 16:10, 16:9, 2:1 and 21:9 for all three games – more of each level really drawn at the sides, with enemies and items across the whole width; the HUD re-anchored to the edges (or not)
+• Mega Drive: the Rug Ride, the title, story cards and Level Complete drawn wide; boss arenas framed
+• SNES: every parallax layer and raster band moving as on the console; the lamp tower's gold walls; the staff roll wide
+• Master System: wide story scenes, intro and title; characters walk in from the wide picture's edge
+• CRT (4:3 TV) or square pixels, five filters, RetroArch slang shader presets (seven CRT ones included), colour profiles
+• Level select for every level of all three games
+• Cheats, including the developers' own: the Mega Drive debug level skip, map view and cheat mode, Capcom's debug mode on the SNES, the Master System's AIQY invincibility and TEST MODE
+• 54 achievements, with an Achievements page and Export to CSV (Playnite's columns, with a badge for each one)
+• Save states, rewind and fast forward
+• Remove Slowdown for the SNES game
+• High Frame Rate on 100 Hz+ displays, black frame insertion, V-Sync, integer scaling
+• Music player & sound test for every tune and effect, with channel meters
+• Bring your own CD-quality soundtracks: MD+ packs for the Mega Drive game, MSU-1 packs for the SNES game
+• Your own covers and launcher background, Show Games, update notifications
+• Xbox, PlayStation and other pads, every button rebindable
+• Runs on its own from-scratch Mega Drive, SNES and Master System cores – nothing to install
+
+⏱️ Chapters
+{CHAPTERS}
+
+🎵 Music: the games' own soundtracks, played through the collection's Music Player by each game's own sound driver, plus the "Aladdin CD - MD+" pack (ArcadeTV) and an MSU-1 orchestral pack in the soundtrack sections. Soundtrack packs aren't included with the collection: they belong to their makers.
+🖼️ The covers and background in the "your own covers" scene were made for this video; none come with the collection.
+
+Find me over at:
+YouTube – https://www.youtube.com/adhgaming
+X – https://x.com/ADH_Gaming
+GitHub – https://github.com/Darhkfox
+Reddit – u/Darhkwing
+Patreon (Team RedTail) – https://www.patreon.com/c/TeamRedTail
+
+Unofficial fan project. Not affiliated with or endorsed by Disney, Sega, Virgin, Capcom or Nintendo. Aladdin © Disney; the Mega Drive version © 1993 Sega / Virgin Games, the SNES version © 1993 Capcom, the Master System version © 1994 Sega. No ROMs are provided or linked.
+
+#Aladdin #MegaDrive #Genesis #SNES #MasterSystem #PCPort #Widescreen #RetroGaming #Disney #Android
