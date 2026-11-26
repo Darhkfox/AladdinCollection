@@ -1391,6 +1391,13 @@ int story_bg_entry(const Sms& s, int vcol, int vrow, uint32_t replaced, int hs) 
             // (the picture's column 0 repeated in a side: where the rule replaces the hidden column, its copies too -
             // the column the left side has next to the picture's edge)
             if (col == 0 && (r.col0 >> vrow & 1) && b.la != b.lb) col = b.lb - 1;
+            // (the throne room's far left, drawn at the right: the hall's thin pillar, column 8, one cell with its
+            // outline at its left, cut in half by the view's edge - 21:9 CRT, the edge at -148 - showed as a bare
+            // lavender strip with its base's fragment; there the gap beside it, column 0: the wall and its band go on)
+            if (vcol < 0 && col == 8 && scene_at_right(sc)) {
+                const int lx = -s.vdp.ext - story_shift(s);   // (the view's left edge in the picture)
+                if ((lx & 7) && vcol == (lx >> 3)) col = 0;
+            }
             if (col >= r.sub0 && col < r.sub1) col = r.sub + col - r.sub0;
             if (replaced >> vrow & 1) return s.vdp.name_entry(col, vrow) & 0x1FFF;
             return scene_cell(s, sc, col, vrow);
@@ -1498,16 +1505,13 @@ const WalkStep kWalk9[] = {
     {0x8EC2, -1, 0}, {0x8EC2, -1, 0}, {0x8EC2, -1, 0}, {0x8EC2, -1, 0}, {0x8EC2, -1, 0}, {0x8EC2, -1, 0},
     {0x8EF1, -1, 0}, {0x8EF1, -1, 0}, {0x8EF1, -1, 0}, {0x8EF1, -1, 0}, {0x8EF1, -1, 0}, {0x8EF1, -1, 0},
 };
-const WalkStep kWalk11[] = {
-    {0xB934, 0, 0}, {0xB934, 1, 0},
-};
-const WalkStep kWalk12[] = {
+const WalkStep kWalk10[] = {
     {0x8572, 2, 0}, {0x8572, 2, 0}, {0x8572, 2, 0}, {0x8572, 2, 0}, {0x85A5, 2, 0}, {0x85A5, 2, 0}, {0x85A5, 2, 0},
     {0x85A5, 2, 0}, {0x85DC, 2, 0}, {0x85DC, 2, 0}, {0x85DC, 2, 0}, {0x85DC, 2, 0}, {0x8615, 2, 0}, {0x8615, 2, 0},
     {0x8615, 2, 0}, {0x8615, 2, 0}, {0x8648, 2, 0}, {0x8648, 2, 0}, {0x8648, 2, 0}, {0x8648, 2, 0}, {0x867F, 2, 0},
     {0x867F, 2, 0}, {0x867F, 2, 0}, {0x867F, 2, 0},
 };
-const WalkStep kWalk13[] = {
+const WalkStep kWalk11[] = {
     {0x911D, -2, 0}, {0x911D, -2, 0}, {0x911D, -2, 0}, {0x911D, -2, 0}, {0x9038, -2, 0}, {0x9038, -2, 0},
     {0x9038, -2, 0}, {0x9038, -2, 0}, {0x9063, -2, 0}, {0x9063, -2, 0}, {0x9063, -2, 0}, {0x9063, -2, 0},
     {0x9092, -2, 0}, {0x9092, -2, 0}, {0x9092, -2, 0}, {0x9092, -2, 0}, {0x90C3, -2, 0}, {0x90C3, -2, 0},
@@ -1524,30 +1528,33 @@ const SceneWalk kSceneWalks[] = {
     {0x0C, 6, WALK_IN, 49, 153, -78, 59, 0x1D, 13, 0, 1, kWalk7},   // the fall: the carpet flies in under him
     {0x10, 0, WALK_IN, 18, 49, -15, 136, 0x0D, 17, 1, 48, kWalk8},   // the throne room: Aladdin walks in down the hall (waits at -16 walking on the spot)
     {0x11, 1, WALK_IN, 808, 839, 255, 40, 0x0F, 17, 18, 48, kWalk9},   // night: Jasmine walks in on the balcony
-    {0x11, 2, WALK_SHOWN, 0, 392, 0, 0, 0x00, 0, 0, 0, nullptr},   // night: Rajah lies on the balcony
-    {0x11, 2, WALK_OUT, 798, 1038, 287, 72, 0x1D, 9, 0, 2, kWalk11},   // night: Rajah pads off
-    {0x18, 0, WALK_IN, 84, 97, -10, 136, 0x0D, 17, 1, 24, kWalk12, 18},   // the throne room: Aladdin runs in down the hall (waits at -16; from tick 18)
-    {0x20, 1, WALK_IN, 114, 129, 254, 74, 0x0F, 17, 18, 24, kWalk13},   // Jafar's room: Abu runs in (his run off later)
+    {0x18, 0, WALK_IN, 84, 97, -10, 136, 0x0D, 17, 1, 24, kWalk10, 18},   // the throne room: Aladdin runs in down the hall (waits at -16; from tick 18)
+    {0x20, 1, WALK_IN, 114, 129, 254, 74, 0x0F, 17, 18, 24, kWalk11},   // Jafar's room: Abu runs in (his run off later)
     {0x23, 4, WALK_SHOWN, 0, 850, 0, 0, 0x00, 0, 0, 0, nullptr},   // the balcony: Iago on the tower
 };
 
 // The scene's clock (section "walks" above)
 int scene_tick(const Sms& m) { return (uint16_t)(0 - m.ram16(0xCF79)); }
 
-// Characters the game has drawn only as far as its 4:3 picture needs them. Rajah in $11 (the night balcony, list
-// character 2, bank $1D, its three poses $B92C: $B934 head raised, $B94D head down, $B964 roaring): every pose is
-// the tiger's head and shoulders only, 28-32 px, its body cut flat at the right (tiles 35-58 in VRAM; no other art of
-// the tiger anywhere in the ROM), because the game keeps him at the right edge, x >= 232, his back beyond the screen
-// (and lying or padding off at 256-287 beyond it altogether). Widened, the side showed him cut in half (the user's
-// "the tiger is cut in half"). His back half is drawn from his own body, mirrored as the game mirrors its art: the
-// pose's two right columns (offsets 16 and 24: the shoulders and flank, rows 8 and 16) again beyond them, flipped
-// about x + axis - the flank continues into the haunch and the hind legs. Pieces of character ch with a pattern in
-// [pat0, pat1] at an offset >= from from its X. Drawn with the character, wherever the module draws its pieces
-// (parked, walking out); never on the 4:3 picture (the tiger's X is >= 232: the copy lies at 264 and beyond).
-struct SceneHalf { uint8_t scene, ch, pat0, pat1; int8_t from, axis; };
-constexpr SceneHalf kSceneHalves[] = {
-    {0x11, 2, 35, 58, 16, 32},   // night: Rajah's back half
+// Characters the game draws only as far as its 4:3 picture needs them, at its right edge. Rajah in $11 (the night
+// balcony, list character 2, bank $1D, poses at $B92C: $B934 head raised, $B94D head down, $B964 roaring) is the
+// tiger's head and shoulders in every pose, 28-32 px, his body cut flat at the right (no other art of him in the ROM):
+// the game keeps him at x >= 232, lying beyond the screen (256), creeping in to 232 head down and roaring there with
+// the screen's right edge across his shoulders (his cut at 264 never shown), creeping back and padding off beyond it.
+// Widened, he showed in the side cut in half (the user's "the tiger is cut in half"); a back half made from his own
+// shoulders mirrored didn't look right (the user's "can it not just appear closer to the screen edge"). He is drawn E
+// px further right, every piece (on the 256 px or parked; the table's own entries hidden): the wide picture's right
+// edge crosses him where the 4:3 screen's does, so he is shown exactly as much as at 4:3 and moves as there. Nothing
+// else touches him (Aladdin on the carpet is 110 px away when he roars; Jasmine walks in after he has gone).
+struct SceneOut { uint8_t scene, ch; };
+constexpr SceneOut kSceneOuts[] = {
+    {0x11, 2},   // night: Rajah at the balcony's right edge
 };
+bool scene_out(int sc, int ch) {
+    for (const SceneOut& o : kSceneOuts)
+        if (o.scene == sc && o.ch == ch) return true;
+    return false;
+}
 
 // The sprites of a widened story screen. The writers' pieces (hooks before their "off screen" test: hl = the piece's
 // 16-bit X, bc = its character's) are kept per slot of the sprite table buffer with the slot's contents as uploaded:
@@ -1574,21 +1581,6 @@ struct StorySprites {
     // tick 1, Aladdin in scene 0 at 58) comes in from the wide edge while the scene fades in, rather than standing in a
     // side until the clock starts.
     static constexpr int FADE_IN = 26;
-    // sprite tiles flipped left to right (kSceneHalves: the hardware's sprites have no flip), made from VRAM as drawn
-    uint8_t flip[512][32];
-    const uint8_t* flipped(const SmsVdp& v, int tile) {
-        tile &= 0x1FF;
-        for (int i = 0; i < 32; i++) {
-            uint8_t b = v.vram[(tile * 32 + i) & 0x3FFF], r = 0;
-            for (int k = 0; k < 8; k++) r |= (uint8_t)(((b >> k) & 1) << (7 - k));
-            flip[tile][i] = r;
-        }
-        return flip[tile];
-    }
-    // a data pointer into flip: its tile (-1: not one)
-    int flip_tile(const uint8_t* p) const {
-        return p >= &flip[0][0] && p < &flip[0][0] + sizeof(flip) ? (int)((p - &flip[0][0]) / 32) : -1;
-    }
     StorySprites() { clear(); }
     void clear() {
         for (int i = 0; i < 64; i++) { x[i] = NONE; who[i] = fresh[i] = valid[i] = 0; snap[i][0] = snap[i][1] = snap[i][2] = 0; }
@@ -1699,16 +1691,6 @@ struct StorySprites {
             if (sx <= -8 - E + vs || sx >= 256 + E + vs || v.extra_count >= SmsVdp::kMaxExtra) return;
             v.extra[v.extra_count++] = {(int16_t)sx, y, pat, data};
         };
-        // a character's piece the game draws without the rest (kSceneHalves): the missing part, mirrored, beyond the
-        // 4:3 picture only (off: the piece's offset from the character's X)
-        auto half = [&](int c, int cx, int off, uint8_t y, uint8_t pat) {
-            for (const SceneHalf& h : kSceneHalves) {
-                if (h.scene != m.ram8(SCENE) || h.ch != c || pat < h.pat0 || pat > h.pat1 || off < h.from) continue;
-                const int hx = cx + 2 * h.axis - off - 8;
-                if (hx > -8 && hx < 256) continue;
-                add(hx - shift, y, pat, flipped(v, pat | ((v.reg[6] & 0x04) ? 0x100 : 0)));
-            }
-        };
         // the walks: characters drawn here (shown) or by the module (walking, their own pieces hidden)
         uint8_t show[CHARS], walk[CHARS];
         std::memcpy(show, seen, CHARS);
@@ -1744,9 +1726,16 @@ struct StorySprites {
         }
         for (int w = 0; w < 4; w++) m.module_state[w] = 0;
         const int blanked = blanked_end(m);
+        const int sc = m.ram8(SCENE);
         for (int i = 0; i < 64; i++) {
             const int slot = rev ? 63 - i : i;
             if (!valid[slot] || x[slot] == NONE) continue;
+            if (kind == STORY_SCENE && scene_up && scene_out(sc, who[slot])) {   // (kSceneOuts: E px further right)
+                m.module_state[i >> 4] |= (uint32_t)PAGE_HIDDEN << ((i & 15) * 2);
+                if ((x[slot] >= 0 && x[slot] < 256) || (show[who[slot]] && !walk[who[slot]]))
+                    add(x[slot] + E - shift, snap[slot][0], snap[slot][2], nullptr);
+                continue;
+            }
             if (x[slot] >= 0 && x[slot] < 256) {
                 // (a piece of a character not shown, under the column the hardware blanks: hidden, as there - the
                 // widened scene shows that column, and scene 4's waiting guard showed his turban in it)
@@ -1758,13 +1747,6 @@ struct StorySprites {
             if (show[who[slot]] && !walk[who[slot]] && (kind != STORY_SCENE || scene_up))
                 add(x[slot] - shift, snap[slot][0], snap[slot][2], nullptr);
         }
-        // the parts drawn again of the characters shown (kSceneHalves), from their pieces on and off the 256 px
-        if (kind == STORY_SCENE && scene_up)
-            for (int i = 0; i < 64; i++) {
-                const int slot = rev ? 63 - i : i, c = who[slot];
-                if (valid[slot] && x[slot] != NONE && show[c] && !walk[c] && at[c] != NONE)
-                    half(c, at[c], x[slot] - at[c], snap[slot][0], snap[slot][2]);
-            }
         // a walking character: its writer's pieces for the pose, as the writer places them ($2390 / $3C31 / $5099)
         for (int c = 0; c < CHARS; c++) {
             if (!walk[c]) continue;
@@ -1788,7 +1770,6 @@ struct StorySprites {
                     if (!data) continue;
                 }
                 add(px - shift, (uint8_t)(a - 1), pat, data);
-                if (!w.base) half(c, gx, px - gx, (uint8_t)(a - 1), pat);
             }
         }
         if (kind == STORY_ENDING) {
@@ -2162,7 +2143,7 @@ public:
     // Save states (rewind too): besides module_state, what the hooks keep from one frame to the next - the sprite
     // pages the writers left for the next table upload (the game's logic runs across the frame's end), the extra
     // sprites the last upload made for the frame being drawn, and the frame counter at the camera's last move.
-    static constexpr uint32_t FLIPPED = 0xFE000000u;   // (save_ext: an extra sprite's tile flipped, | the tile)
+    static constexpr uint32_t FLIPPED = 0xFE000000u;   // (an earlier version's mark of a flipped tile: none now)
     std::vector<uint8_t> save_ext() const override {
         std::vector<uint8_t> d;
         if (!sms_ || !wide_) return d;
@@ -2180,9 +2161,7 @@ public:
         const uint8_t* rom0 = sms_->rom_orig_ptr(0, 1);
         d.push_back('D');
         for (int i = 0; i < v.extra_count; i++) {
-            const int ft = story_.flip_tile(v.extra[i].data);   // (a tile flipped: kSceneHalves, made again on load)
-            const uint32_t o = ft >= 0 ? FLIPPED | (uint32_t)ft
-                               : v.extra[i].data && rom0 ? (uint32_t)(v.extra[i].data - rom0) : 0xFFFFFFFFu;
+            const uint32_t o = v.extra[i].data && rom0 ? (uint32_t)(v.extra[i].data - rom0) : 0xFFFFFFFFu;
             d.insert(d.end(), {(uint8_t)o, (uint8_t)(o >> 8), (uint8_t)(o >> 16), (uint8_t)(o >> 24)});
         }
         return d;
@@ -2214,7 +2193,7 @@ public:
                 const uint8_t* e = d + da + 1 + 4 * i;
                 const uint32_t o = e[0] | (e[1] << 8) | (e[2] << 16) | ((uint32_t)e[3] << 24);
                 v.extra[i].data = o == 0xFFFFFFFFu ? nullptr
-                                  : (o & 0xFFFFFE00u) == FLIPPED ? story_.flipped(v, (int)(o & 0x1FF))
+                                  : (o & 0xFFFFFE00u) == FLIPPED ? nullptr   // (VRAM's for a frame)
                                   : sms_->rom_orig_ptr(o, 32);
             }
         }

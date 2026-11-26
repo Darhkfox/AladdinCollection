@@ -33,7 +33,7 @@ sms_end` for states near the auto-run stages' ends). Widths: 6/22/40/74 (CRT pix
    picture on from ROM (characters walking off go on into the sides; those the game brings in from off its screen
    walk in from the wide picture's edge, and those it removes beyond the 4:3 edge walk on out, drawn with the game's
    own walk cycle and timing: "Walks"; the throne room is drawn at the wide picture's right, its door the right
-   edge; Rajah's back half, which the game never draws, is his own body mirrored), the intro and title fill the width with their
+   edge; Rajah, whom the game draws only up to its screen's edge, is drawn E px further out: cut by the wide edge as by the 4:3 one), the intro and title fill the width with their
    plain background, the ending carries its sprite starfield and sea on. Three scenes, menus, password, game over and
    the attract demos are pillarboxed, the blanked left column drawn as the hardware does. A screen fading out after
    the next mode is set is still drawn as itself. In the stages, lines 176-191 (blank border / a story moment's text
@@ -636,8 +636,6 @@ story screens are now drawn wide where their picture allows it (`story_screen`, 
   | $C | the carpet | the same | 49 | 1, 4 px |
   | $10 the throne room | Aladdin | in from the left down the hall (waits at -16 walking on the spot) | 18 | 48, 1 px |
   | $11 night | Jasmine | in from the right (put at 256) | 808 | 48, 1 px |
-  | $11 | Rajah | shown lying on the balcony at 256-287 | 0-392 | |
-  | $11 | Rajah | out to the right (removed at 287) | 798 | 2, 1 px in 2 |
   | $18 the throne room | Aladdin | runs in from the left down the hall (waits at -16; drawn from tick 18, `ts`) | 84 | 24, 2 px |
   | $20 Jafar's room | Abu | in from the right (waits at 256 running on the spot) | 114 | his run off at 402, 24, 2 px |
   | $23 the balcony | Iago | shown on the tower's corner at 256 | 0-850 | |
@@ -677,21 +675,31 @@ story screens are now drawn wide where their picture allows it (`story_screen`, 
   runs in from the edge after Jasmine's words (`ts` above). Jafar's spell ($10's end) is shifted with the picture.
   The scene number changes on the fade-out's last, nearly black step (CRAM sum 16 of 1008), for one frame drawn
   centred. No other scene uses the picture.
-* **Characters the game draws in part** (`kSceneHalves`): Rajah in $11 (the night balcony, list character 2, bank
-  `$1D`, poses at `$B92C`: `$B934` head raised, `$B94D` head down, `$B964` roaring) is only the tiger's head and
-  shoulders in every pose, 28-32 px wide, the body cut flat at the right (tiles 35-58; the ROM has no other tiger
-  art): the game keeps him at x >= 232, his back beyond the screen - lying at 256 (beyond it altogether, shown in the
-  side: `WALK_SHOWN`), creeping in to 232 head down and roaring there with his head at the 4:3 picture's right edge,
-  creeping back and padding off. In the side he was cut in half (the user's "the tiger is cut in half", state in $11
-  at tick 256). His back half is his own body mirrored, as the game mirrors its art: the pose's two right columns
-  (offsets 16 and 24, rows 8 and 16: shoulders and flank) again beyond them, flipped about x + 32 - the flank goes on
-  into the haunch and the hind legs, 44-48 px in all. Drawn with him wherever the module draws his pieces (parked,
-  walking out), only beyond the 256 px (his X is >= 232: the copy lies at 264 on), from VRAM's tiles flipped
-  (`StorySprites::flip`; the hardware's sprites can't flip). Checked: every scene's list poses (`$5099`, 219 with
-  their X over the scene) rendered alone from the scene's VRAM, the longest straight run of pixels on their outer
-  columns: cut flat at the side they show beyond an edge only Rajah's three; the others with a straight side (the
-  Sultan seated, $6 / $10; the fall's rock, $C; a rope, 2) stand inside the 4:3 picture. Aladdin's and the second
-  figure's poses are whole figures.
+  The far left: the side repeats the picture's columns 0-8 - a gap (0, blue over the low wall's band), the vase
+  pillar (1-6), a gap (7) and the hall's thin pillar (8, one cell, its yellow outline at its left, its base piece at
+  row 17) - every 72 px out from the picture's edge, so the wide edge (at -2E) falls where 2E says. At 21:9 CRT (2E =
+  148) it cut the thin pillar's cell in half: a bare lavender strip without its outline, its base's brown fragment
+  under it (the user's "far left isn't right", a zoomed shot). The edge's cell, where it is the thin pillar cut in
+  half, is the gap beside it (column 0: the wall and its band go on out of the edge). The other widths: 6, 22, 26
+  and 102 (2E = 12, 44, 52, 204) end in a gap or the vase (its edge or its middle, as a picture's edge crops it), 40
+  a whole thin pillar, outline and all, 44 a gap, 64 the vase at a cell's edge; only 74 had the half pillar.
+* **Characters the game draws only up to its screen's edge** (`kSceneOuts`): Rajah in $11 (the night balcony, list
+  character 2, bank `$1D`, poses at `$B92C`: `$B934` head raised, `$B94D` head down, `$B964` roaring) is only the
+  tiger's head and shoulders in every pose, 28-32 px wide, his body cut flat at the right (tiles 35-58; the ROM has no
+  other tiger art): the game keeps him at x >= 232 - lying at 256 (beyond the screen altogether), creeping in to 232
+  head down and roaring there with the screen's right edge across his shoulders (the cut, at 264, never shown),
+  creeping back and padding off. Widened, the side showed him cut in half (the user's "the tiger is cut in half", state
+  in $11 at tick 256). A back half made from his own shoulders mirrored (the version before) didn't look right (the
+  user's "can it not just appear closer to the screen edge"): he is drawn E px further right instead, every piece -
+  on the 256 px (the table's entry hidden, an extra sprite in its place) or parked - with his own art, unchanged. The
+  wide picture's right edge crosses him where the 4:3 screen's does, so he shows exactly as much of himself as at 4:3,
+  when and as the game moves him; lying or padding off he is beyond the view, as at 4:3 (his walks in the side are
+  gone from the table). Nothing else touches him: Aladdin on the carpet, ~110 px away while he roars, keeps his place
+  (the tiger E px further from him), and Jasmine walks in after he has left. Checked: every scene's list poses
+  (`$5099`, 219 with their X over the scene) rendered alone from the scene's VRAM, the longest straight run of pixels
+  on their outer columns: cut flat at the side they show beyond an edge only Rajah's three; the others with a straight
+  side (the Sultan seated, $6 / $10; the fall's rock, $C; a rope, 2) stand inside the 4:3 picture. Aladdin's and the
+  second figure's poses are whole figures.
 * **Intro, title and menu** (mode 0, script `$CF01`): the Genie and his framed pictures, the logo and the menu on
   a plain background, table entry 0 at every edge column in every state: the sides are entry 0, the blanked column
   the plain background without sprites. The attract mode passes through it (its RAM untouched).
@@ -746,8 +754,8 @@ states, or from another width) starts them empty. After them comes the story scr
 each slot's piece, character and contents, each character's X and whether it has been on the screen, section 5a,
 the scene's clock at the writers' last pass, which places the walks, and the fade-in's count; version 2, without the
 count, loads as with the fade-in done, version 1, without the clock, still loads), then
-'D' and a ROM offset per extra sprite (the walks' poses drawn from ROM; none: VRAM's; `$FE000000` | the tile: a
-tile flipped, made again from VRAM on load - Rajah's back half).
+'D' and a ROM offset per extra sprite (the walks' poses drawn from ROM; none: VRAM's; `$FE000000` | a tile, written
+by a version that drew Rajah's back half from flipped tiles, loads as VRAM's for that frame).
 
 `sms_rewind.py` steps back as the app does (load a state, one frame, compare its picture with the forward run's):
 stages 0 1 5 7 8 at E = 74 and 102, 2000 frames each, 1000 states: every picture identical; loading the core's state
@@ -780,7 +788,7 @@ scene 3 at 102 differs in 76 of 954 (the characters in the sides).
 | scene sides | every scene's table against the ROM model every 10 frames; the tiles the model uses, every 5 frames; the 4:3 edges of every widened scene at 74 | the spell in $10 the only picture drawn over (now repeated from the table); no tile reloads; $A's rule remade |
 | scene shakes, floors | every scene from the title at 74 / 102, frame by frame against the build before (left side, 4:3 part, right side; RAM, VRAM, CRAM); the lines' scrolls of every scene; the user's $A state in the app at 21:9 CRT and square, frames 10-41 | the shaken scenes' sides (8 $A $C $1C; 8 and $C are 4:3) move with the picture: no copy of the table's left part on left shakes; $A's floor carried on to the left at 6..102, unbroken behind the claw with every claw pixel kept (still, both shakes, fade in and out); $B's sides laid out from its drips (through its fade-in, shake and fade-out); $1B's table not repeated; every other scene's frames identical to before; RAM / VRAM / CRAM identical |
 | the fall, the oasis, the lava scenes' entries | $C / $D / $F at 74 and 102 (tool, every frame; the app at 21:9 CRT and square from the user's states); the edges of every widened scene (`seams`, then by eye); the extra sprites of $B's carpet and $C's Aladdin and carpet frame by frame across the walks' hand-over; $D's exits | $C / $D wide, their sides the walls' continuation, steady through the shakes and fades; $F's bush finished at both edges; $B's carpet in from the wide edge during the fade-in (5 px every frame across tick 1), $C's Aladdin on the carpet in from the wide edge (4 px a tick into the game's own at tick 49); $D's characters drawn out to the widest edge; RAM / VRAM / CRAM identical to 4:3 |
-| the throne room at the right, Rajah whole | $10 $11 $18 $1A from the title at 6..102 and the user's states ($10 tick 0, $11 tick 256) at every width (tool), contact sheets through each scene; $10's and $18's walks frame by frame across the hand-over at 74 / 102; scene RAM / VRAM / CRAM against 4:3 at 74 and 102 every frame into the next stage, without input and with button-1 taps; `sms_rewind.py 74 102 --scenes 10,11,18,1a`; the in-betweens (4 a frame) at 22 / 74 / 102; every scene's list poses for a flat side (above); attract 60,000 frames at every width with and without cheats; `r2_identity` (QA); `hfr_test.py sms`; the app at 21:9 CRT from the user's states | the door at the wide right edge at every width, Jasmine and Aladdin in and out at it as in the original; $10's Aladdin walking down the hall from the fade-in, $18's running in from the edge after the text; Rajah whole in every pose, lying, creeping, roaring, padding off; identical RAM / VRAM / CRAM; 0 rewound pictures differ (2889 / 3332 / 1356 / 1037 states); in-betweens' picture still, RAM identical; attract 0 RAM differences |
+| the throne room at the right, its far left, Rajah at the edge | $10 $11 $18 $1A from the title at 6..102 and the user's states ($10 tick 0, $11 tick 256) at every width (tool), contact sheets through each scene; $10's and $18's walks frame by frame across the hand-over at 74 / 102; scene RAM / VRAM / CRAM against 4:3 at 74 and 102 every frame into the next stage, without input and with button-1 taps; `sms_rewind.py 74 102 --scenes 10,11,18,1a`; the in-betweens (4 a frame) at 22 / 74 / 102; every scene's list poses for a flat side (above); attract 60,000 frames at every width with and without cheats; `r2_identity` (QA); `hfr_test.py sms`; the far left at every width (tool) and in the app at 21:9 CRT and square; Rajah at 4:3, 16:9 and 21:9 in the app; the app at 21:9 CRT from the user's states | the door at the wide right edge at every width, Jasmine and Aladdin in and out at it as in the original; $10's Aladdin walking down the hall from the fade-in, $18's running in from the edge after the text; the far left a gap or a whole pillar at every width (21:9 CRT: the gap, not half the thin pillar); Rajah cut by the wide edge exactly where the 4:3 edge cuts him, unseen lying and padding off as at 4:3; identical RAM / VRAM / CRAM; 0 rewound pictures differ (2889 / 3332 / 1356 / 1037 states); in-betweens' picture still, RAM identical; attract 0 RAM differences |
 | screen changes | GAME START and PASSWORD from the title, a password taken, game over (continue) at 21:9 CRT (tool, app); QA's round-3 replays (`r3_play_e74`, `r3_play_e74b`: to scene $11, and scene $23 to the title), frames where the sides change under a still 4:3 picture | section 5a "A wait before the fade": none but characters walking in a side |
 | screen-fixed texts | READY at stages 0 2 5's (re)start, PAUSE at a stage's start (slid) and mid-stage, TRY AGAIN?, at 0 / 74 / 102 with `hud_anchor` on and off (tool and app) | section 5: centred in the wide picture (READY was E px left at a start before) |
 | screens | `sms_wide_shots.py`, `sms_run_sheet.py` (whole stages 0 1 5 7 at 74 / 102), `sms_app_test.py` (16:9 and 21:9 CRT, 21:9 square) | reviewed: stages, ends, HUD, scenes |
@@ -832,5 +840,5 @@ another width, name or sprite table, a loaded state. The status bits stay the fr
   5a): its left side is 2E px of the hall's pillars. $10's Aladdin, whose cue comes 18 ticks after the fade-in, can't
   walk that far at the game's speed: he is in the hall, walking, from the fade-in's first frame (at 74 about 90 px from
   the wide edge). $18's Aladdin runs in from the edge after Jasmine's words, faster than the game's run where the hall
-  is wider than his run allows (1.3 times at 74, 1.7 at 102). Rajah's back half in $11 is made from his shoulders
-  mirrored (the game has no art of it).
+  is wider than his run allows (1.3 times at 74, 1.7 at 102). Rajah in $11 is drawn E px further right than the game
+  has him (his back has no art: the wide edge cuts him as the 4:3 one does), E px further from Aladdin.
