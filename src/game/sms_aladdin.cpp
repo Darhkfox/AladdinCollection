@@ -857,11 +857,12 @@ const SceneRule kSceneRules[SCENES] = {
     {0, {}},        // 8 night by the sea: a rock cut by the right edge
     {1, {WHOLE}},   // 9 the treasure room
     // $A the lamp's cave: the claw at the left edge isn't repeated; the rock floor (rows 16-19, cols 2-25: the ledge
-    // and the slab, its rounded end at 25; boulders on row 15) is cut at the claw's foot (col 1 dark, col 0 a black
-    // block in the table), and ends at the right in the lava (cols 26-29) with a rock at the edge: the left side carries
-    // the floor on - cols 4-25 with the slab's rounded end in the hidden column, the claw's foot standing in the gap
-    // after it - the right side the lava
-    {2, {{0, 15, 8, 16, 4, 32}, {15, 20, 4, 26, 26, 30}}, 0, 0x1F << 15},
+    // and the slab, its rounded end at 25; small rocks on row 15) is cut at the claw's foot (col 1 dark, col 0 a black
+    // block in the table), and ends at the right in the lava (cols 26-29) with a rock at the edge. Widened, the floor
+    // runs on unbroken out of the left edge (kSceneFills: the gap under the claw's foot), the hidden column col 16 and
+    // the side cols 15 down to 5, repeating every 12 (the slab's two- and four-column steps in phase; row 15's rocks
+    // from cols 4-15, whole); the right side the lava
+    {3, {{0, 15, 8, 16, 4, 32}, {15, 16, 4, 16, 26, 30}, {16, 20, 5, 17, 26, 30}}, 0, 0x1F << 15},
     {1, {WHOLE}},   // $B the escape: the lava's drips
     {0, {}},        // $C, $D the fall: rock walls cut by the edges
     {0, {}},
@@ -890,6 +891,23 @@ const SceneRule kSceneRules[SCENES] = {
     {1, {WHOLE}},   // $22 Jafar's room, red
     {1, {WHOLE}},   // $23 the palace balcony: the end (towers)
 };
+// Cells inside the 4:3 picture a widened scene shows from another source column (a gap the sides' floor runs across),
+// with the source cells' own priority: scene, column, rows [r0, r1), source column. The VDP asks bg_entry for the
+// columns left of hw_x0, which the frame's start moves past them (and the shake's 2 px) for such a scene. At 4:3 and
+// widescreen off the table is drawn as it is.
+// $A: under the claw's foot the slab (rows 18-19) and its ledge (row 17) stop at col 1 / taper over cols 2-3 (the
+// claw's base cells, ledge only on row 17): col 1 takes the slab of col 17 (1105 / 1109, as before the slab's 1106 /
+// 110a at col 2) and row 17's cols 1-3 the ledge of cols 14-16 (126 127 128, as before the 125 at col 4).
+struct SceneFill { uint8_t scene, col, r0, r1, src; };
+constexpr SceneFill kSceneFills[] = {
+    {0x0A, 1, 18, 20, 17}, {0x0A, 1, 17, 18, 14}, {0x0A, 2, 17, 18, 15}, {0x0A, 3, 17, 18, 16},
+};
+int scene_fill_x(int sc) {   // (the screen x up to which bg_entry is asked: 8 for none)
+    int x = 8;
+    for (const SceneFill& f : kSceneFills)
+        if (f.scene == sc) x = std::max(x, (f.col + 1) * 8 + 2);
+    return x;
+}
 const SceneRule* scene_rule(int sc) { return sc >= 0 && sc < SCENES && kSceneRules[sc].n ? &kSceneRules[sc] : nullptr; }
 
 // The screen shown, as far as widening it goes (not a stage: STORY_NONE)
@@ -956,9 +974,13 @@ uint32_t scene_replaced_rows(const Sms& s) {
 bool scene_shakes(int sc) { return sc == 0x08 || sc == 0x0A || sc == 0x0C || sc == 0x1C; }
 int story_bg_entry(const Sms& s, int vcol, int vrow, uint32_t replaced, int hs) {
     if (hs >= 256 - 8 && story_wide(s) == STORY_SCENE && scene_shakes(s.ram8(SCENE))) vcol += 32;
-    if (vcol > 0 && vcol < 32) return -1;   // (the table)
     const SceneRule* rule = story_wide(s) == STORY_SCENE && s.ram16(MAP) == SCENE_MAPS && vrow % 28 < SCENE_ROWS
                                 ? scene_rule(s.ram8(SCENE)) : nullptr;
+    if (vcol > 0 && vcol < 32 && rule && !(replaced >> (vrow % 28) & 1))
+        for (const SceneFill& f : kSceneFills)   // (inside the picture: a gap the sides' floor runs across)
+            if (f.scene == s.ram8(SCENE) && f.col == vcol && vrow % 28 >= f.r0 && vrow % 28 < f.r1)
+                return scene_cell(s, f.scene, f.src, vrow % 28);
+    if (vcol > 0 && vcol < 32) return -1;   // (the table)
     const bool side0 = rule && (rule->side0 >> (vrow % 28) & 1);
     if (vcol == 0) {   // (the column the hardware blanks: the table's, or the left side's where the rule says)
         if (!rule || !((rule->col0 | rule->side0) >> (vrow % 28) & 1)) return -1;
@@ -1545,6 +1567,8 @@ public:
         s.on_frame_start = [this](Sms& m) {
             apply_view(m);
             story_rows_ = shows_stage(m) ? 0 : scene_replaced_rows(m);   // (a scene's rows drawn over: section 5a)
+            // (a widened scene with cells filled inside its picture: the VDP asks bg_entry for them, kSceneFills)
+            m.vdp.hw_x0 = story_wide(m) == STORY_SCENE ? scene_fill_x(m.ram8(SCENE)) : 8;
         };
         // sprite pieces: the player ($23C2), the large second figure ($3C63) and the objects ($0C99), each with
         // hl = the piece's 16-bit screen X just before the "off screen" test (`ld a,h`)
