@@ -29,12 +29,14 @@ sms_end` for states near the auto-run stages' ends). Widths: 6/22/40/74 (CRT pix
    wide view's edge on a path that meets theirs (drawing only: section 3, "The Sultan's Palace's guards").
 4. Status bar (rows 0-1): the stone counter moves to the right edge (`line_hook`), the gems stay centred; neither
    moves with the slide. READY (sprites) stays in the picture's middle too (`ready_sprite`, section 5).
-5. The story screens are wide where their picture allows (section 5a): 33 of the 36 story scenes carry their own
+5. The story screens are wide where their picture allows (section 5a): 35 of the 36 story scenes carry their own
    picture on from ROM (characters walking off go on into the sides; those the game brings in from off its screen
    walk in from the wide picture's edge, and those it removes beyond the 4:3 edge walk on out, drawn with the game's
    own walk cycle and timing: "Walks"; the throne room is drawn at the wide picture's right, its door the right
-   edge; Rajah, whom the game draws only up to its screen's edge, is drawn E px further out: cut by the wide edge as by the 4:3 one), the intro and title fill the width with their
-   plain background, the ending carries its sprite starfield and sea on. Three scenes, menus, password, game over and
+   edge, and so is $12's statue; Rajah and $14's Jafar, whom the game draws only up to its screen's edge, are drawn
+   further out: cut by the wide edge as by the 4:3 one; a widened scene's sprites keep one order without the sprite
+   limit: no flicker where they overlap), the intro and title fill the width with their
+   plain background, the ending carries its sprite starfield and sea on. Scene 8, menus, password, game over and
    the attract demos are pillarboxed, the blanked left column drawn as the hardware does. A screen fading out after
    the next mode is set is still drawn as itself. In the stages, lines 176-191 (blank border / a story moment's text
    box) get colour 0 at the sides.
@@ -547,8 +549,17 @@ story screens are now drawn wide where their picture allows it (`story_screen`, 
   rock without the priority bit, never shown on the hardware: a dark block under the ridge that runs into it from the
   left side; now the ridge goes on to the hill at column 1, and so do the copies of column 0 in the sides); $12 and $1E sky, railing or floor (0-15); $1C plain sky and the balcony
   (28-31); $1F the floor around the hourglass (0-7 / 24-31). Kept 4:3, with black bars: 8 (a rock cut by the right
-  edge), $14 (a roof's slope cut by the left edge), $16 (the Genie's cave, lit from the middle, black rock at the right
-  edge). Chosen with an offline model of the rules for every scene, then checked in the module at 74 and 102 and in
+  edge). $14 (the garden at night: a roof's slope and bushes cut by the left edge, the wall at the right) and $16 (the
+  Genie's cave under the water: the rock's black mass at the right) were kept 4:3 too, until the user's states in them
+  ("is in 4:3"): their sides are now laid out (`kSceneSides`). $14: left, the roof's slope (133 / 134 over its fill
+  132, the sky 100 above) rising on two columns a row as it rises in the picture, the bushes (rows 10-16) mirrored
+  about the picture's left edge - the game mirrors its bushes (335 is 135 flipped), so the cluster the edge cut is
+  finished by its mirror image, the roof's fill beyond - and the lawn's edge (row 17); right, the wall (128); rows
+  18-19, the lawn, columns 0-1 / 30-31. $16: right, the black mass (10a); left, the picture's columns 0-12 mirrored
+  about its left edge (the light shafts, the weed, the fish and the rock lump; the Genie and the lamp are drawn into
+  the table, never from ROM, so never repeated). $12's statue (a curled finial on the railing, columns 29-31, cut by
+  the right edge; the user's "the statue is cut in half, maybe move it to far right") is drawn at the right ("Drawn at
+  the right" below). Chosen with an offline model of the rules for every scene, then checked in the module at 74 and 102 and in
   the app. Swept again (`seams`: every widened scene's 4:3 edges at 74 and 102, the colour change across each edge per
   cell row against the picture's own cell borders, then each flagged edge by eye): $F's bush the only straight seam
   left; $E's hill (rows 14-16 at the right edge: its black mass against the sky for one cell row) and the scenes whose
@@ -636,6 +647,7 @@ story screens are now drawn wide where their picture allows it (`story_screen`, 
   | $C | the carpet | the same | 49 | 1, 4 px |
   | $10 the throne room | Aladdin | in from the left down the hall (waits at -16 walking on the spot) | 18 | 48, 1 px |
   | $11 night | Jasmine | in from the right (put at 256) | 808 | 48, 1 px |
+  | $14 the garden | a guard | in from the right (put at 240) | 298 | 24, 2 px |
   | $18 the throne room | Aladdin | runs in from the left down the hall (waits at -16; drawn from tick 18, `ts`) | 84 | 24, 2 px |
   | $20 Jafar's room | Abu | in from the right (waits at 256 running on the spot) | 114 | his run off at 402, 24, 2 px |
   | $23 the balcony | Iago | shown on the tower's corner at 256 | 0-850 | |
@@ -675,6 +687,10 @@ story screens are now drawn wide where their picture allows it (`story_screen`, 
   runs in from the edge after Jasmine's words (`ts` above). Jafar's spell ($10's end) is shifted with the picture.
   The scene number changes on the fade-out's last, nearly black step (CRAM sum 16 of 1008), for one frame drawn
   centred. No other scene uses the picture.
+  $12 (the roof at night: Aladdin and Jasmine sit by the railing, nothing moves in or out) is drawn at the right too:
+  its statue at the right edge is cut by the wide edge where the 4:3 edge cut it, the two sit as far from it as at 4:3,
+  and the left side, 2E px, is the sky and the railing (columns 0-15, a post every 64 px). (The far-left rule for the
+  thin pillar is the throne room's only, `scene_throne`.)
   The far left: the side repeats the picture's columns 0-8 - a gap (0, blue over the low wall's band), the vase
   pillar (1-6), a gap (7) and the hall's thin pillar (8, one cell, its yellow outline at its left, its base piece at
   row 17) - every 72 px out from the picture's edge, so the wide edge (at -2E) falls where 2E says. At 21:9 CRT (2E =
@@ -700,6 +716,21 @@ story screens are now drawn wide where their picture allows it (`story_screen`, 
   on their outer columns: cut flat at the side they show beyond an edge only Rajah's three; the others with a straight
   side (the Sultan seated, $6 / $10; the fall's rock, $C; a rope, 2) stand inside the 4:3 picture. Aladdin's and the
   second figure's poses are whole figures.
+  Jafar in $14 (list character 2 from tick 419; before, the carpet) creeps in from -17 to x 0 at 1 px in 4 and stays
+  there, his body at the 4:3 picture's left edge (x 0-7 blanked: he shows from x 8 on). Widened he stood whole in the
+  left side, or popped up there as one of his pieces first reached x 8. He is drawn E + 8 px further left
+  (`SceneOut::side` -1, from tick 419): the wide edge crosses him where the 4:3 screen's visible edge does.
+* **Sprite order without the limit** (`STORY_ORDER`, `SmsVdp::sprite_rev`). The game uploads its sprite table
+  reversed on odd frames (`$02D9`: `$C20E` bit 0, `outd` from the buffer's end) so that, with 8 sprites a line, the
+  ones dropped differ from frame to frame. Overlapping sprites therefore swap places every frame - the first in the
+  table is in front: in $11 Aladdin's feet and the carpet he rises on (20 px flickering from tick ~150 to his jump),
+  the same at 4:3 with or without the limit (the user's "sometimes parts of Aladdin flash, like in the scene he
+  arrives before the tiger"; measured: pixels alternating frame to frame in the 4:3 part, 266 frames / 2235 px at 4:3
+  without the limit, 143 / 827 widened, the rest the carpet's own two-frame flutter and the poses' animation). In a
+  widened scene without the sprite limit nothing is shared out by those turns, so a table uploaded reversed is drawn
+  back in the buffer's order (the writers': Aladdin's pieces first, in front), steady: module_state[7] bit 25, set at
+  the upload, the VDP drawing the table last to first. The status bits (overflow, collision) don't depend on the
+  order. With the limit on the turns stay, as on the hardware; 4:3 and the stages are as before.
 * **Intro, title and menu** (mode 0, script `$CF01`): the Genie and his framed pictures, the logo and the menu on
   a plain background, table entry 0 at every edge column in every state: the sides are entry 0, the blanked column
   the plain background without sprites. The attract mode passes through it (its RAM untouched).
@@ -789,6 +820,7 @@ scene 3 at 102 differs in 76 of 954 (the characters in the sides).
 | scene shakes, floors | every scene from the title at 74 / 102, frame by frame against the build before (left side, 4:3 part, right side; RAM, VRAM, CRAM); the lines' scrolls of every scene; the user's $A state in the app at 21:9 CRT and square, frames 10-41 | the shaken scenes' sides (8 $A $C $1C; 8 and $C are 4:3) move with the picture: no copy of the table's left part on left shakes; $A's floor carried on to the left at 6..102, unbroken behind the claw with every claw pixel kept (still, both shakes, fade in and out); $B's sides laid out from its drips (through its fade-in, shake and fade-out); $1B's table not repeated; every other scene's frames identical to before; RAM / VRAM / CRAM identical |
 | the fall, the oasis, the lava scenes' entries | $C / $D / $F at 74 and 102 (tool, every frame; the app at 21:9 CRT and square from the user's states); the edges of every widened scene (`seams`, then by eye); the extra sprites of $B's carpet and $C's Aladdin and carpet frame by frame across the walks' hand-over; $D's exits | $C / $D wide, their sides the walls' continuation, steady through the shakes and fades; $F's bush finished at both edges; $B's carpet in from the wide edge during the fade-in (5 px every frame across tick 1), $C's Aladdin on the carpet in from the wide edge (4 px a tick into the game's own at tick 49); $D's characters drawn out to the widest edge; RAM / VRAM / CRAM identical to 4:3 |
 | the throne room at the right, its far left, Rajah at the edge | $10 $11 $18 $1A from the title at 6..102 and the user's states ($10 tick 0, $11 tick 256) at every width (tool), contact sheets through each scene; $10's and $18's walks frame by frame across the hand-over at 74 / 102; scene RAM / VRAM / CRAM against 4:3 at 74 and 102 every frame into the next stage, without input and with button-1 taps; `sms_rewind.py 74 102 --scenes 10,11,18,1a`; the in-betweens (4 a frame) at 22 / 74 / 102; every scene's list poses for a flat side (above); attract 60,000 frames at every width with and without cheats; `r2_identity` (QA); `hfr_test.py sms`; the far left at every width (tool) and in the app at 21:9 CRT and square; Rajah at 4:3, 16:9 and 21:9 in the app; the app at 21:9 CRT from the user's states | the door at the wide right edge at every width, Jasmine and Aladdin in and out at it as in the original; $10's Aladdin walking down the hall from the fade-in, $18's running in from the edge after the text; the far left a gap or a whole pillar at every width (21:9 CRT: the gap, not half the thin pillar); Rajah cut by the wide edge exactly where the 4:3 edge cuts him, unseen lying and padding off as at 4:3; identical RAM / VRAM / CRAM; 0 rewound pictures differ (2889 / 3332 / 1356 / 1037 states); in-betweens' picture still, RAM identical; attract 0 RAM differences |
+| $12 at the right, $14 and $16 wide, Jafar at the edge, the sprite order | the user's states (slot 1: $12 tick 97, slot 2: $14 tick 108, slot 4: $16 tick 343) at every width 6..102 (tool) and in the app at 21:9 CRT and square / 16:9; $14's guard walk-in frame by frame and in the app; pixels alternating frame to frame in $11 at 4:3 and 74 without the limit; scene RAM / VRAM / CRAM of $12 $14 $16 against 4:3 at 74 and 102; `sms_rewind.py 74 102 --scenes 10,11,12,14,16,18,1a`; attract at every width with and without cheats; `r2_identity`; `hfr_test.py sms` | the statue at the wide right edge; $14 and $16 wide at every width; the guard in from beyond the wide edge; Jafar cut by the wide edge as by the 4:3 one; $11's feet / carpet no longer swap places (4:3 part: 266 frames with alternation at 4:3, 143 widened, the rest animation); identical RAM / VRAM / CRAM; rewound pictures identical; attract 0 RAM differences |
 | screen changes | GAME START and PASSWORD from the title, a password taken, game over (continue) at 21:9 CRT (tool, app); QA's round-3 replays (`r3_play_e74`, `r3_play_e74b`: to scene $11, and scene $23 to the title), frames where the sides change under a still 4:3 picture | section 5a "A wait before the fade": none but characters walking in a side |
 | screen-fixed texts | READY at stages 0 2 5's (re)start, PAUSE at a stage's start (slid) and mid-stage, TRY AGAIN?, at 0 / 74 / 102 with `hud_anchor` on and off (tool and app) | section 5: centred in the wide picture (READY was E px left at a start before) |
 | screens | `sms_wide_shots.py`, `sms_run_sheet.py` (whole stages 0 1 5 7 at 74 / 102), `sms_app_test.py` (16:9 and 21:9 CRT, 21:9 square) | reviewed: stages, ends, HUD, scenes |
@@ -829,8 +861,8 @@ another width, name or sprite table, a loaded state. The status bits stay the fr
 * Left behind by the scroll Aladdin is lost at the view's edge (section 2), and can walk back in until then: a
   wider view gives him more time than the original.
 * With the sprite limit on ("Remove Sprite Flicker" off), sprites in the sides count towards the 8 per line.
-* Story scenes 8, $14 and $16 stay 4:3 (black bars): their picture is cut by its edges (a rock, a roof's slope, a
-  cave lit from the middle) and can't be carried on. In the widened scenes the walks in (section 5a) are drawn from
+* Story scene 8 stays 4:3 (black bars): its picture is cut by its edges (a rock) and can't be carried on. $14's and
+  $16's sides mirror the picture's bushes / its left part about the edge (symmetric there). In the widened scenes the walks in (section 5a) are drawn from
   where the game has the character at its cue, counted on through the fade-in (`FADE_IN`, a fixed 26 frames: a scene
   whose fade-in took longer would hand over a step late). Characters leaping in (the pole vault) still appear at the 4:3 picture's edge, and
   Jafar's snake grows out of it; one that walks off and stops in a side stays there. The walks are a table made from

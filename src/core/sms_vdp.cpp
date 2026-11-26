@@ -176,12 +176,21 @@ void SmsVdp::render_sprites(uint8_t* dst, int ln) {
     int count = 0;
     // the table's 64 entries (up to a $D0 Y), then the module's extra ones
     const int n_table = 64;
-    for (int i = 0; i < n_table + extra_count; i++) {
+    // (sprite_rev, without the sprite limit: the table's entries in front last to first; the list still ends at its
+    // first $D0)
+    const bool reversed = sprite_rev && !sprite_limit;
+    int term = n_table;
+    if (reversed)
+        for (int i = 0; i < n_table; i++)
+            if (vram[(sat + i) & 0x3FFF] == 0xD0) { term = i; break; }
+    for (int k = 0; k < n_table + extra_count; k++) {
+        const int i = reversed && k < n_table ? n_table - 1 - k : k;
         int y, x, pat;
         const uint8_t* data = nullptr;
         if (i < n_table) {
+            if (i >= term) continue;
             y = vram[(sat + i) & 0x3FFF];
-            if (y == 0xD0) { i = n_table - 1; continue; }   // end of the list (192-line mode)
+            if (y == 0xD0) { k = n_table - 1; continue; }   // end of the list (192-line mode)
             x = vram[(sat + 0x80 + i * 2) & 0x3FFF];
             pat = vram[(sat + 0x81 + i * 2) & 0x3FFF];
         } else {
