@@ -563,6 +563,9 @@ constexpr uint32_t PLACED_AT_WAKE = 0x40000000;
 // + SLOT_BIAS) at which it began, bit 20 that frame's parity, bit 21 a slot is being timed, bit 22 its time is free
 constexpr uint32_t SLOT_START = 0xFFFFF, SLOT_PARITY = 1u << 20, SLOT_OPEN = 1u << 21, SLOT_FREE = 1u << 22;
 constexpr int SLOT_BIAS = 0x40000, SLOT_CREDIT = 0x8000;
+// module_state[7] bits 23 / 24: the palace's neighbouring guard may be drawn at its place on the left / right
+// (palace_guards)
+constexpr uint32_t GUARD_ARMED_LEFT = 1u << 23, GUARD_ARMED_RIGHT = 1u << 24;
 // module_state[6]: bits 0-15 the undrawn objects, bits 16-23 how far Aladdin is left behind past the original
 // screen's left edge (push_left)
 constexpr uint32_t UNDRAWN_BITS = 0xFFFF;
@@ -771,6 +774,114 @@ void extra_sprites(Sms& s) {
             if (y < 0 || y >= 0xD0 || x <= -8 - 2 * E || x >= 256 + 2 * E) continue;
             v.extra[v.extra_count++] = {(int16_t)x, (uint8_t)(y - 1), bank_rd8(s, 0x12, (uint16_t)(p + 2))};
         }
+    }
+}
+
+// ---- the Sultan's palace guards (stage 6's second figure, bank $0C; docs/re_sms_wide.md section 3) ---------------
+// The guard is the second figure ($C698 type, $C687 Y, $C689 screen X, moved with the camera by $B58D; drawn by
+// $3C13 into table entries 20-36, its pose's 17 tiles streamed from ROM). Which guard a stretch has is a table by
+// sub-area ($C49F) and the camera's 256-px page ($B4D0: $B521[sub][page]); a new type is put at its place ($B551:
+// world X, animation, Y). Types 3 and 12 (handler $AC53) wait there unseen (Y $C0) and wake once their screen X is
+// in [-48, -41] ($ACA2: X & $F8 = $FFD0): 41-48 px past the original screen's left edge, inside a wide view - they
+// popped up in the left side and ran from there. The others (4-8, 13: $A9BA) patrol at their place from the moment
+// their page is reached: type 6 at x 256, inside the right side. Their logic stays the original's; the module draws
+// what the 4:3 game has off its screen there (extra sprites, the poses from ROM):
+// * a waiting guard right of its wake (X > -41, the camera coming towards it) runs in from beyond the wide view's
+//   left edge on the path that meets the game's at the wake: the mirror of its place about the wake (screen x = -80 -
+//   X: 2 px of the level per camera px, as fast as the guard runs while Aladdin walks), in the game's own run cycle
+//   (the hidden guard's animation runs on); it stands, facing him, while the camera has been still for a few frames,
+//   and runs back out (left) as the camera turns back. At the wake it is where the game puts it, on the same pose.
+// * one left of its wake (X < -48: the camera coming back towards it) stands at its place, facing right, until the
+//   game wakes it there;
+// * the guard of a neighbouring page whose place is in the view stands there in its first pose until the game puts
+//   it there (type 6 when the camera reaches $800 in sub-area 1). Coming back, it is drawn there again once the
+//   game has taken it away (at most 48 px from where its patrol had it).
+// Drawing only, from RAM and ROM alone: save states and rewind need nothing.
+constexpr int PALACE_STAGE = 6, FIG_BANK = 0x0F, FIG_PIECES = 17, FIG_BASE = 18, FIG_SLOT = 20;
+constexpr uint16_t FIG_Y = 0xC687, FIG_X = 0xC689, FIG_TYPE = 0xC698, FIG_POSE = 0xC690, FIG_STATE = 0xC6A3;
+constexpr uint16_t FIG_ANIMS = 0x3C76, GUARD_PAGES = 0xB521, GUARD_TYPES = 0xB551, GUARD_PATROL = 0xA9BA;
+constexpr uint16_t GUARD_HANDLERS = 0xA95C, SUB_AREA = 0xC49F, AL_STATE = 0xC406, AL_FACING = 0xC404;
+constexpr int GUARD_WAKE_LO = -48, GUARD_WAKE_HI = -41, GUARD_Y = 0x68;
+constexpr uint16_t GUARD_STAND = 0x80C6;   // (anim 0, facing right, bank $0F)
+constexpr int GUARD_STILL = 4;            // (frames without a camera move: the camera is still)
+constexpr int GUARD_LEFT = 7, GUARD_RIGHT = 56;   // (its poses' pieces lie within x + 7 .. x + 55)
+
+// a pose of the second figure (its record in bank $0F: tile bank, duration, tile address, 4 more; the piece list
+// after it: 17 Y offsets, then 17 X offset / pattern pairs) as $3C13 places it, at screen x, y
+void add_figure_pose(Sms& s, uint16_t rec, int x, int y) {
+    SmsVdp& v = s.vdp;
+    const int E = v.ext;
+    const uint16_t list = (uint16_t)(rec + 8);
+    const uint32_t tiles = (uint32_t)bank_rd8(s, FIG_BANK, rec) * 0x4000 + (bank_rd16(s, FIG_BANK, (uint16_t)(rec + 2)) & 0x3FFF);
+    for (int i = 0; i < FIG_PIECES && v.extra_count < SmsVdp::kMaxExtra; i++) {
+        int a = bank_rd8(s, FIG_BANK, (uint16_t)(list + i));
+        if (a == 0xC0) continue;
+        a = (a + y) & 0xFF;
+        if (a < 0xF8 && a >= 0xC0) continue;
+        const int px = x + (int8_t)bank_rd8(s, FIG_BANK, (uint16_t)(list + FIG_PIECES + 2 * i));
+        const uint8_t pat = bank_rd8(s, FIG_BANK, (uint16_t)(list + FIG_PIECES + 2 * i + 1));
+        if (pat < FIG_BASE || pat >= FIG_BASE + FIG_PIECES || px <= -8 - 2 * E || px >= 256 + 2 * E) continue;
+        const uint8_t* data = s.rom_orig_ptr(tiles + (uint32_t)(pat - FIG_BASE) * 32, 32);
+        if (data) v.extra[v.extra_count++] = {(int16_t)px, (uint8_t)(a - 1), pat, data};
+    }
+}
+
+// the first record of the figure's animation `anim` facing right (+$3C76: the table used with $C697 set) or left
+uint16_t figure_record(const Sms& s, int type, int anim, bool right, int frame = 0) {
+    const uint16_t tab = (uint16_t)(s.rom_orig8(FIG_ANIMS + 4 * type + (right ? 0 : 2)) |
+                                    (s.rom_orig8(FIG_ANIMS + 4 * type + (right ? 1 : 3)) << 8));
+    const uint16_t a = bank_rd16(s, FIG_BANK, (uint16_t)(tab + 2 * anim));
+    return bank_rd16(s, FIG_BANK, (uint16_t)(a + 2 * frame));
+}
+
+// moving: the camera moved in the last few frames
+void palace_guards(Sms& s, bool moving) {
+    const int E = s.vdp.ext;
+    if (E == 0 || s.ram8(STAGE) != PALACE_STAGE || !in_stage(s)) return;
+    const int type = s.ram8(FIG_TYPE), cam = s.ram16(CAM_X);
+    if (type == 0 || type > 15) return;
+    // the table as uploaded shows the guard (the writer has drawn it since it woke): nothing to add
+    bool shown = false;
+    for (int i = FIG_SLOT; i < FIG_SLOT + FIG_PIECES; i++) {
+        const uint8_t y = s.ram8((uint16_t)(0xC300 + i));
+        if (y != 0xBF && y != 0xC0) shown = true;
+    }
+    if ((type == 3 || type == 12) && s.ram8(FIG_STATE) == 0 && !shown) {
+        const int x = (int16_t)s.ram16(FIG_X);
+        if (s.ram8(FIG_Y) != 0xC0) {
+            // woken since the table was written (the writer's pass still to come): where the game has it
+            add_figure_pose(s, (uint16_t)(s.ram16(FIG_POSE) - 8), x, s.ram8(FIG_Y));
+        } else if (x > GUARD_WAKE_HI) {
+            const int gx = 2 * GUARD_WAKE_HI + 2 - x;   // (-80 - X: at the wake, X + 2)
+            const bool back = moving && s.ram8(AL_STATE) == 1 && !s.ram8(AL_FACING);
+            const uint16_t rec = !moving ? GUARD_STAND
+                                 : back ? figure_record(s, type, 2, false, (s.ram8(0xC692) + 5) % 6)
+                                        : (uint16_t)(s.ram16(FIG_POSE) - 8);
+            if (gx + GUARD_RIGHT > -2 * E) add_figure_pose(s, rec, gx, GUARD_Y);
+        } else if (x < GUARD_WAKE_LO) {
+            add_figure_pose(s, GUARD_STAND, x, GUARD_Y);
+        }
+    }
+    // the guard of the page next to the camera's, standing at its place until the game puts it there: once its place
+    // has been beyond the view's edge on that side since the game last had it (GUARD_ARMED: else, the camera coming
+    // back past the page's edge, the game has just taken it away - there it would come out of nothing)
+    const int sub = s.ram8(SUB_AREA), page = cam >> 8, last = s.ram16(CAM_MAX) >> 8;
+    const int slide = view_slide(s, cam, E);
+    uint32_t& st = s.module_state[MS_PLACEMENT];
+    for (int side = 0; side < 2; side++) {
+        const uint32_t bit = side ? GUARD_ARMED_RIGHT : GUARD_ARMED_LEFT;
+        const int p = side ? page + 1 : page - 1;
+        int t = 0;
+        if (sub <= 3 && p >= 0 && p <= last) t = bank_rd8(s, 0x0C, (uint16_t)(bank_rd16(s, 0x0C, (uint16_t)(GUARD_PAGES + 2 * sub)) + p));
+        if (t == 0 || t > 15 || t == type || bank_rd16(s, 0x0C, (uint16_t)(GUARD_HANDLERS + 2 * t)) != GUARD_PATROL) {
+            st &= ~bit;
+            continue;
+        }
+        const uint16_t d = bank_rd16(s, 0x0C, (uint16_t)(GUARD_TYPES + 2 * t));
+        const int y = bank_rd8(s, 0x0C, (uint16_t)(d + 3)), x = bank_rd16(s, 0x0C, d) - cam;
+        if (side ? x + GUARD_LEFT >= 256 + E + slide : x + GUARD_RIGHT <= -E + slide) st |= bit;
+        if (!(st & bit) || y == 0xC0 || (x > -GUARD_RIGHT && x < 256 - GUARD_LEFT)) continue;   // (inside the original screen the game has it)
+        add_figure_pose(s, figure_record(s, t, bank_rd8(s, 0x0C, (uint16_t)(d + 2)), true), x, y);
     }
 }
 
@@ -1947,8 +2058,10 @@ public:
             for (int w = 0; w < 4; w++) m.module_state[w] = 0;
             for (int i = 0; i < 64; i++)
                 m.module_state[i >> 4] |= (uint32_t)page_[rev ? 63 - i : i] << ((i & 15) * 2);
-            if (shows_stage(m)) extra_sprites(m);
-            else story_.upload(m);   // (a story screen: its own extra sprites and hidden entries)
+            if (shows_stage(m)) {
+                extra_sprites(m);
+                palace_guards(m, ((m.ram8(FRAMES) - moved_at_) & 0xFF) <= GUARD_STILL);
+            } else story_.upload(m);   // (a story screen: its own extra sprites and hidden entries)
         });
     }
 
@@ -2213,8 +2326,8 @@ private:
             }
             if (s.rom8(QUEUE_LOOP_COUNT) > QUEUE_SLOTS) resize_queue(s, QUEUE_SLOTS, s.rom8(QUEUE_LOOP_COUNT));
         }
-        // (the slot being timed, slot_begin, stays: it is the frame's)
-        s.module_state[MS_PLACEMENT] = PLACED_AT_WAKE | ((was & PLACED_AT_WAKE) ? was & (SLOT_START | SLOT_PARITY | SLOT_OPEN | SLOT_FREE) : 0);
+        // (the slot being timed, slot_begin, stays: it is the frame's; so do the palace guards' bits)
+        s.module_state[MS_PLACEMENT] = PLACED_AT_WAKE | ((was & PLACED_AT_WAKE) ? was & (SLOT_START | SLOT_PARITY | SLOT_OPEN | SLOT_FREE | GUARD_ARMED_LEFT | GUARD_ARMED_RIGHT) : 0);
     }
 
     Sms* sms_ = nullptr;
