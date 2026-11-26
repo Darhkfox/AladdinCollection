@@ -29,6 +29,7 @@ import sms_re as R
 # A 7th value ts: the walk in is drawn from that tick only (the clock stands at 17 in $18 while Jasmine speaks: a
 # walk begun before would stand mid-hall through her text) and, where the game's speed can't bring the character
 # from beyond the view's edge by t0, is played faster (its cycle and its steps alike) from there.
+# $20 and $23 are drawn at the right too (Abu's run in, the Sultan on the tower: beyond the view as at 4:3).
 # Rajah in $11 is drawn E px further right (kSceneOuts: cut by the wide edge as by the 4:3 one): no walks.
 SPECS = [
     (0x00, 0, 'IN', 58, 138, 'the market: Aladdin walks in to the bread stall'),
@@ -43,8 +44,6 @@ SPECS = [
     (0x11, 1, 'IN', 808, 886, 'night: Jasmine walks in on the balcony'),
     (0x14, 1, 'IN', 298, 380, 'the garden: a guard runs in from the right (put at 240)'),
     (0x18, 0, 'IN', 84, 128, 'the throne room: Aladdin runs in down the hall (waits at -16; from tick 18)', 18),
-    (0x20, 1, 'IN', 114, (0x20, 1, 402, 494), "Jafar's room: Abu runs in (his run off later)"),
-    (0x23, 4, 'SHOWN', 0, 850, 'the balcony: Iago on the tower'),
 ]
 FAR = 102 + 48   # a ghost is drawn until it is this far beyond the 4:3 picture (the widest side and a character)
 

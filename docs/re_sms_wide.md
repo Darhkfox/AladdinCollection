@@ -107,6 +107,7 @@ sms_end` for states near the auto-run stages' ends). Widths: 6/22/40/74 (CRT pix
   s). The VDP gives `bg_entry` the unwrapped row (`(line + vscroll) / 8`, 28+ past the table's end); it takes it
   modulo 28 as the hardware does. Before, every row arrived as 28+ and fell back to the hardware table, which
   repeats every 256 px: a second hourglass, then a second snake, steps and bits of the status bar at the sides.
+  The status rows it pushes down to lines 16-17 are drawn as the status bar (section 2, Boss arena).
 * Check (`sms_wide_check.py 74` / `102`, whole stages played through, background only, every third frame: each
   extension pixel against the colours the hardware region showed at that world position with the same palette):
   see section 7. What differs is the tiles stages 0 and 1 animate with the camera (section 4a): a wall in a side
@@ -172,6 +173,17 @@ wide edge exactly as by the 4:3 one and nothing beyond it is ever shown; the par
 4:3 picture's left part again 128 px further left (the pillars' rhythm; where that would be the column the hardware
 blanks, which holds the snake's wrapped cells, 256 px), at full brightness, steady through the knock-backs. No other
 stage reports dims or masks (every stage at 74 and 102 played both ways: none).
+The status bar in the shake: Jafar's turn into the snake shakes the screen with the vertical scroll (reg 9 = 222 / 224
+on alternate frames, frames ~653-1125 of a fight from its start). On the 222 frames the status rows go 2 lines down
+(lines 2-17), and their bottom lines, 16 and 17, take the playfield's horizontal scroll - the hardware holds only lines
+0-15 still (reg 0 bit 6), whatever rows the vertical scroll puts there: the gems are cut 2 lines short and two bits of
+the status row, shifted 128 px, show at x 8 and 248 (the user's "the health is glitched here", a shot of the gems row:
+cut gems and a red-and-yellow sliver at each side). The 4:3 picture keeps it, as the hardware shows it; widened, those
+lines are drawn as the status bar (`status_line`: line 16-17 when `(line + vscroll) % 224` falls in rows 0-1 with the
+lock on): `line_scroll` gives them scroll 0, `line_shift` no slide (the arena's -E is for the playfield), the stone
+counter's move to the right edge too. (Sprites were suspected first: the sprite layer alone shows nothing there.) No
+other stage uses the vertical scroll (every stage played 3000 frames at 74: reg 9 stays 0), so the gems row is the
+same as before everywhere else.
 
 ## 3. Objects and sprites
 
@@ -451,7 +463,8 @@ module only steps in beyond the tables' reach).
 
 * Rows 0-1, fixed (reg 0 bit 6): gems at columns 15-17, the stone counter (stages 2 3 4 6) at 26-29, PAUSE in row
   0. With `hud_anchor` the line hook moves x 192..255 of lines 0-15 to the right edge; the gems and PAUSE stay in
-  the middle. There are no status sprites. The slide leaves lines 0-15 alone.
+  the middle. There are no status sprites. The slide leaves lines 0-15 alone - and lines 16-17 when the Final
+  Battle's shake pushes the status rows down there (`status_line`, section 2: drawn as the status bar).
 * Screen-fixed texts in the stages: PAUSE (row 0, above), READY, and the story moments' text box (lines 176-191,
   below); TRY AGAIN? / GAME OVER is a screen of its own (mode $11, pillarboxed, centred). READY is sprites: a
   stage's setup (`$3486`, called by every engine's setup - not the Lamp's, not in the demos - at the stage's start
@@ -664,14 +677,14 @@ story screens are now drawn wide where their picture allows it (`story_screen`, 
   | $11 night | Jasmine | in from the right (put at 256) | 808 | 48, 1 px |
   | $14 the garden | a guard | in from the right (put at 240) | 298 | 24, 2 px |
   | $18 the throne room | Aladdin | runs in from the left down the hall (waits at -16; drawn from tick 18, `ts`) | 84 | 24, 2 px |
-  | $20 Jafar's room | Abu | in from the right (waits at 256 running on the spot) | 114 | his run off at 402, 24, 2 px |
-  | $23 the balcony | Iago | shown on the tower's corner at 256 | 0-850 | |
-  Not walked: the pole vault in 3 (Aladdin and Jasmine wait at -30 / -26 in the sky beyond the roof the picture
+    Not walked: the pole vault in 3 (Aladdin and Jasmine wait at -30 / -26 in the sky beyond the roof the picture
   repeats, and leap in), the bird of $1D (it comes in from the top, on the 256 px), Jafar's snake in $20 (drawn into
   the table), scene 0's guard at the scene's end (he reaches 270 as the scene ends; the fade freezes everything), and
   the characters walking off as a scene ends (2, $1B, $22: the scene's last ticks). The lava scenes' others: $A's
   carpet leaves to the right and $D's Aladdin, carpet and rock leave to the left, all moved by the game as far as the
-  widest view's edge (drawn there as shown); in $A nothing comes in from the left.
+  widest view's edge (drawn there as shown); in $A nothing comes in from the left. ($20's Abu, in from the right at
+  tick 114, and $23's Sultan on the tower's corner at 256 were in the table until those scenes were drawn at
+  the right: beyond the view now, as in the original.)
   Checked: every walk's hand-over, every frame from 6 before t0 to 8 after at 74 and 102 (no doubled or missing
   character, the step and the pose go on), strips of each walk at 74 and 102, and the app at 21:9 CRT and square.
   - `ts` (the walk's first tick): $18's clock stands at 17 while Jasmine speaks (about 850 frames) and Aladdin runs in
@@ -722,6 +735,21 @@ story screens are now drawn wide where their picture allows it (`story_screen`, 
   its statue at the right edge is cut by the wide edge where the 4:3 edge cut it, the two sit as far from it as at 4:3,
   and the left side, 2E px, is the sky and the railing (columns 0-15, a post every 64 px). (The far-left rule for the
   thin pillar is the throne room's only, `scene_throne`.)
+  $20 (Jafar's room: Jafar turns into the snake - "you thought you could outwit the most
+  powerful being on earth?") and $23 (the palace balcony at the end: the Genie, Aladdin and Jasmine by the railing, a
+  tower at the right) are drawn at the right too. $20 was the user's "doesn't work well in widescreen" (a state at
+  tick 733, the snake's head up at the right): the game writes only the part of the snake on its screen into the
+  table, so centred the snake grew out of the middle of the wide picture, cut flat at the 4:3 edge, the dark room going
+  on beyond it, and Abu, who runs in from the right at tick 114, came out of the empty right side. Now the snake comes
+  out of the wide picture's right edge, Abu runs in there (his walk is gone from the table) and the left side is the
+  room: dark above the floor's band (rows 18-19 go on: the band is a 2-tile pattern). $23 was "the sides are not right
+  either" (a state at tick 65): the tower (columns 26-31) was cut by the 4:3 edge with the balcony and the sky going on
+  beyond it on the right, the Sultan (shown at 256 by the walk table) standing on its corner out in the right side, and the left side
+  showed the tower again (the whole picture repeated). Now the tower stands at the wide edge as at 4:3, the Sultan is
+  beyond the view as in the original (his SHOWN entry is gone), and the left side, 2E px, is the sky (`kSceneRules`:
+  an empty left range, the scene's blank background - its sky; the railing ends at the picture's left edge with its
+  cap, as at 4:3). Both checked at every width (6, 22, 40, 74; 26, 44, 64, 102) from the user's states and from the title
+  through the scene, and in the app at 21:9 and 16:9 CRT.
   The far left: the side repeats the picture's columns 0-8 - a gap (0, blue over the low wall's band), the vase
   pillar (1-6), a gap (7) and the hall's thin pillar (8, one cell, its yellow outline at its left, its base piece at
   row 17) - every 72 px out from the picture's edge, so the wide edge (at -2E) falls where 2E says. At 21:9 CRT (2E =
@@ -798,9 +826,9 @@ story screens are now drawn wide where their picture allows it (`story_screen`, 
   Parked sprites: the title, password, game over and menus draw no extra sprites (`StorySprites::upload` draws them
   on a widened scene or the ending only, and a character's only once it has been on the 256 px since it was put
   there on the screen shown), so a non-gameplay screen's parked pieces stay hidden as in the original.
-* What doesn't change: Jafar's snake (scene $20) grows out of the 4:3 picture's right edge, as the game only writes
-  the part on the original screen into the table. Characters leaping or swooping in (the pole vault in 3) appear at
-  the 4:3 edge.
+* What doesn't change: Jafar's snake (scene $20) grows out of the picture's right edge, as the game only writes
+  the part on the original screen into the table - the wide picture's edge, the scene drawn at the right. Characters
+  leaping or swooping in (the pole vault in 3) appear at the 4:3 edge.
 
 ## 6. Save states and rewind
 
@@ -854,7 +882,9 @@ scene 3 at 102 differs in 76 of 954 (the characters in the sides).
 | $12 at the right, $14 and $16 wide, Jafar at the edge, the sprite order | the user's states (slot 1: $12 tick 97, slot 2: $14 tick 108, slot 4: $16 tick 343) at every width 6..102 (tool) and in the app at 21:9 CRT and square / 16:9; $14's guard walk-in frame by frame and in the app; pixels alternating frame to frame in $11 at 4:3 and 74 without the limit; scene RAM / VRAM / CRAM of $12 $14 $16 against 4:3 at 74 and 102; `sms_rewind.py 74 102 --scenes 10,11,12,14,16,18,1a`; attract at every width with and without cheats; `r2_identity`; `hfr_test.py sms` | the statue at the wide right edge; $14 and $16 wide at every width; the guard in from beyond the wide edge; Jafar cut by the wide edge as by the 4:3 one; $11's feet / carpet no longer swap places (4:3 part: 266 frames with alternation at 4:3, 143 widened, the rest animation); identical RAM / VRAM / CRAM; rewound pictures identical; attract 0 RAM differences |
 | scene 8 at the right | from the title at every width 6..102 (tool), through its shakes (sides against the picture) and Aladdin's walk into the jaw; the app at 21:9 and 16:9 CRT; scene RAM / VRAM / CRAM against 4:3 at 74 and 102 into the next stage, without input and with button-1 taps; `sms_rewind.py 74 102 --scenes 8,10,12`; attract at every width with and without cheats; `r2_identity`; `hfr_test.py sms` | the head cut by the wide edge at every width, the sky and dunes on to the left without a seam, steady through the shakes; Aladdin out behind the jaw at the wide edge; identical RAM / VRAM / CRAM; rewound pictures identical; attract 0 RAM differences |
 | $19 at the right | the user's state (tick 177) at every width 6..102 (tool), the app at 21:9 and 16:9 CRT; scene RAM / VRAM / CRAM against 4:3 at 74 and 102; `sms_rewind.py 74 102 --scenes 8,19,10,12` | the post at the wide right edge, the plain wall and frieze on to the left without a seam or a cut panel; identical; rewound pictures identical |
+| $20 and $23 at the right | the user's states (tick 733, tick 65) at every width 6..102 at 3 points each; both scenes from the title at 102, a sheet every 90 frames; scene RAM / VRAM / CRAM against 4:3 at 74 and 102 (from the title and from the states, with and without button taps, 9000 frames); `sms_rewind.py 74 102 --scenes 20,23`; the app at 21:9 and 16:9 CRT before and after | the snake out of the wide right edge, Abu in from it, the room on the left; the tower at the wide edge, the Sultan beyond it as at 4:3, sky on the left; identical; rewound pictures identical |
 | Jafar's room at the right | the user's state (the fight's start) at every width 6..102; a bot from it through both parts (the sword, the snake's 8 hits) at 74 and 102 against 4:3 frame by frame: the 4:3 part of the wide picture, the left side and the top rows; the app at 21:9 and 16:9 CRT (the start, the snake's knock-backs); `sms_rewind.py 74 102 --stages 9`; attract; `r2_identity`; `hfr_test.py sms` | the 4:3 part identical to 4:3 on every frame (but the status bar's gems, centred in the wide picture); the hourglass and the snake cut by the wide edge as at 4:3; no box; the left side and lines 0-39 unchanged through every knock-back (only the transformation's flash changes them); the game's RAM as before (the sprite buffer's high bits and two stack bytes differ, as in every widened stage) |
+| the gems row in the shake | a bot through the Final Battle from the user's state, frames 0-1300 (the shake ~653-1125) at 0, 74 and 102: the status rows (lines 0-15, or 2-17 on the 222 frames) outside the gems against the bar's colour; the sprite layer alone in lines 0-19; reg 9 over 3000 frames of every stage at 74; rewind over the shake (states every 2 frames 630-1138) at 74 and 102; the app at 21:9 and 16:9 CRT, every frame of 28 in the shake, before and after | widened: nothing but the gems on any frame, the gems whole; 4:3 unchanged (the cut gems and the two bits on every 222 frame, as the hardware shows them); no sprite there; reg 9 = 0 in every other stage; rewound pictures identical; the app's 222 frames as the user's shot before, clean after |
 | screen changes | GAME START and PASSWORD from the title, a password taken, game over (continue) at 21:9 CRT (tool, app); QA's round-3 replays (`r3_play_e74`, `r3_play_e74b`: to scene $11, and scene $23 to the title), frames where the sides change under a still 4:3 picture | section 5a "A wait before the fade": none but characters walking in a side |
 | screen-fixed texts | READY at stages 0 2 5's (re)start, PAUSE at a stage's start (slid) and mid-stage, TRY AGAIN?, at 0 / 74 / 102 with `hud_anchor` on and off (tool and app) | section 5: centred in the wide picture (READY was E px left at a start before) |
 | screens | `sms_wide_shots.py`, `sms_run_sheet.py` (whole stages 0 1 5 7 at 74 / 102), `sms_app_test.py` (16:9 and 21:9 CRT, 21:9 square) | reviewed: stages, ends, HUD, scenes |
@@ -898,8 +928,8 @@ another width, name or sprite table, a loaded state. The status bits stay the fr
 * Every story scene is wide (scene 8, the last kept 4:3, is drawn at the right). $14's and
   $16's sides mirror the picture's bushes / its left part about the edge (symmetric there). In the widened scenes the walks in (section 5a) are drawn from
   where the game has the character at its cue, counted on through the fade-in (`FADE_IN`, a fixed 26 frames: a scene
-  whose fade-in took longer would hand over a step late). Characters leaping in (the pole vault) still appear at the 4:3 picture's edge, and
-  Jafar's snake grows out of it; one that walks off and stops in a side stays there. The walks are a table made from
+  whose fade-in took longer would hand over a step late). Characters leaping in (the pole vault) still appear at the 4:3 picture's edge;
+  Jafar's snake grows out of the wide picture's right edge ($20 drawn at the right); one that walks off and stops in a side stays there. The walks are a table made from
   the scenes as the game plays them (`tools/re/sms_scene_walks.py`): the clock they follow can't be changed by input,
   but a scene changed by a ROM hack would need the table made again.
 * The throne room ($10, $18, $1A) is drawn E px to the right so its door is the wide picture's right edge (section
