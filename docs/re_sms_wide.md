@@ -24,7 +24,9 @@ sms_end` for states near the auto-run stages' ends). Widths: 6/22/40/74 (CRT pix
 3. Objects live in screen coordinates: they wake, stay awake and leave with the original's margins around the
    view as shown (the slide included, per side, per frame); nothing appears or vanishes inside the view. Sprite
    pieces beyond the 8-bit table X get their true X from PC hooks on the three sprite writers (`sprite_x`);
-   objects the 64-entry table has no room for are drawn as extra sprites by the VDP.
+   objects the 64-entry table has no room for are drawn as extra sprites by the VDP. The Sultan's Palace's guards
+   (the second figure), whom the game puts in play just off its own screen, are drawn running in from beyond the
+   wide view's edge on a path that meets theirs (drawing only: section 3, "The Sultan's Palace's guards").
 4. Status bar (rows 0-1): the stone counter moves to the right edge (`line_hook`), the gems stay centred; neither
    moves with the slide. READY (sprites) stays in the picture's middle too (`ready_sprite`, section 5).
 5. The story screens are wide where their picture allows (section 5a): 33 of the 36 story scenes carry their own
@@ -307,6 +309,59 @@ plays the ROM holds none of these patches (below).
   at square), where the 4:3 screen has lost him (33 frames under its blanked column). Without cheats, standing still,
   he catches Aladdin at frame 457 / 444 / 412 / 397 (a barrel knocking Aladdin back into him comes earlier); walking
   left, at frame 28 at every width.
+* **The Sultan's Palace's guards** (stage 6's second figure, bank `$0C`, handler table `$A95C` by type `$C698`; Y
+  `$C687`, screen X `$C689` kept with the camera by `$B58D`; drawn by `$3C13` into table entries 20-36, the pose's 17
+  tiles streamed from ROM; bank `$0F` animation tables at `$3C76` + 4 type, right- and left-facing; the guards share
+  one set: 0 stand, 1 walk, 2 run, 8 turn). Which guard a stretch has is a table by sub-area `$C49F` and the camera's
+  256-px page (`$B4D0`: `$B521`[sub][page]); a new type is put at its place (`$B551`: world X, animation, Y) and the
+  old one is gone. Sub-area 3 (the stage's start and end; pages 0-3 / 4-7): types `$0C` (place 128) / `$0D` (1440);
+  2: 7 (720) / 8 (1920); 1: 4 (1104) / 5 (1712) / 6 (2304, pages 8-9); 0: 3 (448). Types 3 and `$0C` (`$AC53`) wait
+  at their place unseen (Y `$C0`) and wake once their screen X is in [-48, -41] (`$ACA2`: X & `$F8` = `$FFD0`), 41-48
+  px past the original screen's left edge: Y `$68`, then they run right 2 px a frame for 150 frames (`$AD11`), walk
+  back, charge left at 2 px a frame if Aladdin is left of them (`$ADD8`), walk home and wait there, seen (one waiting
+  seen also sets off when Aladdin passes it, `$ACB3`); a touch is a grab (`$B8B3`, `call c,$B90F`). The others
+  (`$A9BA`) patrol from their place (48 px out and back, `$AB91`) from the moment their page is reached and charge
+  Aladdin within 64 px. In the 4:3 game the guard behind Aladdin runs in from its left edge (the front 8 px of its
+  first pose already past it); in a wide view it **popped up** 41-48 px past the 4:3 edge - 33 px inside the left
+  side at 21:9 CRT, 61 px at square - and ran from there (the user's states: walking right through the palace's
+  first screen, `$0C` at world 128 wakes at camera 169), and type 6 appeared standing at x 256 in the right side as
+  the camera reached `$800` in sub-area 1. Their wake is the camera's, which follows Aladdin: woken earlier, at the
+  wide edge, a guard would start further behind him (another chase, not the 4:3 one). So they are drawn instead
+  (`palace_guards`, at the VBlank's upload with the objects' extra sprites; the poses from ROM); the game's guard is
+  left alone, and nothing is added while the uploaded table shows it.
+  - A guard waiting right of its wake (X > -41: the camera coming towards it) is drawn at -80 - X, the mirror of its
+    place about the wake: 2 px of the level per camera px, while Aladdin walks (1 px a frame) as fast as the guard
+    runs. It runs in from beyond the wide view's edge and is at -40 (the game's X + 2 at the wake, less a frame's
+    run) when the game wakes it at -41 / -42: the hand-over moves 1 px on the screen, as the run does. Its pose is
+    the hidden guard's own (the game runs its run animation while it waits: `$C690`), so the step goes on; while the
+    camera has been still for 4 frames it stands (`$80C6`), facing Aladdin; while he walks back left it runs back
+    out on the left-facing cycle. (A frame whose table was written before the wake: the game's pose at the game's
+    place.) At E = 6 it is just at the picture's edge at the wake.
+  - Left of its wake (X < -48: the camera coming back towards a guard put at its place again - a page or sub-area
+    entered from the right) it stands at its place facing right, until the game wakes it there and it runs.
+  - The guard of the page next to the camera's (left or right; the patrolling types) stands at its place in its first
+    pose (`$B551`'s animation, frame 0, facing right) once that place has been beyond the view's edge on that side
+    since the game last had it (module_state[7] bits 23 / 24): type 6 in the right side until the camera reaches
+    `$800` and the game puts it there, on the same pose. Coming back left past `$800` the game takes the guard away
+    wherever its patrol or charge had it (on the 4:3 screen too, as there); it is not drawn at its place again until
+    the place has been beyond the right edge (else it would stand up out of nothing there).
+  Measured (`sms_guards.py compare`: the user's two states from the load with the same input - a scene's text tapped
+  through, walking right, standing while the guard runs into him, walking on with jumps, back left - invincible as
+  saved and without cheats, E = 0 / 74 / 102): the guards wake on the same frames (1570; 39, 1088 / 1852) and grab
+  Aladdin on the same frames (1716; 168, 1217) at every width; positions and health per frame are the 4:3 run's but
+  for 1-16 single frames where the frame's end met the logic at another point (Aladdin 1 px, a guard 1-3 px, the
+  camera 2 px; the same with the build before this change). `sms_guards.py scan 74` / `102` (every stage played
+  right and, the free-scrolling ones, driven left too; the palace's other sub-areas, the Caverns' and the Lamp's;
+  sprite pixels appearing more than 10 px inside the picture, outside its 4:3 part): before, the guards `$0C` (both
+  ways), 3 (sub-area 0) and 6 (sub-area 1, at camera 2051); after, nothing of a guard but its own pose changes (the
+  run's end, the turn). The rest are the fixed hazards re-armed at the original's window (the ceiling drops `$1E`
+  back at the ceiling at x -65 / 305, the Caverns' ceiling boulders, spikes and ledges: below), objects' own blinks
+  (A Whole New World's sparkles on the dunes), the Market pursuer's poses in the left side, fire bursts dying away,
+  and in Jafar's room a shot `$45` that appears at x 304 and is gone within 4 frames, in the dimmed right side (the
+  4:3 game never shows it). The app (21:9 CRT and square, 2560x1080): each state's guard runs in from the wide
+  edge and on as at 4:3 (before: it appeared in the side). Rewind (the user's states and sub-area 1's patrol guard,
+  both ways, 74 and 102): identical pictures; high frame rate: the in-betweens lie between the frames across the run
+  and the hand-over.
 
 ## 4. Stage 7: section graphics and palettes
 
@@ -681,7 +736,8 @@ story screens are now drawn wide where their picture allows it (`story_screen`, 
 
 module_state (in the core's state) holds the displayed sprite pages, the cameras (with the frame counter), the
 undrawn objects ([6] bits 0-15) with how far Aladdin is left behind (bits 16-23), the stage fading out (bits
-24-28) and another screen fading out (bits 29-31, section 5a), and the placement flag ([7] bit 30) with the queue loop's slot being timed (bits 0-22). The rest the hooks keep between frames is in
+24-28) and another screen fading out (bits 29-31, section 5a), and the placement flag ([7] bit 30) with the queue loop's slot being timed (bits 0-22)
+and whether the palace's neighbouring guard may be drawn at its place (bits 23-24, section 3). The rest the hooks keep between frames is in
 `save_ext` (version 1): the pages the writers left for the next table upload (the game's logic runs across the
 frame's end, so a state taken there has part of the next table written), the extra sprites made at the last VBlank
 for the frame being drawn, and the frame counter at stage 1's last camera move. The camera of the frame before
@@ -706,6 +762,7 @@ scene 3 at 102 differs in 76 of 954 (the characters in the sides).
 | map model | `sms_map.check` every frame, all stages; whole stages 1 and 5 | 0 mismatching cells |
 | extension background | `sms_wide_check.py 74` / `102`, whole stages (`Player`), every 3rd frame | 0 in stages 2 6 8 9; ≤ 0.04 % in 3 4 5 7 (fade-in, lava, torches, stars); 0.2-0.35 % in 0 1 (the walls' off-screen faces, section 4a; stage 0 at 74: 0.37 % before) |
 | camera-animated walls | each wall in view frame to frame, whole stages 0 and 1 at 22 / 74 / 102 (section 4a) | no sudden change with a wall in a side (before: 18-30 a run in the Market); the 4:3 picture's own steps as at 4:3 |
+| the palace guards | `sms_guards.py compare` (the user's two states, E = 0 / 74 / 102, invincible and not), `sms_guards.py scan 74` / `102` (every stage, the free-scrolling ones both ways, the other sub-areas), the app at 21:9 CRT / square, rewind, high frame rate | wakes and grabs on the 4:3 frames; no guard appears inside the view: drawn running in from beyond the wide edge (section 3) |
 | the Market's pursuer | `sms_pursuer.py`: E = 0 / 22 / 74 / 102, invincible and not, running, pausing, standing, walking back | as at 4:3 but for the barrels' earlier stuns (section 3) |
 | slide at the ends | `sms_slide_check.py 22 74 102`, 600 frames (free stages to the far end and back) | no jumps, view never outside the level, bands still while it holds (0.0 %) |
 | level ends | `sms_run_sheet.py`, app `--states sms_end` (21:9 CRT and square) | the view holds at the last pixel; no cells past the map |
@@ -757,6 +814,10 @@ another width, name or sprite table, a loaded state. The status bits stay the fr
   so where a wide view shows it (a landed boulder back at the ceiling at the far end of a side). A rolling boulder
   whose home is under the original's blanked column comes home only past the wide keep window's edge (it would
   come out of nothing in the left side, rolling away from Aladdin).
+* The Sultan's Palace's guards that wait off the original screen are drawn running in on a path tied to the camera
+  (section 3): before the game wakes them they run while Aladdin walks, stand while he stands and run back out as he
+  turns back. A patrolling guard the game takes away as the camera passes back over its page's edge vanishes where
+  it is (in a side, or on the 4:3 screen as there).
 * Left behind by the scroll Aladdin is lost at the view's edge (section 2), and can walk back in until then: a
   wider view gives him more time than the original.
 * With the sprite limit on ("Remove Sprite Flicker" off), sprites in the sides count towards the 8 per line.
