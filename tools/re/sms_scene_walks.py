@@ -29,6 +29,7 @@ import sms_re as R
 # A 7th value ts: the walk in is drawn from that tick only (the clock stands at 17 in $18 while Jasmine speaks: a
 # walk begun before would stand mid-hall through her text) and, where the game's speed can't bring the character
 # from beyond the view's edge by t0, is played faster (its cycle and its steps alike) from there.
+# Rajah in $11 is drawn E px further right (kSceneOuts: cut by the wide edge as by the 4:3 one): no walks.
 SPECS = [
     (0x00, 0, 'IN', 58, 138, 'the market: Aladdin walks in to the bread stall'),
     (0x00, 1, 'IN', 494, 640, 'the market: the guard runs in after him'),
@@ -40,8 +41,6 @@ SPECS = [
     (0x0C, 6, 'IN', 49, 59, 'the fall: the carpet flies in under him'),
     (0x10, 0, 'IN', 18, 120, 'the throne room: Aladdin walks in down the hall (waits at -16 walking on the spot)'),
     (0x11, 1, 'IN', 808, 886, 'night: Jasmine walks in on the balcony'),
-    (0x11, 2, 'SHOWN', 0, 392, 'night: Rajah lies on the balcony'),
-    (0x11, 2, 'OUT', 798, 745, 'night: Rajah pads off'),
     (0x18, 0, 'IN', 84, 128, 'the throne room: Aladdin runs in down the hall (waits at -16; from tick 18)', 18),
     (0x20, 1, 'IN', 114, (0x20, 1, 402, 494), "Jafar's room: Abu runs in (his run off later)"),
     (0x23, 4, 'SHOWN', 0, 850, 'the balcony: Iago on the tower'),
