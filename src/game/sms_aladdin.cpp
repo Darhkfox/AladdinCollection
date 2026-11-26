@@ -835,8 +835,11 @@ constexpr uint16_t SAT_Y = 0xC300;
 // edge is lb - 1), the right side [ra, rb) (ra next to the edge); an empty range: the scene's blank background (tile
 // $100, as its picture has it beyond what it draws); a rule without bands: the scene stays 4:3. col0: rows whose
 // hidden column 0 (blanked on the hardware, shown in a widened scene) takes the left side's rule, not the table's cell.
+// side0: rows whose left side begins at the hidden column (it shows lb - 1, column -1 lb - 2, ...: a stretch that ends
+// in a piece of its own there, the floor's end in $A). sub0, sub1, sub: the sides show source columns [sub0, sub1) as
+// the ones from sub on (a prop the picture has once, where the columns are otherwise alike: $1B's table).
 struct SceneBand { uint8_t r0, r1, la, lb, ra, rb; };
-struct SceneRule { uint8_t n; SceneBand band[3]; uint32_t col0; };
+struct SceneRule { uint8_t n; SceneBand band[3]; uint32_t col0, side0; uint8_t sub0, sub1, sub; };
 constexpr uint16_t SCENE_VOID = 0x0100;
 constexpr SceneBand WHOLE = {0, 20, 0, 32, 0, 32};   // the picture repeated: its edges meet
 const SceneRule kSceneRules[SCENES] = {
@@ -847,17 +850,18 @@ const SceneRule kSceneRules[SCENES] = {
     // 4 the desert hills over Agrabah: the hidden column's two bottom cells are bare rock (never shown), under the
     // ridge that runs into it from the left side: the left side's (the ridge goes on to the hill at column 1; also
     // where the sides repeat column 0)
-    {1, {WHOLE}, 0x3u << 18},
+    {1, {WHOLE}, 0x3u << 18, 0},
     {1, {WHOLE}},   // 5 the palace wall: the guards take Aladdin
     {1, {WHOLE}},   // 6 the palace: Jafar and Jasmine (pillars and windows)
     {1, {WHOLE}},   // 7 the dungeon
     {0, {}},        // 8 night by the sea: a rock cut by the right edge
     {1, {WHOLE}},   // 9 the treasure room
-    // $A the lamp's cave: the claw at the left edge isn't repeated; the floor (rows 16-19, cols 2-25, its boulders on
-    // row 15) ends at the claw with the cave's dark beyond it, and at the right in water (cols 26-29) with a rock at
-    // the edge: the left side is the cave's dark below the stalactites (the hidden column too, a black block in the
-    // table), the right side the water
-    {2, {{0, 15, 8, 16, 4, 32}, {15, 20, 0, 0, 26, 30}}, 0x1F << 15},
+    // $A the lamp's cave: the claw at the left edge isn't repeated; the rock floor (rows 16-19, cols 2-25: the ledge
+    // and the slab, its rounded end at 25; boulders on row 15) is cut at the claw's foot (col 1 dark, col 0 a black
+    // block in the table), and ends at the right in the lava (cols 26-29) with a rock at the edge: the left side carries
+    // the floor on - cols 4-25 with the slab's rounded end in the hidden column, the claw's foot standing in the gap
+    // after it - the right side the lava
+    {2, {{0, 15, 8, 16, 4, 32}, {15, 20, 4, 26, 26, 30}}, 0, 0x1F << 15},
     {1, {WHOLE}},   // $B the escape: the lava's drips
     {0, {}},        // $C, $D the fall: rock walls cut by the edges
     {0, {}},
@@ -874,7 +878,9 @@ const SceneRule kSceneRules[SCENES] = {
     {1, {{0, 20, 0, 9, 0, 28}}},   // $18 = $10's map
     {1, {WHOLE}},   // $19 the palace hall (posts)
     {1, {{0, 20, 0, 9, 0, 28}}},   // $1A = $10's map
-    {1, {WHOLE}},   // $1B the Sultan's room
+    // $1B the Sultan's room: the lamp's table (rows 14-19, cols 10-17) in front of the wall isn't repeated (the right
+    // side reached it at 21:9 square): the same columns of the next frame along the wall (22-29), frieze in step
+    {1, {WHOLE}, 0, 0, 10, 18, 22},
     {2, {{0, 14, 0, 1, 0, 1}, {14, 20, 0, 1, 28, 32}}},   // $1C the balcony by day: sky, the balcony carries on
     {1, {WHOLE}},   // $1D the sky over the hills
     {1, {{0, 20, 0, 16, 0, 16}}},   // $1E Jafar's room: the throne at the right edge isn't repeated
@@ -942,12 +948,23 @@ uint32_t scene_replaced_rows(const Sms& s) {
 }
 
 // The background beyond the 256-px table on a story screen: the entry, or -1 for the table's own (wrapped)
-int story_bg_entry(const Sms& s, int vcol, int vrow, uint32_t replaced) {
+// hs: the line's scroll. The scenes that shake horizontally ($5205: 8, $A, $C, $1C) move the whole picture 2 px with
+// a scroll of 2 or 254; counted from 254 the sides' columns came out 32 columns off - the right side the table's own
+// left part (in $A the claw and the floor again, in $1C sky over the balcony) on every shake to the left, a flash every
+// 8 frames. There 254 is 2 px to the left. ($20's upper part, lines 0-143, slides 4..88 px left over its floor while
+// Jafar's snake comes in from the right edge - the table's column 0 belongs at the right there: its sides as before.)
+bool scene_shakes(int sc) { return sc == 0x08 || sc == 0x0A || sc == 0x0C || sc == 0x1C; }
+int story_bg_entry(const Sms& s, int vcol, int vrow, uint32_t replaced, int hs) {
+    if (hs >= 256 - 8 && story_wide(s) == STORY_SCENE && scene_shakes(s.ram8(SCENE))) vcol += 32;
     if (vcol > 0 && vcol < 32) return -1;   // (the table)
+    const SceneRule* rule = story_wide(s) == STORY_SCENE && s.ram16(MAP) == SCENE_MAPS && vrow % 28 < SCENE_ROWS
+                                ? scene_rule(s.ram8(SCENE)) : nullptr;
+    const bool side0 = rule && (rule->side0 >> (vrow % 28) & 1);
     if (vcol == 0) {   // (the column the hardware blanks: the table's, or the left side's where the rule says)
-        const SceneRule* r = story_wide(s) == STORY_SCENE ? scene_rule(s.ram8(SCENE)) : nullptr;
-        if (!r || vrow % 28 >= SCENE_ROWS || !(r->col0 >> (vrow % 28) & 1) || s.ram16(MAP) != SCENE_MAPS) return -1;
+        if (!rule || !((rule->col0 | rule->side0) >> (vrow % 28) & 1)) return -1;
         vcol = -1;
+    } else if (vcol < 0 && side0) {
+        vcol--;   // (the side begins at the hidden column)
     }
     switch (story_wide(s)) {
     case STORY_TITLE:
@@ -973,6 +990,7 @@ int story_bg_entry(const Sms& s, int vcol, int vrow, uint32_t replaced) {
             // (the picture's column 0 repeated in a side: where the rule replaces the hidden column, its copies too -
             // the column the left side has next to the picture's edge)
             if (col == 0 && (r.col0 >> vrow & 1) && b.la != b.lb) col = b.lb - 1;
+            if (col >= r.sub0 && col < r.sub1) col = r.sub + col - r.sub0;
             if (replaced >> vrow & 1) return s.vdp.name_entry(col, vrow) & 0x1FFF;
             return scene_cell(s, sc, col, vrow);
         }
@@ -2106,7 +2124,8 @@ private:
         (void)line;
         const Sms& s = *((SmsAladdin*)host)->sms_;
         const SmsVdp& v = s.vdp;
-        if (!shows_stage(s)) return story_bg_entry(s, vcol, vrow, ((const SmsAladdin*)host)->story_rows_);
+        if (!shows_stage(s))
+            return story_bg_entry(s, vcol, vrow, ((const SmsAladdin*)host)->story_rows_, v.hscroll_for(line));
         // (the table's 28 rows wrap: Jafar's turn into the snake shakes the screen with the vertical scroll, 222 / 224)
         vrow %= 28;
         // the status bar (rows 0-1): blank beyond the 256 px; below the playfield: see line_hook

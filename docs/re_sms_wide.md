@@ -431,13 +431,19 @@ story screens are now drawn wide where their picture allows it (`story_screen`, 
   columns for each side, `scene_cell`), so what the game draws into the table is never repeated; the text box's rows
   are `$11BF` at the sides, the hidden column 0 shows the table's own (or, where a rule says so, the left side's).
   Rules: the whole picture (its edges meet: the
-  stalls, rooftops, hills, pillars and towers of 0-7, 9, $B, $E, $F, $19, $1B, $1D, $20-$23); $A without the claw at its
-  left edge: columns 8-15 on the left and 4-31 on the right above row 15; below, where the floor (rows 16-19, columns
-  2-25, its boulders on row 15) ends at the claw with the cave's dark beyond it and at the right in water (columns
-  26-29) with a rock at the edge, the left side is the cave's dark (tile `$100`, the hidden column too: the table has a
-  black block there, `$1100`) and the right side the water (26-29). (Before, rows 16-19 took the water on the left -
-  floor-top boulders above water, and a dark gap where the picture's dark columns 0-1 met it - and the floor again on
-  the right, after the picture's water: the user's "left/right borders issues", QA state `ready/r.state`.) $10 / $18 / $1A pillars on the left (0-8,
+  stalls, rooftops, hills, pillars and towers of 0-7, 9, $B, $E, $F, $19, $1B, $1D, $20-$23; in $1B the lamp's
+  table, rows 14-19 at columns 10-17, isn't repeated: the sides show columns 22-29 there, the same frame on the wall
+  and the frieze in step - the right side reached the table at 21:9 square, `sub0`/`sub1`/`sub`); $A without the claw
+  at its left edge: columns 8-15 on the left and 4-31 on the right above row 15; below, the rock floor (rows 16-17 the
+  ledge, 18-19 the slab, columns 2-25, the slab's rounded end at 25; small rocks on row 15) is cut at the claw's foot
+  (column 1 dark, column 0 a black block `$1100` in the table) and ends at the right in the lava (columns 26-29) with a
+  rock at the edge. The left side carries the floor on: columns 4-25 from the hidden column out (`side0`: the hidden
+  column shows 25, the slab's rounded end, column -1 24, ...; no repeat within 102 px), so a slab runs out of the left
+  edge and ends just before the claw, its foot standing in the dark gap of column 1 (the original's 4:3 picture is
+  left as it is); the right side is the lava (26-29). (Before: the left side was the cave's dark below the stalactites
+  - the floor stopped at the claw, the user's "add a floor to the left side of the statue"; before that, rows 16-19
+  took the water on the left and the floor again on the right: the user's "left/right borders issues", QA state
+  `ready/r.state`.) $10 / $18 / $1A pillars on the left (0-8,
   not the throne), the room on the right (0-27); $11 / $13 and $15 / $17 stars on the left (0-12), the balcony / cliff
   carried on on the right (24-31 or 28-31); 4's hidden column, rows 18-19, the left side's (its cells there are bare
   rock without the priority bit, never shown on the hardware: a dark block under the ridge that runs into it from the
@@ -446,6 +452,20 @@ story screens are now drawn wide where their picture allows it (`story_screen`, 
   edge), $C and $D (rock walls cut by both edges), $14 (a roof's slope cut by the left edge), $16 (the Genie's cave,
   lit from the middle, black rock at the right edge). Chosen with an offline model of the rules for every scene, then
   checked in the module at 74 and 102 and in the app.
+  The shake (`$5205`: 8, $A, $C, $1C) moves the whole picture 2 px with reg 8 = 2 or 254, one frame in four. The VDP
+  gives `bg_entry` the column from the scroll as 0..255 (x - 254 for a move to the left), so on the frames shaken left
+  the sides came out 32 columns off: the right side was the table's own columns 0-9 (in $A the claw, Abu's ledge and
+  the floor's start again, with a dark gap; in $1C sky where the balcony goes on) and the left side the rule's columns
+  counted 32 further - the right side flashing a copy of the picture's left part every 8 frames (the user's "the right
+  side is flashing duplicate on the left", a state in $A; there since the scenes were widened, before the walks too).
+  In the shaking scenes (`scene_shakes`) `story_bg_entry` now counts a scroll of 248-255 as 8-1 px to the left: the
+  sides move with the picture. Not by the scroll alone: $20's upper part (lines 0-143, the split at reg 10 = `$47`)
+  slides 4..88 px left over its still floor in steps of 4 while Jafar's snake comes in from the right edge, the table's
+  column 0 (the snake's head) belonging at the right there - counted as a move left, the head showed again in the
+  hidden column at 252 / 248 (tried, dropped); its sides stay as they were. Measured (headless, every scene from the title at 74 and 102, the sides against themselves shifted
+  by the shake) and in the app at 21:9 CRT and square (the user's state, frames 10-41: each side against the first
+  frame at the best shift of -3..3 px): before 35 % of the right side's lower part wrong on each left shake frame,
+  after 0 on every frame.
   A scene can draw another picture over its own: Jafar's spell in the throne room ($10, ticks ~730-830) blanks the
   table but for the pillars' outlines in the spell's colours, and the sides, still from ROM, showed the room's pillars
   as dotted outlines beside a black 4:3 picture. Each frame (`scene_replaced_rows`, at the frame's start) a row whose
@@ -603,6 +623,7 @@ scene 3 at 102 differs in 76 of 954 (the characters in the sides).
 | scene walks | every walk: each frame from 6 before t0 to 8 after at 74 / 102, strips at 74 / 102, the app at 21:9 CRT and square (before / after); scenes as played from the QA playthrough states: RAM, VRAM, CRAM at 74 and 102 against 4:3 (and the plain core) every frame through every story screen into the next stage, without input and with button-1 taps | no doubled or missing character at the hand-over; identical |
 | scene characters under the blanked column | every scene from the title at 74 / 102 against the build before the walks, frame by frame (pictures), and the sprite pixels in the hidden column | scene 4's waiting guard unseen again (turban and foot gone), its hidden column's bottom cells the ridge; characters walking in from the left are drawn whole from their first piece past x 8 (before the walks a sliver in the hidden column for a few frames: 0, 3, 9, $B, $10, $1D, $1E) |
 | scene sides | every scene's table against the ROM model every 10 frames; the tiles the model uses, every 5 frames; the 4:3 edges of every widened scene at 74 | the spell in $10 the only picture drawn over (now repeated from the table); no tile reloads; $A's rule remade |
+| scene shakes, floors | every scene from the title at 74 / 102, frame by frame against the build before (left side, 4:3 part, right side; RAM, VRAM, CRAM); the lines' scrolls of every scene; the user's $A state in the app at 21:9 CRT and square, frames 10-41 | the shaken scenes' sides (8 $A $C $1C; 8 and $C are 4:3) move with the picture: no copy of the table's left part on left shakes; $A's floor carried on to the left at 6..102; $1B's table not repeated; every other scene's frames identical to before; RAM / VRAM / CRAM identical |
 | screen changes | GAME START and PASSWORD from the title, a password taken, game over (continue) at 21:9 CRT (tool, app); QA's round-3 replays (`r3_play_e74`, `r3_play_e74b`: to scene $11, and scene $23 to the title), frames where the sides change under a still 4:3 picture | section 5a "A wait before the fade": none but characters walking in a side |
 | screen-fixed texts | READY at stages 0 2 5's (re)start, PAUSE at a stage's start (slid) and mid-stage, TRY AGAIN?, at 0 / 74 / 102 with `hud_anchor` on and off (tool and app) | section 5: centred in the wide picture (READY was E px left at a start before) |
 | screens | `sms_wide_shots.py`, `sms_run_sheet.py` (whole stages 0 1 5 7 at 74 / 102), `sms_app_test.py` (16:9 and 21:9 CRT, 21:9 square) | reviewed: stages, ends, HUD, scenes |
