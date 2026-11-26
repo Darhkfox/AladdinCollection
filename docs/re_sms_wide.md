@@ -20,7 +20,7 @@ sms_end` for states near the auto-run stages' ends). Widths: 6/22/40/74 (CRT pix
    walls and brick wall, the Rooftops' roof ends) are given for the walls as the view shows them (section 4a).
 2. The camera is the original's (Aladdin's position is an 8-bit screen X). Near a level's ends the picture slides
    instead (`view_slide`): the view shows the level from its first / to its last pixel and holds still while the
-   camera covers the E px next to the end. Only a level narrower than the view is masked (Jafar's room: dimmed).
+   camera covers the E px next to the end. Only a level narrower than the view is masked; Jafar's room is drawn at the right (its right edge the original's).
 3. Objects live in screen coordinates: they wake, stay awake and leave with the original's margins around the
    view as shown (the slide included, per side, per frame); nothing appears or vanishes inside the view. Sprite
    pieces beyond the 8-bit table X get their true X from PC hooks on the three sprite writers (`sprite_x`);
@@ -123,7 +123,7 @@ s = left - (camera - E) px further right: `SmsVdp::sprite_shift` for the sprites
 `line_shift` callback (asked as each line is drawn, when the line interrupts have set its scroll). At a stage's
 start the view holds still on the level's first 256 + 2E px while the camera covers its first E px (s = E .. 0); at
 the end on the last 256 + 2E px (s = 0 .. -E). A level narrower than the view is centred and the rest masked
-(`post_frame`); Jafar's room keeps the original camera (below). Unshifted: the status bar (lines 0-15) and lines
+(`post_frame`); Jafar's room is drawn at the right, s = -E, every line below the status bar (below). Unshifted: the status bar (lines 0-15) and lines
 176-191.
 
 Parallax bands hold still with the picture: a band line's shift is what that band would have moved while the
@@ -153,11 +153,25 @@ most frames, `$0B20`, and a frame can start there - seen on 2 of 24 frames in th
 check: stage 1 standing still at 21:9 CRT, lost at x -86 = the picture's edge - 12, as the original at -4 = its
 blanked column's edge - 12; TRY AGAIN restarts with nothing left over; walking right from 32 px behind comes back.)
 
-Boss arena — Jafar (stage 9): the original camera moves 0..136 over a 384-px room, all of it within Aladdin's
-reach; past the room's ends there is no level. There the extension carries the room's pillars on (its middle part,
-x 128..255, repeats every 128 px: pillars at 148, 276, …; the hourglass at the right end is not repeated) and
-`post_frame` reports those columns as `dim_left` / `dim_right` instead of masks: shown dimmed, as the Castle of
-Illusion port shows its arenas.
+Boss arena — Jafar (stage 9): a 384-px room; the camera (`$C482`) stays 128 through the fight with Jafar by the
+hourglass at the room's right end, and in the snake's part (the second figure's type `$C698` = `$0B`) only the
+snake's knock-backs move it, 128 down to ~72. The snake is drawn into the table and scrolls with the camera, but the
+game keeps the room still on the screen: the pillars are redrawn at screen x 20 and 148 at every camera, the floor
+(lines 160-191) is split off at a scroll of its own (128), and the tiles then hold the snake's art - the level's map,
+scrolled by the camera, is the room no more. Before, the view kept the original camera and the extension carried the
+room's pillars on past its ends from the map (the middle part, x 128..255, every 128 px), dimmed (`dim_left` /
+`dim_right`): the right side was a dark box with the bright status band above it and the bottom rows below (the
+user's "why is there a big box to the right?", a state at the fight's start), and in the snake's part the map's
+hourglass showed there, and in the 4:3 picture's partial right cell, whenever a hit pushed the snake and the camera
+back - in the snake's red, the pillar beyond it shrinking and gone, the snake's hood cut flat at the 4:3 edge across
+the top rows (the user's "the hourglass keeps appearing, unlike in 4:3" and "glitches at the tops of 4:3"). Now the
+room is drawn at the right (`view_slide` -E, `line_shift` -E on every line from 16 on, the bottom rows too: they hold
+priority cells sprites pass behind): its right edge is the original's, so the snake and the hourglass are cut by the
+wide edge exactly as by the 4:3 one and nothing beyond it is ever shown; the partial cell at the right is the table's
+(`hw_right_partial_out` off), as on the hardware. The left side is the room as the table holds it, in both parts: the
+4:3 picture's left part again 128 px further left (the pillars' rhythm; where that would be the column the hardware
+blanks, which holds the snake's wrapped cells, 256 px), at full brightness, steady through the knock-backs. No other
+stage reports dims or masks (every stage at 74 and 102 played both ways: none).
 
 ## 3. Objects and sprites
 
@@ -359,7 +373,7 @@ plays the ROM holds none of these patches (below).
   run's end, the turn). The rest are the fixed hazards re-armed at the original's window (the ceiling drops `$1E`
   back at the ceiling at x -65 / 305, the Caverns' ceiling boulders, spikes and ledges: below), objects' own blinks
   (A Whole New World's sparkles on the dunes), the Market pursuer's poses in the left side, fire bursts dying away,
-  and in Jafar's room a shot `$45` that appears at x 304 and is gone within 4 frames, in the dimmed right side (the
+  and in Jafar's room a shot `$45` that appears at x 304 and is gone within 4 frames, beyond the right edge (the
   4:3 game never shows it). The app (21:9 CRT and square, 2560x1080): each state's guard runs in from the wide
   edge and on as at 4:3 (before: it appeared in the side). Rewind (the user's states and sub-area 1's patrol guard,
   both ways, 74 and 102): identical pictures; high frame rate: the in-betweens lie between the frames across the run
@@ -840,6 +854,7 @@ scene 3 at 102 differs in 76 of 954 (the characters in the sides).
 | $12 at the right, $14 and $16 wide, Jafar at the edge, the sprite order | the user's states (slot 1: $12 tick 97, slot 2: $14 tick 108, slot 4: $16 tick 343) at every width 6..102 (tool) and in the app at 21:9 CRT and square / 16:9; $14's guard walk-in frame by frame and in the app; pixels alternating frame to frame in $11 at 4:3 and 74 without the limit; scene RAM / VRAM / CRAM of $12 $14 $16 against 4:3 at 74 and 102; `sms_rewind.py 74 102 --scenes 10,11,12,14,16,18,1a`; attract at every width with and without cheats; `r2_identity`; `hfr_test.py sms` | the statue at the wide right edge; $14 and $16 wide at every width; the guard in from beyond the wide edge; Jafar cut by the wide edge as by the 4:3 one; $11's feet / carpet no longer swap places (4:3 part: 266 frames with alternation at 4:3, 143 widened, the rest animation); identical RAM / VRAM / CRAM; rewound pictures identical; attract 0 RAM differences |
 | scene 8 at the right | from the title at every width 6..102 (tool), through its shakes (sides against the picture) and Aladdin's walk into the jaw; the app at 21:9 and 16:9 CRT; scene RAM / VRAM / CRAM against 4:3 at 74 and 102 into the next stage, without input and with button-1 taps; `sms_rewind.py 74 102 --scenes 8,10,12`; attract at every width with and without cheats; `r2_identity`; `hfr_test.py sms` | the head cut by the wide edge at every width, the sky and dunes on to the left without a seam, steady through the shakes; Aladdin out behind the jaw at the wide edge; identical RAM / VRAM / CRAM; rewound pictures identical; attract 0 RAM differences |
 | $19 at the right | the user's state (tick 177) at every width 6..102 (tool), the app at 21:9 and 16:9 CRT; scene RAM / VRAM / CRAM against 4:3 at 74 and 102; `sms_rewind.py 74 102 --scenes 8,19,10,12` | the post at the wide right edge, the plain wall and frieze on to the left without a seam or a cut panel; identical; rewound pictures identical |
+| Jafar's room at the right | the user's state (the fight's start) at every width 6..102; a bot from it through both parts (the sword, the snake's 8 hits) at 74 and 102 against 4:3 frame by frame: the 4:3 part of the wide picture, the left side and the top rows; the app at 21:9 and 16:9 CRT (the start, the snake's knock-backs); `sms_rewind.py 74 102 --stages 9`; attract; `r2_identity`; `hfr_test.py sms` | the 4:3 part identical to 4:3 on every frame (but the status bar's gems, centred in the wide picture); the hourglass and the snake cut by the wide edge as at 4:3; no box; the left side and lines 0-39 unchanged through every knock-back (only the transformation's flash changes them); the game's RAM as before (the sprite buffer's high bits and two stack bytes differ, as in every widened stage) |
 | screen changes | GAME START and PASSWORD from the title, a password taken, game over (continue) at 21:9 CRT (tool, app); QA's round-3 replays (`r3_play_e74`, `r3_play_e74b`: to scene $11, and scene $23 to the title), frames where the sides change under a still 4:3 picture | section 5a "A wait before the fade": none but characters walking in a side |
 | screen-fixed texts | READY at stages 0 2 5's (re)start, PAUSE at a stage's start (slid) and mid-stage, TRY AGAIN?, at 0 / 74 / 102 with `hud_anchor` on and off (tool and app) | section 5: centred in the wide picture (READY was E px left at a start before) |
 | screens | `sms_wide_shots.py`, `sms_run_sheet.py` (whole stages 0 1 5 7 at 74 / 102), `sms_app_test.py` (16:9 and 21:9 CRT, 21:9 square) | reviewed: stages, ends, HUD, scenes |
