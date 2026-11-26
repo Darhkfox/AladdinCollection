@@ -497,7 +497,7 @@ def scene_end(n, name='md_title', a=1100):
 
 # ---------------------------------------------------------------- timeline
 OPT_MASK = ('opt_video', 800, 340, 780, 80)   # the Monitor row's value (the display's name) blurred
-LS_SEGS = {'md': [(125, 95), (455, 70)], 'snes': [(125, 95), (470, 70)], 'sms': [(125, 95), (455, 70)]}
+LS_SEGS = {'md': [(125, 95), (400, 70)], 'snes': [(125, 95), (470, 70)], 'sms': [(125, 95), (455, 70)]}
 
 
 def timeline():
