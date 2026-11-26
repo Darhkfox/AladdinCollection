@@ -439,6 +439,18 @@ bool abu_round(const MegaDrive& md) {
 // address $1A8E7E lies under it at $FFEFD0 (the next call after it, $1A8E7E's bsr, overwrites it at once).
 bool genie_wheel(const MegaDrive& md) { return md.ram32(0xFFEFD0) == 0x1A8E7E && md.ram32(TITLE_RET) == 0x1A8CCA; }
 
+// The screens the level loop ($1A8B50) shows before each level's story card: the scarab ($1B1486, called at $1A8B70 for
+// every level but Jafar's Quarters: its halves meeting, the full scarab's rings, the halves flying apart) and, before the
+// Market only, the instructions ($1B202A, at $1A8B76). Their own code draws them with sprites and planes alone, but on
+// the widescreen ROM its clip marks the scarab's screen-fixed pieces and lets them past X $1BF, so the sprite table in
+// RAM differed from the 4:3 game's, and the instructions (which draw no sprites) kept the scarab's table. They run on
+// the 4:3 game's ROM too: while one runs its return address ($1A8B76 / $1A8B7C) is the level loop's top call, at
+// $FFEFD4. The story card after them ($1B0F66) runs on the widescreen ROM again (seconds before the level's init).
+bool level_intro(const MegaDrive& md) {
+    const uint32_t ret = md.ram32(TITLE_RET);
+    return ret == 0x1A8B76 || ret == 0x1A8B7C;
+}
+
 // The Rug Ride (docs/re_md_wide.md section 7). The carpet flies right at the ride's own pace (the camera moves `speed`
 // px an iteration, 6 at the start and one more every 310 iterations) and Aladdin stays at screen x 120; the obstacles
 // are sent in by a script every 192 px of the ride at the 4:3 view's right edge (screen x 304) and stay put in the cave
@@ -626,7 +638,7 @@ struct RideView;
 // The screens between levels and around the game drawn wide (screen_frame): none, a plain screen (both planes empty at
 // both edges: the backdrop fills the sides, the sprites at their true places), or one of the pictures whose sides are
 // drawn from its own edges (kScreenSides).
-enum class Screen : uint8_t { None, Plain, Palace, Dunes, DunesTiger, Moon, Rings, Wheel, Fill };
+enum class Screen : uint8_t { None, Plain, Palace, Dunes, DunesTiger, Moon, Rings, Wheel, Fill, Instructions };
 struct ExtraPiece { int x, y, w, h, slot, back; uint16_t attr; };   // screen x / y, cells, the move since the last
                                                                        // pass (px), the pattern word
 
@@ -1918,12 +1930,14 @@ void ride_line(Wide& w, int line, uint8_t* plane_b, uint8_t* sprites) {
 //   the 4:3 screen. The strips leave out what mustn't be copied: the moon, the domes, the Cave's tiger head.
 // Everything else (the Genie's bonus wheel, the instructions, the full scarab between its halves' flights: pictures
 // cut off by the screen's edges) stays 4:3, with the app's plain-colour bars.
-struct SideBand { int end, left, right; };   // lines below `end`: the edge strip each side repeats (px; 0 = the wrap)
+struct SideBand { int end, left, right; };   // lines below `end`: the edge strip each side repeats (px; 0 = the wrap;
+                                             // -n: the edge's n px mirrored once, then the backdrop)
 constexpr SideBand kPalaceSides[] = {{48, 0, 0}, {240, 56, 56}};           // stars wrapped; sky and hills cols 0-6
 constexpr SideBand kDunesSides[] = {{112, 0, 0}, {240, 40, 128}};          // stars wrapped; the dunes at each edge
 constexpr SideBand kDunesTigerSides[] = {{112, 0, 0}, {240, 40, 16}};      // (right of the tiger head)
 constexpr SideBand kMoonSides[] = {{240, 80, 128}};                        // stars left and right of the moon
 constexpr SideBand kWheelSides[] = {{240, 16, 16}};                        // the curtains' outer 16 px
+constexpr SideBand kInstructionSides[] = {{126, 32, 32}, {240, -8, -8}};   // the tent's top; below it the dark
 
 // A level on screen (play, pause, its fades), the attract mode's demos included: never another screen.
 bool level_shown(const MegaDrive& md) {
@@ -1948,6 +1962,7 @@ Screen picture_kind(const VDP& v) {
     if (b(0, 0) == 0x0005 && b(0, 3) == 0x0006 && b(0, 4) == 0x000B && b(0, 39) == 0x0805 && b(14, 1) == 0x00B5)
         return Screen::Rings;
     if (b(0, 0) == 0x200C && b(0, 1) == 0x200D && b(10, 0) == 0x2115 && b(10, 39) == 0x2915) return Screen::Wheel;
+    if (b(0, 0) == 0x0024 && b(0, 1) == 0x0001 && b(0, 39) == 0x0012 && b(22, 34) == 0x0248) return Screen::Instructions;
     // plane B one tile all round the picture - columns 36-63 and 0-3 (the screen's edges and all the name table beyond
     // them) on every line: the debug screen's greeting, "AH!, DAVID PERRY, WHAT IS YOUR WISH?", on grey ($00CA; the
     // face in the middle): the VDP draws the sides from it already
@@ -2123,7 +2138,8 @@ void screen_line(Wide& w, int line, uint8_t* plane_a, uint8_t* plane_b, uint8_t*
     std::memset(plane_a + 320 + E, 0, E);
     const SideBand* bands = w.screen == Screen::Palace ? kPalaceSides : w.screen == Screen::Dunes ? kDunesSides
                           : w.screen == Screen::DunesTiger ? kDunesTigerSides : w.screen == Screen::Moon ? kMoonSides
-                          : w.screen == Screen::Wheel ? kWheelSides : nullptr;
+                          : w.screen == Screen::Wheel ? kWheelSides : w.screen == Screen::Instructions ? kInstructionSides
+                          : nullptr;
     if (w.screen == Screen::Fill) {
         // (plane B's own tile, as the VDP drew it)
     } else if (w.screen == Screen::Rings) {
@@ -2134,13 +2150,21 @@ void screen_line(Wide& w, int line, uint8_t* plane_a, uint8_t* plane_b, uint8_t*
         std::memset(plane_b + 320 + E, 0, E);
     } else {
         while (line >= bands->end) bands++;
-        auto source = [](int x, int strip) {   // the picture's pixel a side pixel repeats
+        auto source = [](int x, int strip) {   // the picture's pixel a side pixel repeats (-1: none, the backdrop)
             if (strip == 0) return x < 0 ? x + 320 : x - 320;
-            const int d = (x < 0 ? -1 - x : x - 320) % (2 * strip), k = d < strip ? d : 2 * strip - 1 - d;
+            const int out = x < 0 ? -1 - x : x - 320;
+            if (strip < 0) return out < -strip ? (x < 0 ? out : 319 - out) : -1;
+            const int d = out % (2 * strip), k = d < strip ? d : 2 * strip - 1 - d;
             return x < 0 ? k : 319 - k;
         };
-        for (int x = -E; x < 0; x++) plane_b[x + E] = plane_b[source(x, bands->left) + E];
-        for (int x = 320; x < 320 + E; x++) plane_b[x + E] = plane_b[source(x, bands->right) + E];
+        for (int x = -E; x < 0; x++) {
+            const int src = source(x, bands->left);
+            plane_b[x + E] = src < 0 ? 0 : plane_b[src + E];
+        }
+        for (int x = 320; x < 320 + E; x++) {
+            const int src = source(x, bands->right);
+            plane_b[x + E] = src < 0 ? 0 : plane_b[src + E];
+        }
     }
     draw_extra(w, line, sprites, false);
 }
@@ -2183,9 +2207,14 @@ void abu_line(Wide& w, int line, uint8_t* plane_a, uint8_t* sprites) {
     draw_extra(w, line, sprites, true);
 }
 
+// (The Genie's wheel shows the status bar too, built by the levels' code ($1AB7C4) with the same tiles: anchored, it
+// goes to the screen's edges as in the levels; the wheel's token count - the Genie's face and digit, other tiles - stays
+// on the stage.)
 int sprite_xoff_hook(void* host, int index, uint16_t attr, int x, int y) {
     const Wide& w = *(Wide*)host;
-    return w.active ? sprite_xoff(*w.md, index, attr, x, y) : 0;
+    if (w.active) return sprite_xoff(*w.md, index, attr, x, y);
+    if (w.screen == Screen::Wheel && (w.md->vdp.hook_flags & 1)) return hud_side(attr & 0x7FF, x) * w.md->vdp.ext;
+    return 0;
 }
 bool sprite_is_hud_hook(void* host, int index) { return sprite_is_hud(*((Wide*)host)->md, index); }
 
@@ -2313,7 +2342,8 @@ public:
     // title cards around them (Abu's intro before a round) lie between them and the levels on either side.
     enum class Rom { Wide, Attract, Game43 };
     static Rom rom_kind(const MegaDrive& md) {
-        return attract(md) ? Rom::Attract : rug_ride(md) || abu_round(md) || genie_wheel(md) ? Rom::Game43 : Rom::Wide;
+        return attract(md) ? Rom::Attract
+             : rug_ride(md) || abu_round(md) || genie_wheel(md) || level_intro(md) ? Rom::Game43 : Rom::Wide;
     }
     static std::vector<RomPatch> rom_for(const MegaDrive& md, const GameConfig& cfg) {
         switch (rom_kind(md)) {

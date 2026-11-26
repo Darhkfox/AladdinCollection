@@ -268,7 +268,10 @@ The status bar is sprites, written first into the RAM SAT (`$1AB7C4`): the lamp 
 gems (`$E6F7` X `$16A`) bottom right, the score (`$E7C0`+, X `$134`…, top right). Their tiles ($680-$6FF, $7C0-$7E7)
 are used by nothing else (checked: every SAT entry of every level over 600 frames of play). `sprite_xoff` moves the
 left group (lamp, smoke, face, lives digit) by −E and the right group (apple / gem icons and digits, score) by +E
-(with `hud_anchor`; not in the 4:3 levels), and adds the view's slide so the HUD doesn't move with it.
+(with `hud_anchor`; not in the 4:3 levels), and adds the view's slide so the HUD doesn't move with it. The Genie's
+wheel shows the same status bar (built by `$1AB7C4`, the same tiles): anchored, it goes to the edges too (`sprite_xoff_hook`
+on `Screen::Wheel`, drawing only: the wheel runs on the 4:3 game's ROM); its token count (the Genie's face, tiles
+`$468`-`$47E`, and digit `$484`) is the stage's and stays.
 `sprite_is_hud` keeps them over the edge masks. The groups go by tile, not by X: the smoke trail runs from VDP X
 `$C2` to `$C2` + 8 × health, so with 8 health its last piece is at X `$102` — splitting at X 256 sent that piece to
 the right side (a stray wisp of smoke near the top right at 21:9). Only the digits ($6E0-$6E9: lives at X `$AA`,
@@ -475,7 +478,7 @@ the idol on the far pedestal cut at the right edge; in Jafar's hall at the left 
 * The screens outside the levels are wide where they can be (§6a): the logos, the title and OPTIONS, "Level
   Complete", the scarab's halves, the story cards, the title cards, the death and continue screens, the ending and
   credits, the full scarab, the Genie's wheel, the debug screen's greeting and page (the sound test is a list on
-  OPTIONS, wide with it). 4:3: only the instructions (asked to stay 4:3) and the attract demos (below). Abu's bonus
+  OPTIONS, wide with it), the instructions. 4:3: only the attract demos (below). Abu's bonus
   rounds (§6b), the Genie's wheel (§6a) and the Rug Ride (§7) run on the 4:3 game's ROM, wide by drawing only.
 * Also play: the Developer Level Skip's wait. Paused, the pause loop's input handler (`bsr $1B0A46` at `$1A9236`) runs
   the skip (pause, then A: `$1B0B04`) through two delays (`$1B2EAC`, some 70 frames) before it sets `$F0E9` and returns;
@@ -571,8 +574,25 @@ states, rewind or the attract mode) is one of:
     every line): the debug screen's greeting ("AH!, DAVID PERRY, WHAT IS YOUR WISH?" on grey `$00CA`, the face in the
     middle). The VDP draws the sides from the tile already; plane A's sides are cleared as on every picture. (The debug
     screen's page after it, text on black, is plain.)
-* Everything else stays 4:3, pillarboxed with the app's plain-colour bars where its edges are one colour: the
-  instructions (a picture cut off by the screen's edges - the table and the tent's drapes; asked to stay 4:3).
+  - **The instructions** (`Screen::Instructions`: row 0 = `0024 0001`…, column 39 `0012`; row 22 column 34 = `0248`;
+    before the Market only, `$1B202A`): a market stall in a tent - the purple drape across the top (hanging lower at the
+    right), the tent's black inside with its dark red poles, the table with the labelled items, the table's front and
+    the dark below. The table ends inside the picture (its left end 12 px in, its right end at the edge on lines
+    162-169 only), so beyond the picture is the tent: lines 0-125 mirror the edges' outer 32 px back and forth (the
+    drape's folds, the poles crossing as a row of tent poles, the right side's hanging drapes), lines 126 on are the
+    backdrop (the tent's dark red, colour 0 at the picture's edges) but for the edge's own 8 px mirrored once (the
+    table's right tip ends in a point, not cut straight). Plane A (the labels, the icons) stays on the 4:3 screen.
+  - **The screens before each level's story run on the 4:3 game's ROM** (`level_intro`): the scarab (`$1B1486`, called
+    at `$1A8B70` for every level but Jafar's Quarters: the halves meeting, the full scarab, the halves flying apart)
+    and the instructions (`$1B202A`, at `$1A8B76`), told by their return addresses `$1A8B76` / `$1A8B7C` at `$FFEFD4`.
+    On the widescreen ROM the clip marked the scarab's screen-fixed pieces and let them past X `$1BF`, so the sprite
+    table in RAM differed from the 4:3 game's, and the instructions (no sprites) kept the scarab's table: from a new
+    game's START through the instructions RAM now equals the 4:3 game's on every frame (it differed from the scarab on:
+    860 of 1,800 frames from power-on). The halves' pieces past screen x 319 are drawn by the module (`extra_pieces`, as for the logos). The ROM
+    switches one frame into the scarab and back one frame into the story card (`$1B0F66`), long before the level's
+    init: every level selected with START hammered through the card still starts on the widescreen ROM (Abu's rounds
+    and the Rug Ride on the 4:3 one, as before).
+* Nothing else stays 4:3 but the attract demos (§6) and the two black frames of power-on (H32 mode).
 
 **Sprites.** On the plain and picture screens sprites are drawn at their true X, so what crosses the screen comes
 from and goes into the sides: the Genie round the Disney / Virgin logo (object 2, screen-fixed, `x` 88 → 613, 7 px
@@ -742,6 +762,8 @@ look-ahead would mean running the game ahead (the player decides the crashes) or
 | Rug Ride, 4:3 against wide | `md_wide_rug.py 20 32 40 54 64 80 108 128`: 8 seeds of the autopilot with random spells (out by the third crash at speeds 8-16), 8 with invincibility, 8 flying the whole ride (6 to its end without a crash, one after two; one out at speed 18), the same input at every width | at every width: 68000 and Z80 RAM identical to 4:3 on every frame (43,350 / 42,703 / 62,121 iterations), the same lag frames, the 4:3 area of the picture identical on every frame shown wide (HUD unanchored); nothing appears in the extension but from something there (a geyser's sparks); every object despawned inside the view (1,704 / 1,673 / 4,994) goes on as a ghost; achievements as at 4:3, to the frame (Magic Carpet Ride at the end of each completed ride, the Genie's wheel) |
 | other screens (§6a) | from power-on through the logos, title and OPTIONS; the Market ended (level-skip code) with and without a Genie token through "Level Complete", the wheel, the scarab and the next story cards; every level's story and title cards; a death and the continue screen; Jafar's Palace ended through the ending and credits; at 54 and 128, per frame: wide or 4:3, sprites in the sides; the app's shots before / after at 16:9 and 21:9 | wide as listed in §6a, the rest 4:3; every switch between wide and 4:3 on black (or the scarab's halves meeting on black); no sprite in the sides but what crosses the screen; the Genie flies out of the right side whole (before: cut at the 4:3 edge, every fourth frame garbled when placed from RAM at the frame's start) |
 | Genie's wheel (§6a) | `md_wide_bonus.py 54 128 --wheel <the user's state>`: the user's save state (the wheel after the Escape), the Market and the Rug Ride with two tokens ended by the level skip, C every 150 frames; the app at 2560x1080, 21:9 and 16:9 (CRT) | every frame of the wheel wide (before: 4:3 with bars); results (tokens, faces, lives, apples, gems) as at 4:3; RAM identical to 4:3 on every frame of the wheel from the state and from the Rug Ride; from the Market (a level played on the widescreen ROM) what the level left differs at first - the RAM sprite table's screen-fixed marks and the stack, and in the wheel's first 25 frames (its set-up's first frame still on the widescreen ROM) a few work bytes at `$FFEE07`-`$EE13` - then nothing but a stack byte below the stack pointer (`$FFEFC5`) on 7 frames |
+| instructions (§6a) | power-on, START on the title, the scarab, the instructions (fade-in, START, fade-out) and the story card, 1,800 frames at 0 / 54 / 128, with and without invincibility, infinite health / lives / apples; rewind across the instructions (a state every 2 frames, loaded back from the end); every level selected with START hammered, and the Market's end into the Desert: the ROM at the level's init; the app at 2560x1080 (21:9 / 16:9 CRT) and headless at all eight widths | 68000 and Z80 RAM identical to 4:3 on every frame (before: 860 frames differed, the sprite table, from the scarab on); the 289 frames of the instructions all wide; 0 rewound frames differ; every level's init on the widescreen ROM (Abu's rounds and the Rug Ride on the 4:3 one); the tent continues without a seam, the table and labels as at 4:3 |
+| wheel's HUD | the user's wheel state at 21:9 / 16:9, Re-anchor HUD on / off, in the app | anchored: the lamp and smoke, lives, gems / apples and the score at the screen's edges as in the levels, the token count on the stage; off: as at 4:3 |
 | level skip's wait, greeting | the Market paused and skipped (with and without a token) through "Level Complete", the wheel, the scarab and the next story at 128; power-on through OPTIONS and the debug screen; a scan of the title, OPTIONS, the debug screen, a game's start, the Market's end and the Escape's deaths and continue screen for a plane B filled with one tile | no frame shown 4:3 any more from the skip to the story (before: 75 frames of the paused level and its fade); the greeting wide; the fill found on the greeting only |
 | other screens' save states | states every 7 frames of the Genie's exit and on the title, "Level Complete", the scarab, the dunes, the moon and the death screen, at 54 and 128, loaded into a fresh instance as the app does, 40 frames | RAM, picture and frame info identical; without the module's part (an older state) RAM identical and the Genie's pieces right of the 4:3 screen missing for 2 frames (7 once) |
 | Rug Ride ghosts | a pickup across its despawn at 21:9, the sprite layer alone | the same 210 pixels, 6 px further each frame: the takeover doesn't show |
