@@ -2485,9 +2485,9 @@ public:
             {"snes_wheel", "Break Time!", "Collect a Genie token in a stage and spin the Genie's bonus wheel."},
             {"snes_hearts", "Heart of Gold", "Raise Aladdin's hearts to the full ten.", false, 10},
             {"snes_gems", "Treasure of the Cave", "Collect a hundred gems.", false, 100},
-            {"snes_lives", "Nine Lives", "Have nine spare lives at once.", true},
-            {"snes_jafar_flawless", "Never Had a Friend Like Me", "Beat Jafar's final stage without losing a single heart.", true},
-            {"snes_debug", "Developer's Secret", "Discover Capcom's developer code on the OPTIONS screen.", true},
+            {"snes_lives", "Nine Lives", "Have nine spare lives at once."},
+            {"snes_jafar_flawless", "Never Had a Friend Like Me", "Beat Jafar's final stage without losing a single heart."},
+            {"snes_debug", "Developer's Secret", "Discover Capcom's developer code on the OPTIONS screen."},
         };
     }
 

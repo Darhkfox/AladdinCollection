@@ -24,7 +24,7 @@ void App::ach_welcome() {
     p.title = "Achievements";
     p.subtitle = std::to_string(total) + " to earn across the Mega Drive, SNES and Master System versions";
     p.wide = true;
-    p.items.push_back(MenuItem::info("Beat the bosses, clear the worlds, pull off tricky moves and find the secret ones."));
+    p.items.push_back(MenuItem::info("Beat the bosses, clear the worlds and pull off tricky moves. Every achievement is listed with how to earn it."));
     p.items.push_back(MenuItem::header("To keep them fair, while achievements are on"));
     p.items.push_back(MenuItem::info("Cheats, Level Select, Fast Forward and Rewind are switched off."));
     p.items.push_back(MenuItem::info("Save states still work. Turn achievements off any time on the Achievements page."));

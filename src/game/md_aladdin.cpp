@@ -2556,8 +2556,8 @@ public:
             {"md_peddler", "It's a Deal", "Buy something from the peddler."},
             {"md_apples", "Apple of My Eye", "Carry 50 apples at once.", false, 50},
             {"md_flawless", "Not a Scratch", "Clear a level without losing any health."},
-            {"md_sword", "Sword Play", "Clear a level without throwing a single apple.", true},
-            {"md_iron", "Diamond in the Rough", "Finish the game from a new game without losing a life.", true},
+            {"md_sword", "Sword Play", "Clear a level without throwing a single apple."},
+            {"md_iron", "Diamond in the Rough", "Finish the game from a new game without losing a life."},
             {"md_difficult", "Street Rat Supreme", "Finish the game on Difficult from a new game."},
         };
     }

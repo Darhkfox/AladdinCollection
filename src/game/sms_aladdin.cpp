@@ -2398,12 +2398,12 @@ public:
             {"sms_palace", "Jafar's Palace", "Make it through Jafar's palace."},
             {"sms_jafar", "Jafar Defeated", "Defeat Jafar and finish the game."},
             {"sms_newgame", "Diamond in the Rough", "Finish the game from GAME START, without a password."},
-            {"sms_nocontinue", "Never Gave Up the Lamp", "Finish the game from GAME START without a game over.", true},
+            {"sms_nocontinue", "Never Gave Up the Lamp", "Finish the game from GAME START without a game over."},
             {"sms_noscratch", "Not a Scratch", "Clear a stage without losing a gem."},
             {"sms_flawless", "Flawless Tour", "Clear every stage, and beat Jafar, without losing a gem.", false, 10, true},
-            {"sms_jafar_flawless", "Sultan's Champion", "Defeat Jafar without losing a gem.", true},
+            {"sms_jafar_flawless", "Sultan's Champion", "Defeat Jafar without losing a gem."},
             {"sms_stones", "Rock Collector", "Carry nine stones at once.", false, 9},
-            {"sms_skip", "Seen It Before", "Skip a story scene (both buttons at once).", true},
+            {"sms_skip", "Seen It Before", "Skip a story scene (both buttons at once)."},
         };
     }
 
