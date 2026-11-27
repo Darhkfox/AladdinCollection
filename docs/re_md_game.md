@@ -117,6 +117,20 @@ blocks, +`$34` scroll routine, +`$40` planes swapped. Names: the developers' deb
 Lamp, Sultan's Palace, Jafar's Quarters, Jafar's Palace, the ending ("Level Complete", the carpet ride, "The End",
 credits). Each level has a story cut-scene / title card first (`$1B0F8E`: music 84 / 85 / 86).
 
+**A story cut short by a button held at the level's end (the original's).** The story routine (`$1B0F66`, called from
+the level loop at `$1A8B7C`) starts with `$1B3258`: `$FF7E23` set (skipping allowed), `$FF7E22` cleared, `$FFF155` set
+to `$FF`; then each step of the story tests `$FF7E22` and jumps to the title card (`$1B1260`) once it is set. The VBlank
+handler sets it while `$FF7E23` is on and any of four bits reads 0 (pressed): `$FFF155` bits 5 / 4 (START / A, the pad
+read with TH low) and `$FFF156` bits 4 / 5 (B / C, TH high). Those two bytes are written by the gameplay loop's pad read
+(`$1A8DC6` / `$1A8E02`, every iteration) and by the level's init (`$1AA6BA` / `$1AA6C0`, `$FF`); nothing between a
+level's end and the next story writes them - not the score tally, "Level Complete", the Genie's wheel (it reads the pad
+itself), the scarab, nor `$1B3258` for `$FFF156`. So the story sees the gameplay loop's last read: B (sword) or C (jump)
+held as the level ended - typical at a boss's kill - sets the skip flag on the story's first frame, and only the title
+card shows. Measured from the user's save state (the Genie's wheel after Agrabah Rooftops, `$FFF156` = `$5F`: C held):
+the Dungeon's story ("With both halves of the scarab, Aladdin is ambushed...", 1,004 frames) skipped at 4:3 and at 21:9
+alike, its title card shown (623 frames of the routine in all); with `$FFF156` set to `$7F` (released) the story plays at
+both. The same in the original game with widescreen off: the cut is the game's own.
+
 **Level select (the port)**: power-on, 30 frames, then `$7E26` = level, `$F572` = the script position after the
 level's own entry, `$7E21` = difficulty, and START is tapped through the title and the new game's instructions
 screen (`$1B2E9A`) until the level loop begins (`$1A8B50`): the title routine keeps the level (the developers' debug
