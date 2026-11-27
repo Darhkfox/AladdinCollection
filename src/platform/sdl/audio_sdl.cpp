@@ -1,4 +1,4 @@
-// SDL audio output for Android (see audio.h): 48 kHz stereo int16 pushed into SDL's queue.
+// SDL audio output for Android and Linux (see audio.h): 48 kHz stereo int16 pushed into SDL's queue.
 #include "../audio.h"
 #include <SDL.h>
 #include <algorithm>

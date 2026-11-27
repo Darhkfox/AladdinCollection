@@ -1,8 +1,8 @@
-// Android input (see input.h): keyboard keys arrive from the app's SDL event loop as Win32 virtual-key codes
-// (vk_from_scancode), controllers are read through SDL's GameController API in Xbox button positions. A controller SDL
-// has no mapping for (some PlayStation and 8BitDo pads) is read as a plain SDL_Joystick in the PlayStation button
-// order instead (GreenSnakeLinux, pull request #17). What a controller holds when it is opened is not a press (as on
-// Windows: input.cpp).
+// Android and Linux input (see input.h): keyboard keys arrive from the app's SDL event loop as Win32 virtual-key codes
+// (vk_from_scancode), controllers (the Steam Deck's own controls too, through Steam Input) are read through SDL's
+// GameController API in Xbox button positions. A controller SDL has no mapping for (some PlayStation and 8BitDo pads)
+// is read as a plain SDL_Joystick in the PlayStation button order instead (GreenSnakeLinux, pull request #17). What a
+// controller holds when it is opened is not a press (as on Windows: input.cpp).
 #include "../input.h"
 #include "../keys.h"
 #include "sdl_keys.h"

@@ -12,7 +12,7 @@
 #endif
 
 // The platform-independent part of the app: frame loop body, input handling, game control, saves.
-// Window, main loop and test recording: app_win.cpp (Windows), app_android.cpp (Android).
+// Window, main loop and test recording: app_win.cpp (Windows), app_android.cpp (Android), app_linux.cpp (Linux).
 
 static Settings preview_settings(const Settings& s) {
     Settings p = s;
@@ -59,8 +59,8 @@ std::string App::black_frames_note() {
 // High frame rate: on a 100 Hz or faster display, as many pictures per game frame as it has refreshes (2 at 100 /
 // 120 Hz, 3 at 144 / 165 / 180 Hz, 4 at 240 Hz): the frame and its in-betweens. Windows; not with black frame insertion.
 int App::hfr_sub_frames() {
-#ifdef __ANDROID__
-    return 1;
+#ifndef _WIN32
+    return 1;   // (Android, Linux: no High Frame Rate; the menu doesn't offer it)
 #else
     if (!settings_.high_frame_rate || settings_.black_frames) return 1;
     const double hz = refresh_rate();
@@ -207,7 +207,7 @@ void App::bind_hotkey_pad(int h, uint32_t button) {
 std::string App::hotkey_text(int h) const {
     const uint32_t b = settings_.hotkey_pads[h];
     const std::string pad = b ? Input::pad_button_name(b) : std::string();
-#ifdef _WIN32
+#ifndef __ANDROID__
     const int vk = settings_.hotkey_keys[h];
     const std::string key = vk ? Input::key_name(vk) : std::string();
     return key.empty() ? (pad.empty() ? std::string("-") : pad) : pad.empty() ? key : key + " / " + pad;

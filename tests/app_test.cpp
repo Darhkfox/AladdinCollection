@@ -25,6 +25,24 @@ void check(bool ok, const char* what) {
     if (!ok) { g_bad++; printf("FAIL: %s\n", what); }
 }
 
+// A scratch file's path in the temporary folder (%TEMP% on Windows, $TMPDIR or /tmp elsewhere), and its removal.
+std::wstring temp_path(const wchar_t* name) {
+#ifdef _WIN32
+    const wchar_t* tmp = _wgetenv(L"TEMP");
+    return path_join(tmp ? tmp : L".", name);
+#else
+    const char* tmp = getenv("TMPDIR");
+    return path_join(from_utf8(tmp && *tmp ? tmp : "/tmp"), name);
+#endif
+}
+void remove_file(const std::wstring& path) {
+#ifdef _WIN32
+    _wremove(path.c_str());
+#else
+    remove(to_utf8(path).c_str());
+#endif
+}
+
 std::vector<AchievementGroup> groups() {
     std::unique_ptr<GameModule> m[3] = {std::unique_ptr<GameModule>(create_md_aladdin()),
                                         std::unique_ptr<GameModule>(create_snes_aladdin()),
@@ -154,8 +172,7 @@ void test_pad_filter() {
 
 // Controls > Menu Buttons and Other Controllers are kept in settings.ini.
 void test_input_settings() {
-    const wchar_t* tmp = _wgetenv(L"TEMP");
-    const std::wstring path = path_join(tmp ? tmp : L".", L"aladdin_app_test_settings.ini");
+    const std::wstring path = temp_path(L"aladdin_app_test_settings.ini");
     Settings a;
     check(!a.menu_confirm_right && a.other_controllers, "defaults: bottom confirms, other controllers on");
     a.menu_confirm_right = true;
@@ -168,14 +185,13 @@ void test_input_settings() {
     a.other_controllers = true;
     check(a.save(path), "settings saved again");
     check(b.load(path) && !b.menu_confirm_right && b.other_controllers, "and back to the defaults");
-    _wremove(path.c_str());
+    remove_file(path);
 }
 
 // Options > Launcher & Menus > Show Games: [launcher] show_md / show_snes / show_sms, all on by default; a file with
 // every game hidden (edited by hand) shows them all.
 void test_show_games() {
-    const wchar_t* tmp = _wgetenv(L"TEMP");
-    const std::wstring path = path_join(tmp ? tmp : L".", L"aladdin_app_test_show.ini");
+    const std::wstring path = temp_path(L"aladdin_app_test_show.ini");
     Settings a;
     check(a.shown(System::MegaDrive) && a.shown(System::Snes) && a.shown(System::MasterSystem) && a.shown_count() == 3,
           "defaults: all three games shown");
@@ -193,7 +209,7 @@ void test_show_games() {
     check(write_file(path, none, strlen(none)), "all-hidden file written");
     Settings c;
     check(c.load(path) && c.shown_count() == 3, "every game hidden: all shown instead");
-    _wremove(path.c_str());
+    remove_file(path);
 }
 }  // namespace
 

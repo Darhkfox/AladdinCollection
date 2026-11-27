@@ -4,6 +4,10 @@ project(AladdinCollection CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")   # static CRT: no redistributable needed
+# (single-configuration generators, i.e. Linux: optimised unless asked otherwise - the cores need it for full speed)
+if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
 
 if(MSVC)
     add_compile_options(/W3 /utf-8 /permissive- /MP /wd4244 /wd4267 /wd4305 /wd4800 /wd4146)
@@ -46,10 +50,9 @@ add_library(emucore STATIC
 target_include_directories(emucore PUBLIC src)
 
 # ---- the collection -------------------------------------------------------------
-add_executable(AladdinCollection WIN32
-    src/app/main.cpp
+# The app logic shared by the Windows and Linux builds (Android builds the same files: android/app/src/main/cpp)
+set(APP_SHARED
     src/app/app.cpp
-    src/app/app_win.cpp
     src/app/app_achievements.cpp
     src/app/achievements.cpp
     src/app/achexport.cpp
@@ -67,14 +70,21 @@ add_executable(AladdinCollection WIN32
     src/app/palette.cpp
     src/app/audio_mixer.cpp
     src/app/romfind.cpp
-    src/app/sys_win.cpp
     src/app/unzip.cpp
-    src/app/monitors.cpp
     src/app/png.cpp
     src/app/rewind.cpp
     src/app/ui.cpp
     src/app/ornaments.cpp
     src/app/imageload.cpp
+)
+
+if(WIN32)
+add_executable(AladdinCollection WIN32
+    ${APP_SHARED}
+    src/app/main.cpp
+    src/app/app_win.cpp
+    src/app/sys_win.cpp
+    src/app/monitors.cpp
     src/platform/video.cpp
     src/platform/slang.cpp
     src/platform/audio.cpp
@@ -99,7 +109,40 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/third_party/slang-shaders)
         COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/third_party/slang-shaders $<TARGET_FILE_DIR:AladdinCollection>/shaders)
 endif()
 
-# ---- analysis DLLs for tools/mdt.py, tools/snt.py, tools/smst.py ----------------
+elseif(UNIX AND NOT APPLE)
+# Linux (desktop and Steam Deck): SDL2 for the window, sound and controllers, OpenGL ES 3 for drawing (the Android
+# build's layer, src/platform/sdl), FreeType for the menus' text. linux/build_appimage.sh packs an AppImage.
+#   Ubuntu / Debian: libsdl2-dev libfreetype-dev libgles-dev libegl-dev
+find_package(SDL2 REQUIRED)
+find_package(Freetype REQUIRED)
+find_library(GLESV2_LIBRARY NAMES GLESv2 REQUIRED)
+find_package(Threads REQUIRED)
+# (SDL2's CMake package: an imported target on newer versions, variables on older ones)
+add_library(aladdin_sdl2 INTERFACE)
+if(TARGET SDL2::SDL2)
+    target_link_libraries(aladdin_sdl2 INTERFACE SDL2::SDL2)
+else()
+    target_include_directories(aladdin_sdl2 INTERFACE ${SDL2_INCLUDE_DIRS})
+    target_link_libraries(aladdin_sdl2 INTERFACE ${SDL2_LIBRARIES})
+endif()
+add_executable(AladdinCollection
+    ${APP_SHARED}
+    src/app/app_linux.cpp
+    src/app/sys_linux.cpp
+    src/app/sys_posix.cpp
+    src/platform/sdl/video_gles.cpp
+    src/platform/sdl/audio_sdl.cpp
+    src/platform/sdl/input_sdl.cpp
+    src/platform/sdl/glyphs_ft.cpp
+)
+target_include_directories(AladdinCollection PRIVATE third_party/stb)
+target_link_libraries(AladdinCollection PRIVATE emucore aladdin_sdl2 Freetype::Freetype ${GLESV2_LIBRARY} Threads::Threads ${CMAKE_DL_LIBS})
+target_compile_options(AladdinCollection PRIVATE -Wno-unused-parameter -Wno-sign-compare)
+set_target_properties(AladdinCollection PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+endif()
+
+# ---- analysis DLLs for tools/mdt.py, tools/snt.py, tools/smst.py (Windows) -------
+if(WIN32)
 foreach(tool mdtool snestool smstool)
     add_library(${tool} SHARED src/tools/${tool}.cpp)
     target_link_libraries(${tool} PRIVATE emucore)
@@ -107,18 +150,25 @@ foreach(tool mdtool snestool smstool)
         RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_BINARY_DIR}/tools
         RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/tools)
 endforeach()
+endif()
 
 # ---- tests of the update check and the achievements export (tests/app_test.cpp) ----
-add_executable(app_tests
+set(APP_TEST_SOURCES
     tests/app_test.cpp
     src/app/updatecheck.cpp
     src/app/achexport.cpp
     src/app/achievements.cpp
     src/app/png.cpp
-    src/app/sys_win.cpp
     src/app/settings.cpp
 )
+if(WIN32)
+add_executable(app_tests ${APP_TEST_SOURCES} src/app/sys_win.cpp)
 target_link_libraries(app_tests PRIVATE emucore shell32 winhttp)
 set_target_properties(app_tests PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_BINARY_DIR}/tests
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/tests)
+elseif(UNIX AND NOT APPLE)
+add_executable(app_tests ${APP_TEST_SOURCES} src/app/sys_linux.cpp src/app/sys_posix.cpp)
+target_link_libraries(app_tests PRIVATE emucore aladdin_sdl2 Threads::Threads)
+set_target_properties(app_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+endif()

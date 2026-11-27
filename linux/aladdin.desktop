@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Aladdin Collection
+Comment=Aladdin for the Mega Drive, Super Nintendo and Master System (bring your own ROMs)
+Exec=AladdinCollection
+Icon=aladdin
+Categories=Game;
+Terminal=false
+StartupWMClass=AladdinCollection

@@ -183,9 +183,10 @@ private:
     void pick_image(const std::string& name);   // Android's picture picker; copied to files/covers/<name>.png
     void poll_image();
 #else
-    // The mouse (Windows), on the launcher, its menus and the Music Player: a click acts as a tap (a card is chosen, a
-    // second click plays it), the wheel scrolls lists, the right button goes back. In fullscreen the pointer shows
-    // once the mouse moves on the launcher, until a key or a controller's button is pressed or a game starts.
+    // The mouse (Windows, Linux), on the launcher, its menus and the Music Player: a click acts as a tap (a card is
+    // chosen, a second click plays it), the wheel scrolls lists, the right button goes back. In fullscreen the pointer
+    // shows once the mouse moves on the launcher, until a key or a controller's button is pressed or a game starts.
+    // Linux: a touch screen's taps (the Steam Deck's) come as clicks, without showing the pointer.
     struct MouseInput { bool click = false, right = false; float x = 0, y = 0, wheel = 0; };
     MouseInput mouse_in_;                // from the window's events since the last frame (taken by poll_ui)
     bool mouse_shown_ = false;
@@ -303,7 +304,7 @@ private:
     bool load_script(const std::wstring& path);
     void run_script();
 
-    // per platform (app_win.cpp / app_android.cpp)
+    // per platform (app_win.cpp / app_android.cpp / app_linux.cpp)
 #ifdef _WIN32
     bool create_window(HINSTANCE inst, int show);
     void remember_monitor();
@@ -314,6 +315,9 @@ private:
 #ifdef _WIN32
     // the windowed client size for the picture (Window Size x its shape), fitted to `work` (a monitor's work area)
     void window_size(int& cw, int& ch, const RECT* work = nullptr);
+#elif !defined(__ANDROID__)
+    // the same on Linux, fitted to max_w x max_h (the display's usable area; 0: any size)
+    void window_size(int& cw, int& ch, int max_w = 0, int max_h = 0);
 #endif
     void move_to_monitor(int index);
     double refresh_rate();
