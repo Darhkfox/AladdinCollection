@@ -11,7 +11,8 @@
 
   The consoles' hardware (Mega Drive, SNES and Master System CPUs, graphics
   and sound chips) is reproduced in native code, so the games run directly
-  on Windows -- no separate emulator needed -- with a set of modern extras:
+  on Windows, Linux / the Steam Deck and Android -- no separate emulator
+  needed -- with a set of modern extras:
   true widescreen up to 21:9 ultrawide in all three games, fullscreen,
   filters and colour profiles, save states, fast forward and rewind, 54
   achievements, and an in-game menu (cheats, level select, music player and
@@ -76,6 +77,46 @@
 
 
 --------------------------------------------------------------------------------
+  LINUX AND STEAM DECK
+--------------------------------------------------------------------------------
+
+  The Linux version is a single file,
+  Aladdin-Collection-v<version>-x86_64.AppImage (64-bit x86 Linux with
+  OpenGL ES 3.0 -- any current Mesa or NVIDIA driver).
+
+  1. Make it executable: in the file manager, Properties > Permissions >
+     "Is executable" (or chmod +x it in a terminal).
+  2. Put your ROMs next to the AppImage, or in a "roms" folder beside it.
+  3. Double-click the AppImage.
+
+  STEAM DECK
+     In Desktop Mode, open Steam > Games > Add a Non-Steam Game to My
+     Library... > Browse... and pick the AppImage. It then starts from Game
+     Mode like any other game, with the Deck's controls working as an
+     Xbox-style pad (View opens the pause menu, the menus show Xbox button
+     names). The first start picks 16:10 widescreen to fill the Deck's
+     1280x800 screen. The touch screen works on the launcher, its menus and
+     the Music Player as the mouse does (tap a game to choose it, tap again
+     to play it).
+
+  Settings, achievements, save states, screenshots, the achievements
+  export, launcher pictures (covers) and soundtrack packs (soundtracks,
+  msu) are kept in ~/.local/share/AladdinCollection; ROMs can go in a
+  "roms" folder there too. Wherever this readme says "next to
+  AladdinCollection.exe" or %LOCALAPPDATA%, on Linux it means that folder.
+  (A Linux build run straight from a writable folder, not as an AppImage,
+  keeps them next to the program instead, like the Windows version.)
+
+  Everything works as on Windows -- the MD+ and MSU-1 soundtrack packs,
+  covers, Show Games, the Music Player, achievements, the update check --
+  except the slang shaders, the monitor choice, High Frame Rate and the
+  Other Controllers switch (Windows only). The menus use the DejaVu Sans
+  font, which the AppImage brings along. The Linux version is new: it is
+  built and tested automatically, but hasn't been tried on a real Steam
+  Deck yet -- reports are welcome on the GitHub issues page.
+
+
+--------------------------------------------------------------------------------
   CONTROLS
 --------------------------------------------------------------------------------
 
@@ -125,7 +166,8 @@
   Player's tracks; the wheel scrolls lists; right-click, or click outside
   a menu, to go back. In fullscreen the pointer appears when the mouse
   moves and hides again when you press a key or a game starts. In a game
-  the mouse does nothing.
+  the mouse does nothing. On Linux a touch screen (the Steam Deck's) works
+  the same way.
 
   In the games:
      Mega Drive ....... A throws an apple, B swings the sword, C jumps.
@@ -292,7 +334,7 @@
      Display Mode ...... Windowed or Fullscreen (borderless).
                                                  (default: Fullscreen)
      Monitor ........... Which display to use (listed by name). Dragging the
-                         window to another screen picks it too.
+                         window to another screen picks it too. (Windows)
      Window Size ....... 1x to 6x, in windowed mode.      (default: 3x)
      Widescreen ........ The shape of the gameplay picture: Off (original),
                          16:10, 16:9, 2:1 or 21:9 (ultrawide, for 3440x1440
@@ -330,7 +372,7 @@
                          graphics card. Needs librashader.dll next to the
                          game. If a preset can't be found or compiled
                          ("Shader ... not loaded"), the game goes back to
-                         the built-in filter.             (default: Off)
+                         the built-in filter. Windows only. (default: Off)
      VSync ............. Sync to the monitor's refresh rate. (default: ON)
      Black Frame Insertion  Sharper motion, like a CRT: each game frame is
                          followed by a black one. Needs V-Sync and the
@@ -386,7 +428,7 @@
      gamepad row says so). Also: Device (which pad), Left Stick Moves
      (default ON), Menu Buttons (in the menus, the bottom face button
      confirms - Xbox's layout, the default - or the right one, Nintendo's),
-     Other Controllers (PC: read controllers that aren't Xbox-style;
+     Other Controllers (Windows: read controllers that aren't Xbox-style;
      default ON - switch it off if one sends presses you didn't make) and
      Reset to Defaults.
 
@@ -723,8 +765,10 @@
                        Shader), with librashader.dll next to the exe.
 
   These live next to AladdinCollection.exe (the folder is portable), or in
-  %LOCALAPPDATA%\Aladdin Collection if that folder isn't writable. Save
-  states made by a newer version may not load in an older one.
+  %LOCALAPPDATA%\Aladdin Collection if that folder isn't writable. On
+  Linux (the AppImage) they live in ~/.local/share/AladdinCollection, with
+  / for \ (see LINUX AND STEAM DECK). Save states made by a newer version
+  may not load in an older one.
 
 
 --------------------------------------------------------------------------------
@@ -757,6 +801,13 @@
 
   Cover and background pictures are read with stb_image by Sean Barrett,
   public domain (or MIT, at your choice).
+
+  The Android and Linux versions use SDL2 (zlib licence); the Linux
+  version also FreeType (FreeType License) and the DejaVu Sans font
+  (Bitstream Vera licence, fonts/DejaVu-LICENSE.txt inside the AppImage).
+  Its text drawing comes from the Mickey & Donald Collection's Linux port,
+  which took it from simplePsyduck's Nintendo Switch port of that
+  collection: https://github.com/simplePsyduck/MickeyAndDonaldCollection-NX
 
   Aladdin (c) Disney. The Mega Drive version (c) 1993 Sega / Virgin Games,
   the SNES version (c) 1993 Capcom, the Master System version (c) 1994

@@ -1,6 +1,6 @@
 // Small OS layer for the app: files, folders, paths and links. Paths are std::wstring on every platform
 // (Windows file APIs take them directly; elsewhere they are converted to UTF-8 when a file is opened).
-// Implementations: sys_win.cpp (Windows), sys_android.cpp (Android).
+// Implementations: sys_win.cpp (Windows); sys_android.cpp (Android) and sys_linux.cpp (Linux), both with sys_posix.cpp.
 #pragma once
 #include <cstdint>
 #include <cstdio>
@@ -33,10 +33,11 @@ bool list_dir(const std::wstring& dir, std::vector<DirEntry>& out);
 std::wstring exe_dir();
 // Where settings, save states and screenshots go: on Windows next to the executable (portable), or
 // %LOCALAPPDATA%\Aladdin Collection when that folder is read-only (e.g. Program Files); on
-// Android the app's internal storage.
+// Android the app's internal storage; on Linux next to the executable too, or ~/.local/share/AladdinCollection
+// ($XDG_DATA_HOME) when that folder is read-only or the program runs as an AppImage.
 std::wstring data_dir();
-// Where exported files go (the achievements export): the data folder on Windows; on Android the app's folder on the
-// shared storage (Android/data/<package>/files), which a file manager or a PC over USB can open.
+// Where exported files go (the achievements export): the data folder on Windows and Linux; on Android the app's
+// folder on the shared storage (Android/data/<package>/files), which a file manager or a PC over USB can open.
 std::wstring export_dir();
 // The folders searched for ROMs, in order.
 std::vector<std::wstring> rom_dirs();

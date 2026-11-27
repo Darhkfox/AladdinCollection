@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 void App::ach_startup() {
     ach_.load(path_join(data_dir(), L"achievements.ini"));
@@ -224,7 +225,8 @@ MenuPage App::achievements_page(int game) {
 }
 
 // achievements.csv and the badges (achexport.h), in "achievements export" in the export folder (next to the exe, or
-// %LOCALAPPDATA%\Aladdin Collection; on Android the app's folder on the shared storage).
+// %LOCALAPPDATA%\Aladdin Collection; on Linux next to the program or ~/.local/share/AladdinCollection; on Android the
+// app's folder on the shared storage).
 void App::export_achievement_list() {
     std::vector<AchievementGroup> groups;
     for (int g = 0; g < kGameCount; g++) groups.push_back({game_label(games_[g].module.get()), games_[g].module->achievements()});
@@ -234,8 +236,15 @@ void App::export_achievement_list() {
     if (!export_achievements(dir, groups, ach_, &err)) { menu_.toast("Export failed: " + err, 5.0f); return; }
 #ifdef __ANDROID__
     menu_.toast("Exported to Android/data/com.darhkfox.aladdincollection/files/achievements export", 6.0f);
-#else
+#elif defined(_WIN32)
     menu_.toast("Exported: achievements.csv and badges in \"achievements export\"", 4.0f);
+#else
+    // (Linux: the data folder is often ~/.local/share/AladdinCollection, out of sight: the toast names it)
+    std::string shown = to_utf8(dir);
+    const char* home = getenv("HOME");
+    if (home && *home && shown.compare(0, strlen(home), home) == 0 && shown.size() > strlen(home) && shown[strlen(home)] == '/')
+        shown = "~" + shown.substr(strlen(home));
+    menu_.toast("Exported: achievements.csv and badges in " + shown, 6.0f);
 #endif
 }
 

@@ -19,6 +19,13 @@ roms/
 # builds and packaged output
 build/
 dist/
+# (Linux: the build, the AppImage's staging folder, linuxdeploy, the AppImage, the smoke test's output)
+build-linux/
+AppDir/
+.tools/
+dist-linux/
+*.AppImage
+smoke/
 
 # save states, input recordings, settings and captures (states hold game RAM / VRAM)
 *.state

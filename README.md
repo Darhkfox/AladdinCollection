@@ -1,6 +1,6 @@
 # Aladdin Collection — PC Edition
 
-A Windows (and Android) port of the three 16-bit and 8-bit versions of Disney's *Aladdin*, with a launcher,
+A Windows (and Linux / Steam Deck, and Android) port of the three 16-bit and 8-bit versions of Disney's *Aladdin*, with a launcher,
 widescreen up to 21:9, modern display options, gamepad support, cheats, level select, achievements, save states,
 fast forward / rewind and a music player:
 
@@ -42,6 +42,23 @@ To start a game directly, give `AladdinCollection.exe` the argument `--game md`,
 **On Android** (64-bit phones and tablets, Android 6.0 or later): install the APK, copy your ROMs (or a zip of
 them) to the phone, start the app and tap **Add ROMs**. The games are played with on-screen touch controls or a
 Bluetooth / USB controller.
+
+**On Linux and the Steam Deck** (64-bit x86 Linux with OpenGL ES 3.0, i.e. any current Mesa or NVIDIA driver):
+1. Download `Aladdin-Collection-v<version>-x86_64.AppImage` from the Releases page and make it executable (file
+   manager: *Properties → Permissions → Is executable*, or `chmod +x` it).
+2. Put the ROMs next to the AppImage, or in a `roms` folder beside it.
+3. Run the AppImage. On the Steam Deck, in Desktop Mode: Steam → *Games → Add a Non-Steam Game to My Library…*
+   → *Browse…* → pick the AppImage. It then starts from Game Mode like any other game, the Deck's controls
+   working as an Xbox-style gamepad (the menus name its buttons the Xbox way; View opens the pause menu); the
+   first start picks 16:10 widescreen for the Deck's 1280×800 screen, and the touch screen works on the launcher,
+   its menus and the Music Player as the mouse does.
+
+Settings, saves, screenshots, achievements, covers and soundtrack packs then live in
+`~/.local/share/AladdinCollection` (`$XDG_DATA_HOME`), which can hold a `roms` folder too. The Linux build has the
+same games and options as Windows (MD+ / MSU-1 soundtracks, covers, Show Games, the Music Player, achievements and
+their export, the update check) except the slang shaders, the monitor choice, High Frame Rate and the *Other
+Controllers* switch. Its menus use DejaVu Sans (bundled). It is new: built and tested automatically on every
+change, but not yet tried on a real Steam Deck, so reports are welcome on the issues page.
 
 ## Features
 
@@ -368,7 +385,7 @@ instead of waiting. Also under *Controls*:
 
 - *Menu Buttons*: in the menus the bottom face button confirms and the right one goes back (Xbox's layout, the
   default), or the other way round (Nintendo's).
-- *Other Controllers* (PC): read controllers that aren't Xbox-style (DirectInput: a Switch Pro or PlayStation pad
+- *Other Controllers* (Windows): read controllers that aren't Xbox-style (DirectInput: a Switch Pro or PlayStation pad
   without Steam). On by default; switch it off if one sends presses you didn't make.
 
 A button held while a controller connects (or reconnects) doesn't count as a press until it is let go. A
@@ -379,7 +396,7 @@ and 8BitDo pads) are read as plain joysticks in the PlayStation button order.
 
 The mouse works on the launcher, its menus and the Music Player (see *Launcher* above). In fullscreen the pointer
 appears when the mouse moves on the launcher and hides again at a key or button press or when a game starts. In a
-game the mouse does nothing.
+game the mouse does nothing. On Linux a touch screen (the Steam Deck's) works the same way, its taps as clicks.
 
 ## Files
 
@@ -387,8 +404,9 @@ Settings are stored in `settings.ini`, earned achievements in `achievements.ini`
 was earned; older files, with the date only, still load), save states in `saves\`, screenshots in
 `screenshots\`, the achievements export in `achievements export\`; soundtrack packs go in `soundtracks\` (MD+) and `msu\`
 (MSU-1), launcher pictures in `covers\`. These live next to the exe (the folder is
-portable), or in `%LOCALAPPDATA%\Aladdin Collection` if that folder isn't writable. Delete `settings.ini` to
-restore the defaults.
+portable), or in `%LOCALAPPDATA%\Aladdin Collection` if that folder isn't writable. On Linux they live in
+`~/.local/share/AladdinCollection` (`$XDG_DATA_HOME/AladdinCollection`) when it runs as an AppImage or from a
+read-only folder, else next to the program as on Windows. Delete `settings.ini` to restore the defaults.
 
 ## Building from source
 
@@ -423,14 +441,37 @@ cd android
 gradlew assembleDebug
 ```
 
+### Linux
+
+The Linux build uses the Android build's SDL2 / OpenGL ES 3.0 layer (`src/platform/sdl`), with FreeType for the
+menus' text, and the same `CMakeLists.txt`. On Ubuntu 22.04 or later (or Debian), with g++ or clang:
+
+```
+sudo apt install cmake g++ libsdl2-dev libfreetype-dev libgles-dev libegl-dev fonts-dejavu-core
+cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Release
+cmake --build build-linux -j
+build-linux/tests/app_tests                                     # the app tests, as on Windows
+linux/build_appimage.sh build-linux/bin/AladdinCollection       # dist-linux/Aladdin-Collection-v<version>-x86_64.AppImage
+                                                                #   (fetches linuxdeploy into .tools/)
+linux/smoke_test.sh build-linux/bin/AladdinCollection smoke     # launcher, Options and Credits on a virtual display
+                                                                #   (needs xvfb-run and Mesa), screenshots checked
+```
+
+`build-linux/bin/AladdinCollection` also runs as it is (fonts are found in the system; settings and saves go next to
+it while that folder is writable). GitHub Actions (`.github/workflows/linux.yml`) builds on Ubuntu 22.04 so the
+AppImage runs on SteamOS and current distros, runs the app tests and `linux/smoke_test.sh`, keeps the AppImage and
+the screenshots as the run's artifact, and attaches the AppImage to the release when a version tag is pushed. The
+update check runs `curl` (or `wget`) on its own thread; links and folders open through `xdg-open`.
+
 ### Source layout
 
 | Path | Contents |
 |---|---|
 | `src/core/` | Mega Drive (`m68k`, `vdp`, `ym2612`, `md`: with the MD+ cartridge overlay), SNES (`cpu65816`, `apu`, `dsp`, `ppu`, `snes`, and `msu1`: the MSU-1 chip) and Master System (`sms`, `sms_vdp`) hardware; the Z80 and SN76489 (`z80`, `psg`) serve both Sega consoles. Each video chip renders a widened picture with hooks for the game modules, and the high frame rate's in-between pictures (`hfr_match`: matching the sprites of two frames) |
 | `src/game/` | `game.h` (the module interface, typed per console), the three modules `md_aladdin.cpp`, `snes_aladdin.cpp`, `sms_aladdin.cpp` and each console's helpers (`*_common.cpp`: verified ROM patching, scripted input) |
-| `src/app/` | Launcher, sessions (`session.cpp` and one per console: `session_md/snes/sms.cpp`), soundtrack packs (`soundtrack.cpp`: finding MD+ and MSU-1 packs, the ROM a pack runs on, the MD+ player), menus, music player / sound test, rewind, achievements and their export (`achexport.cpp`), the update check (`updatecheck.cpp`, `app_updates.cpp`; the repository is `kUpdateRepo`), settings, ROM finder, PNG writer, touch controls; per platform `app_win.cpp` / `app_android.cpp` and `sys_win.cpp` / `sys_android.cpp` |
-| `src/platform/` | Windows: Direct3D 11 video and DirectWrite UI text, slang shader presets through librashader (`slang.cpp`), XAudio2 audio, keyboard / XInput / DirectInput input. `android/`: OpenGL ES 3.0 video, SDL audio and controllers |
+| `src/app/` | Launcher, sessions (`session.cpp` and one per console: `session_md/snes/sms.cpp`), soundtrack packs (`soundtrack.cpp`: finding MD+ and MSU-1 packs, the ROM a pack runs on, the MD+ player), menus, music player / sound test, rewind, achievements and their export (`achexport.cpp`), the update check (`updatecheck.cpp`, `app_updates.cpp`; the repository is `kUpdateRepo`), settings, ROM finder, PNG writer, touch controls; per platform `app_win.cpp` / `app_android.cpp` / `app_linux.cpp` (window, main loop) and `sys_win.cpp` / `sys_android.cpp` / `sys_linux.cpp` (folders, links, the update check's download; `sys_posix.cpp` has the files part Android and Linux share) |
+| `src/platform/` | Windows: Direct3D 11 video and DirectWrite UI text, slang shader presets through librashader (`slang.cpp`), XAudio2 audio, keyboard / XInput / DirectInput input. `sdl/` (Android and Linux): OpenGL ES 3.0 video (the same filters as GLSL; UI text from Android's own fonts, or FreeType on Linux: `glyphs_ft.cpp`), SDL audio and controllers |
+| `linux/` | The AppImage script and desktop entry, and the smoke test the Linux CI runs |
 | `third_party/` | `librashader` (the DLL, its C headers and licence), `slang-shaders` (the bundled presets, with their licences) and `stb` (`stb_image.h`, which reads the cover pictures) |
 | `src/tools/` + `tools/` | Headless cores as DLLs with Python wrappers (`mdt.py`, `snt.py`, `smst.py`) used for the reverse engineering and testing; `tools/re/` the scripts behind the notes in `docs/` |
 | `docs/` | Reverse-engineering notes per game (`re_*_game.md`: logic, levels, cheats, sound; `re_*_wide.md`: widescreen) |
@@ -527,14 +568,18 @@ gradlew assembleDebug
   [X](https://x.com/ADH_Gaming) · [Patreon](https://www.patreon.com/c/TeamRedTail). The Team RedTail logo at the
   launcher's top left opens the Patreon page too.
 - The port's own code is released under the MIT licence (`LICENSE`). The emulation cores are written from
-  scratch. UI text uses the system font (Segoe UI through DirectWrite on Windows, Android's own font on Android).
+  scratch. UI text uses the system font (Segoe UI through DirectWrite on Windows, Android's own font on Android)
+  and on Linux DejaVu Sans (Bitstream Vera licence, bundled in the AppImage with its licence) through FreeType
+  (FreeType License), with the glyph rasteriser of the Mickey & Donald Collection's Linux port, which comes from
+  simplePsyduck's Nintendo Switch port of that collection
+  ([MickeyAndDonaldCollection-NX](https://github.com/simplePsyduck/MickeyAndDonaldCollection-NX)).
 - The MSU-1 chip (`src/core/msu1.cpp`) and the MSU-1 pack handling (finding a pack's tracks, applying its patch) are
   ported from the Super Mario All-Stars PC port by the same author (MIT licence, as here); the chip here resamples with a
   cubic interpolation and keeps its state with the session's save-state tag. MD+ is the CD-audio standard of the MegaSD
   (Terraonion) and the Mega EverDrive Pro (Krikzz), MSU-1 byuu's (higan) and the SD2SNES's. Soundtrack packs, their
   patches and music belong to their makers (e.g. ArcadeTV for *Aladdin CD - MD+*) and aren't part of this project.
-- The Android build uses SDL2 by Sam Lantinga and contributors, zlib licence (fetched by
-  `android/fetch_sdl.ps1`, not stored in this repository).
+- The Android and Linux builds use SDL2 by Sam Lantinga and contributors, zlib licence (Android: fetched by
+  `android/fetch_sdl.ps1`, not stored in this repository; Linux: the system's, bundled in the AppImage).
 - Slang shaders run through librashader by Ronny Chan (chyyran), Mozilla Public License 2.0
   (`librashader-LICENSE.md` next to the exe). The bundled presets are unmodified files from the libretro
   slang-shaders collection, each with its own licence (public domain, GPL v2 or later, MIT): see

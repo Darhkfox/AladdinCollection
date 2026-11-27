@@ -1,11 +1,18 @@
-// OpenGL ES 3.0 presentation layer for Android (see video.h); the same drawing model as the Direct3D 11 one in
-// video.cpp: the game frame with its filters, then batched overlay quads (rects, rounded rects, text).
-// UI glyphs are rendered by Android's own text engine (CollectionActivity.renderGlyphs, through JNI) into one atlas.
+// OpenGL ES 3.0 presentation layer for Android and Linux (see video.h); the same drawing model as the Direct3D 11
+// one in video.cpp: the game frame with its filters, then batched overlay quads (rects, rounded rects, text).
+// UI glyphs go into one atlas: on Android rendered by its own text engine (CollectionActivity.renderGlyphs, through
+// JNI), on Linux by FreeType (glyphs_ft.h) from the fonts next to the program or the system's.
 #include "../video.h"
 #include <SDL.h>
 #include <GLES3/gl3.h>
+#ifdef __ANDROID__
 #include <jni.h>
 #include <android/log.h>
+#else
+#include "glyphs_ft.h"
+#include <initializer_list>
+#include <string>
+#endif
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
@@ -180,7 +187,38 @@ uint32_t next_cp(const char*& p, const char* end) {
     return cp;
 }
 
+#ifdef __ANDROID__
 void log_error(const char* msg) { __android_log_print(ANDROID_LOG_ERROR, "MickeyDonald", "%s", msg); }
+#else
+void log_error(const char* msg) { SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "AladdinCollection: %s", msg); }
+
+// A font file's bytes: the first of `names` found in the program's folder (its fonts/ subfolder too: the AppImage
+// bundles DejaVu Sans there) or in the usual system font folders. Empty if none.
+std::vector<uint8_t> load_font(std::initializer_list<const char*> names) {
+    std::vector<std::string> dirs;
+    if (char* base = SDL_GetBasePath()) {
+        dirs.push_back(std::string(base) + "fonts/");
+        dirs.push_back(base);
+        SDL_free(base);
+    }
+    for (const char* d : {"/usr/share/fonts/truetype/dejavu/", "/usr/share/fonts/TTF/", "/usr/share/fonts/dejavu/",
+                          "/usr/share/fonts/dejavu-sans-fonts/", "/usr/share/fonts/noto/", "/usr/share/fonts/truetype/noto/",
+                          "/usr/share/fonts/google-noto/", "/usr/share/fonts/truetype/liberation/",
+                          "/usr/share/fonts/liberation/", "/usr/share/fonts/liberation-sans/"})
+        dirs.push_back(d);
+    for (const char* n : names)
+        for (const std::string& d : dirs) {
+            SDL_RWops* f = SDL_RWFromFile((d + n).c_str(), "rb");
+            if (!f) continue;
+            const Sint64 size = SDL_RWsize(f);
+            std::vector<uint8_t> data(size > 0 ? (size_t)size : 0);
+            const bool ok = size > 0 && SDL_RWread(f, data.data(), 1, data.size()) == data.size();
+            SDL_RWclose(f);
+            if (ok) return data;
+        }
+    return {};
+}
+#endif
 
 GLuint compile(GLenum type, const std::string& src) {
     GLuint s = glCreateShader(type);
@@ -353,6 +391,7 @@ struct Video::Impl {
     // ---- fonts -----------------------------------------------------------------
     int font_base() const { return std::min(h, w * 3 / 4); }
 
+#ifdef __ANDROID__
     // Asks CollectionActivity.renderGlyphs for one font's glyphs; returns false if Java isn't reachable.
     bool render_font(const std::vector<uint32_t>& cps, float px, bool bold, std::vector<int>& meta, std::vector<uint8_t>& bits) {
         JNIEnv* env = (JNIEnv*)SDL_AndroidGetJNIEnv();
@@ -384,6 +423,21 @@ struct Video::Impl {
         env->DeleteLocalRef(act);
         return ok;
     }
+#else
+    // FreeType over the UI font (DejaVu Sans, or another common sans; Windows draws Segoe UI), its bold cut when
+    // there is one (else the outlines are emboldened).
+    bool render_font(const std::vector<uint32_t>& cps, float px, bool bold, std::vector<int>& meta, std::vector<uint8_t>& bits) {
+        static const std::vector<uint8_t> regular = load_font({"DejaVuSans.ttf", "NotoSans-Regular.ttf", "LiberationSans-Regular.ttf"});
+        static const std::vector<uint8_t> heavy = load_font({"DejaVuSans-Bold.ttf", "NotoSans-Bold.ttf", "LiberationSans-Bold.ttf"});
+        auto blob = [](const std::vector<uint8_t>& v) { return FontBlob{v.data(), v.size()}; };
+        std::vector<FontBlob> faces;
+        const bool own_bold = bold && !heavy.empty();
+        if (own_bold) faces.push_back(blob(heavy));
+        if (!regular.empty()) faces.push_back(blob(regular));
+        if (faces.empty()) return false;
+        return ft_render_glyphs(faces, cps, px, bold && !own_bold, meta, bits);
+    }
+#endif
 
     void build_fonts() {
         fonts_dirty = false;
@@ -750,7 +804,7 @@ bool Video::slang_available() { return false; }
 bool Video::slang_active() const { return false; }
 bool Video::set_slang(const std::wstring& path, std::string* error) {
     if (path.empty()) return true;
-    if (error) *error = "not available on Android";
+    if (error) *error = "not available on this system";
     return false;
 }
 
