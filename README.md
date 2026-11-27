@@ -193,10 +193,7 @@ achievements of its own: *A Whole New World* (defeat Jafar in all three versions
   (the idol in the Cave of Wonders, Jafar and his snake) the wider view settles on the arena's centre instead of
   following Aladdin, so the extra width shows the arena rather than what lies beyond its far end; it eases in and out
   over about a second, and lets go as soon as the boss is beaten (the carpet then flies Aladdin away with the view
-  following as anywhere). While a fight holds Aladdin between its walls (the idol's pedestals, Jafar's pillars, the
-  Rooftops' end), whatever the view shows beyond them is dimmed to half brightness, the HUD kept bright; the dim fades
-  in as he enters the arena and out over a quarter of a second once the boss is beaten (so the carpet after the idol
-  comes in bright) or if he leaves. Inside a wide arena (Jafar's hall) nothing is dimmed until a wall comes into view.
+  following as anywhere). What the view shows beyond the arena's walls is at full brightness, as everywhere else.
   In widescreen the magic carpet comes as soon as the golden idol is beaten, unlike the original, where a win beside
   the far pedestal makes you walk away and back before it appears (at 4:3 it stays the original's way).
   The Rug Ride is wide too, with all the extra width behind the carpet: the ride sends its rocks and treasures in at

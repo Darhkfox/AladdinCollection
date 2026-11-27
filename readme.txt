@@ -605,10 +605,8 @@
 
   Boss fights: on the Mega Drive the wider view settles on the arena (the
   golden idol, Jafar and his snake) instead of following Aladdin, so the
-  extra width shows the arena; whatever lies beyond the arena's walls is
-  dimmed to half brightness (the HUD stays bright) while the fight holds
-  Aladdin there, fading in as he enters and out once the boss is beaten;
-  in widescreen the magic carpet comes as soon as the idol is beaten. On
+  extra width shows the arena, all of it at full brightness; in
+  widescreen the magic carpet comes as soon as the idol is beaten. On
   the SNES the arenas keep the original camera, and their sides are
   shown at full brightness, except during the boss fights at the ends
   of Sultan's Dungeon and Jafar's Palace: there the

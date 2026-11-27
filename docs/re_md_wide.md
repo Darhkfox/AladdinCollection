@@ -354,38 +354,18 @@ the idol on the far pedestal cut at the right edge; in Jafar's hall at the left 
   starts at camera 1724 / 1732 at 16:9 / 21:9 (the tune's moment), the view never moves more than 3 px a frame further
   than the camera in, through and out of the fight (the boss removed: slide back to 0), at 1.5 times the camera's pace
   where it catches up after Aladdin leaves.
-* **The sides dimmed** (`kBossDims`, `boss_dim`, `VDP::edge_dim`; the user's request at 21:9: the fights showed "too
-  much from the left/right which isn't important to the boss fight"). Each arena's walls, measured with walks to both
-  walls at 4:3 (Aladdin's x, object 0's +2; his body spans x .. x + 32 in the map): the idol 2047 / 2305 (beside the
-  pedestals; the near one's foot at map x 2035), Jafar's hall 477 / 1138 (the pillars' inner faces 479 / 1166), the
-  Rooftops' end on top 2126 (the cliff; the step at 2270 can be jumped) / 2432, and below (boss `$28`) 1999 (a wall
-  he can't jump) / 2431. While the fight is on (the framing's own test) with Aladdin inside an arena's box, the widened
-  view's columns beyond its walls' faces (map x < 2031 / ≥ 2340, < 479 / ≥ 1166, < 2126, < 1997) are darkened: planes
-  and sprites alike, the HUD sprites spared (`spr_hud_`, as the edge masks). The line hook works the columns out per
-  line from the map x of the line's screen x 0 (the in-between pictures of the high frame rate included); the VDP
-  marks those pixels with the darkening (0-15) in bits 12-15 of the frame buffer, and the app and `mdtool` darken them
-  by that many 30ths (`VDP::dimmed`: 15 = half brightness, the SNES fights' strength). It goes up a 30th a frame from
-  entering the box (15 frames) and down the same way once the fight is off (the idol's tenth hit, the snake's or the
-  Rooftops' boss's kill) or Aladdin leaves the box (the Cave's river). Kept in `module_state[1]` bits 25-28 (the
-  darkening) and 29-31 (the arena + 1), so save states and rewind keep it; cleared at a level's load and fade-ins; an
-  older state has 0 there (undimmed, fading in on its next frame in a fight). What was shown beyond the walls and what
-  is dimmed now (map px, view at the arena's middle / its left end / its right end):
-  - the idol, 21:9: 1884-2460 / 1838-2414 / 1938-2514 showed the bats' slope left of the near pedestal and the treasure
-    heap right of the far one: 147 + 120 / 193 + 74 / 93 + 174 px dimmed; 16:9: 112 + 7 / 193 / 174 px. Beaten, the
-    sides are bright again 15 frames after the tenth hit, with the carpet coming in right of the far pedestal.
-  - Jafar and the snake: in the middle of the hall (528-1104 at 21:9) neither pillar is in view and nothing is dimmed;
-    at the walls 148 px (the corridor left of the left pillar) / 118 px (the hall beyond the right one), at 16:9 167 /
-    118. The snake's kill: the dim fades out in 15 frames as the level's fade-out begins.
-  - the Rooftops' end on top: the view is the level's last 576 px (1886-2462) throughout: the cliff and the rooftops
-    beyond it, 240 px, dimmed (16:9: 92); the right wall is the level's end. Below: 111 px at the right end (the wall
-    and the roof left of it), 216 at its left wall (16:9: 0 / 253).
-  - Jafar's Quarters (no boss object, the 800-px level is the arena) and Abu's bonus rounds and the Rug Ride (no
-    boss): nothing dimmed. At 4:3 nothing is dimmed (no line hook).
-  Measured (`md_boss_dim` shots, 21:9 / 16:9): the sides' mean brightness in the idol's arena 54.6 → 31.4 / 46.3 →
-  25.2 over the 15 frames after the drop, about 1.7 levels (of 255) a frame; walking into the arena from the ledge on
-  its left the darkening starts on the frame Aladdin passes x 2040 and rises 1 a frame, never back, until the tenth hit;
-  then 14 … 0 over 15 frames. Jafar through his ten hits, the snake and its kill: 15 on every frame of the fight.
-  States saved at darkening 1 / 5 / 9 / 13 / 15 and run on 30 frames in a fresh instance: pictures and RAM identical.
+* **The sides are no longer dimmed.** For a time (on the user's request at 21:9: the fights showed "too much from the
+  left/right which isn't important to the boss fight") the widened view's columns beyond an arena's walls were darkened
+  to half brightness while the fight held Aladdin between them (`kBossDims`, `boss_dim`, `VDP::edge_dim`; the walls'
+  faces at map x 2031 / 2340 for the idol, 479 / 1166 for Jafar's hall, 2126 and 1997 at the Rooftops' end, up and
+  down over 15 frames). The user then asked for the dimmer to go: it is taken out, and every fight's sides are shown at
+  full brightness at every width. It masked nothing - what lies beyond the walls is the level's own map (the bats'
+  slope and the treasure heap beside the idol, the corridor and the hall beyond Jafar's pillars, the rooftops beyond
+  the cliff), drawn as anywhere else; the framing (above) is unchanged. The arenas' boxes stay (`kArenas`, `arena_box`):
+  the framing keeps a fight on by them with the camera below the arena's height. `module_state[1]` bits 25-31 are no
+  longer used (an older state's dim there is ignored). The VDP's `edge_dim` remains for the other cores' use; the MD
+  module never sets it. The only other thing the module draws over the MD's sides is the edge masks: black beyond a
+  level's ends where a level is narrower than the widened view (`edge_mask_l` / `_r`, §5) - not a dimmer, left as is.
 * The spawn band follows the slide (`reach_hook`), so objects still come in just outside the view. While a framing is
   in force (or easing out) the view can run ahead of the camera between column steps, so right after the gameplay
   loop's streaming (`$1A8CE8`, `jsr $1B315C`) the module pushes the return past it and two column ranges and enters the
@@ -751,7 +731,7 @@ look-ahead would mean running the game ahead (the player decides the crashes) or
 | stepping stones | `md_wide_stones.py 0 54 128` (map-view pass back and forth over the river) | at most 3 / 8 / 10 stones on one block and 0 / 9 / 17 views missing one (block 156, 165) before; 3 / 1 / 1 and 0 now (the 3 at 4:3 are the game's own) |
 | river foreground | plane A alone at 21:9 at the QA's spot (camera ≈ 2150) against 4:3 renders of the same map pixels (same CRAM) | 126,720 pixels identical, 0 different: the flat patches under the water line are the map's own art |
 | boss framing | `md_wide_boss.py 0 54 128`; Jafar's hall and the Rooftops' end walked wall to wall | views as in §5 (Boss fights); no frame moves the view more than 3 px further than the camera |
-| boss fights' sides dimmed | every fight at 54 / 128 walked to both walls, beaten (the idol, Jafar through the snake); the idol's arena entered from its left ledge; states mid-fade | as in §5 (The sides dimmed): only what lies beyond the walls, the HUD bright, 15 frames in and out, keyed to the fight and Aladdin's box; `md_wide_boss`, `md_wide_carpet`, `md_boss_tune cave`, `md_wide_stones`, `md_wide_popin`, `md_wide_rug 54 128 --seeds 1,2` as before, `md_parity`, `md_attract` (cheats) 0 differences, `hfr_test.py md` passes |
+| boss fights' sides (dimmed, since taken out) | every fight at 54 / 128 walked to both walls, beaten (the idol, Jafar through the snake); the idol's arena entered from its left ledge; states mid-fade | when dimmed: only what lies beyond the walls, the HUD bright, 15 frames in and out, keyed to the fight and Aladdin's box (now: the idol's and Jafar's arenas at the near wall at 21:9, the frame buffer's dim marks 0; the app's shots bright); `md_wide_boss`, `md_wide_carpet`, `md_boss_tune cave`, `md_wide_stones`, `md_wide_popin`, `md_wide_rug 54 128 --seeds 1,2` as before, `md_parity`, `md_attract` (cheats) 0 differences, `hfr_test.py md` passes |
 | after the bosses | `md_wide_carpet.py 0 54 128`; the Rooftops' boss and Jafar (both forms) beaten from one state at 0 / 54 / 128 | see §5 (After the fight): in widescreen the carpet with the idol's kill from either pedestal, at 4:3 as the original; the other two end their level from the kill, nothing streamed |
 | the Palace's hole | `md_wide_abu.py 0 54 128` (Abu left in the cage / freed / freed after standing on the carpet) | the same at every width: the carpet in the hole from frame 216 while Abu is caged, none once he is free and Aladdin down the shaft (§5, After the fight) |
 | idol arena colours | the arena runs of §3 (Palette line 2) at 0 / 54 / 128, split into frames shown as play and the death-fade / fill frames (line 2 on the all-black `$128F12`) | in other colours on shown frames: 21:9 from the left 526 → 0 (the bat), from above 31 → 0 at 16:9 and 91 → 0 at 21:9; what remains are fade and fill frames (the run now falls into the river on its second life, as at 4:3) |
@@ -763,6 +743,7 @@ look-ahead would mean running the game ahead (the player decides the crashes) or
 | other screens (§6a) | from power-on through the logos, title and OPTIONS; the Market ended (level-skip code) with and without a Genie token through "Level Complete", the wheel, the scarab and the next story cards; every level's story and title cards; a death and the continue screen; Jafar's Palace ended through the ending and credits; at 54 and 128, per frame: wide or 4:3, sprites in the sides; the app's shots before / after at 16:9 and 21:9 | wide as listed in §6a, the rest 4:3; every switch between wide and 4:3 on black (or the scarab's halves meeting on black); no sprite in the sides but what crosses the screen; the Genie flies out of the right side whole (before: cut at the 4:3 edge, every fourth frame garbled when placed from RAM at the frame's start) |
 | Genie's wheel (§6a) | `md_wide_bonus.py 54 128 --wheel <the user's state>`: the user's save state (the wheel after the Escape), the Market and the Rug Ride with two tokens ended by the level skip, C every 150 frames; the app at 2560x1080, 21:9 and 16:9 (CRT) | every frame of the wheel wide (before: 4:3 with bars); results (tokens, faces, lives, apples, gems) as at 4:3; RAM identical to 4:3 on every frame of the wheel from the state and from the Rug Ride; from the Market (a level played on the widescreen ROM) what the level left differs at first - the RAM sprite table's screen-fixed marks and the stack, and in the wheel's first 25 frames (its set-up's first frame still on the widescreen ROM) a few work bytes at `$FFEE07`-`$EE13` - then nothing but a stack byte below the stack pointer (`$FFEFC5`) on 7 frames |
 | instructions (§6a) | power-on, START on the title, the scarab, the instructions (fade-in, START, fade-out) and the story card, 1,800 frames at 0 / 54 / 128, with and without invincibility, infinite health / lives / apples; rewind across the instructions (a state every 2 frames, loaded back from the end); every level selected with START hammered, and the Market's end into the Desert: the ROM at the level's init; the app at 2560x1080 (21:9 / 16:9 CRT) and headless at all eight widths | 68000 and Z80 RAM identical to 4:3 on every frame (before: 860 frames differed, the sprite table, from the scarab on); the 289 frames of the instructions all wide; 0 rewound frames differ; every level's init on the widescreen ROM (Abu's rounds and the Rug Ride on the 4:3 one); the tent continues without a seam, the table and labels as at 4:3 |
+| story cards at 4:3 and 21:9 | every level entered through the level select (no button), and each level ended by the level skip into the next (the Market, Desert, Rooftops, Dungeon, Cave, Escape, Lamp, Palace, Jafar's Quarters): the frames the story routine (`$1B0F66`) runs and the frame its skip flag (`$FF7E22`) is set; the user's state (the wheel after the Rooftops) at 4:3 / 21:9 in the app and headless, as saved and with `$FFF156` released | the same at both widths everywhere (select: 549-2,890 frames, never skipped; level ends: never skipped); the user's state skips the Dungeon's story at both widths and with widescreen off - C was held on the Rooftops' last frame of play (`re_md_game.md`, the story cut short) - and plays it at both once released |
 | wheel's HUD | the user's wheel state at 21:9 / 16:9, Re-anchor HUD on / off, in the app | anchored: the lamp and smoke, lives, gems / apples and the score at the screen's edges as in the levels, the token count on the stage; off: as at 4:3 |
 | level skip's wait, greeting | the Market paused and skipped (with and without a token) through "Level Complete", the wheel, the scarab and the next story at 128; power-on through OPTIONS and the debug screen; a scan of the title, OPTIONS, the debug screen, a game's start, the Market's end and the Escape's deaths and continue screen for a plane B filled with one tile | no frame shown 4:3 any more from the skip to the story (before: 75 frames of the paused level and its fade); the greeting wide; the fill found on the greeting only |
 | other screens' save states | states every 7 frames of the Genie's exit and on the title, "Level Complete", the scarab, the dunes, the moon and the death screen, at 54 and 128, loaded into a fresh instance as the app does, 40 frames | RAM, picture and frame info identical; without the module's part (an older state) RAM identical and the Genie's pieces right of the 4:3 screen missing for 2 frames (7 once) |
