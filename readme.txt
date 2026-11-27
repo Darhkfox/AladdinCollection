@@ -479,6 +479,17 @@
                          stay at 60 frames a second. Off: the original's
                          speed, slowdown included.       (default: ON)
 
+  MEGA DRIVE
+     Stories: Skip Only on a New Press
+                         In the original, a sword or jump button held as
+                         a level ends skips the whole story before the
+                         next level (only its title card shows). With
+                         this on, the story plays; pressing START, A, B
+                         or C during it still skips it. Off: the
+                         original's way. Works at every width, with
+                         widescreen off too; achievements are not
+                         affected.                       (default: ON)
+
   UPDATES
      Check for Updates . Once a day the launcher looks up the version
                          number of the latest release on GitHub (only

@@ -268,6 +268,7 @@ bool Settings::load(const std::wstring& path) {
             else if (k == "rewind") rewind = iv != 0;
             else if (k == "achievements") achievements = iv != 0;
             else if (k == "no_slowdown") no_slowdown = iv != 0;
+            else if (k == "story_fresh_press") story_fresh_press = iv != 0;
         }
     }
     if (shown_count() == 0)   // (a game is always shown)
@@ -311,7 +312,8 @@ bool Settings::save(const std::wstring& path) const {
         for (auto& c : g.second) o << c.first << "=" << c.second << "\n";
     }
     o << "\n[general]\nlast_game=" << last_game << "\nfast_forward=" << fast_forward << "\nrewind=" << rewind
-      << "\nachievements=" << achievements << "\nno_slowdown=" << no_slowdown << "\n";
+      << "\nachievements=" << achievements << "\nno_slowdown=" << no_slowdown
+      << "\nstory_fresh_press=" << story_fresh_press << "\n";
     o << "\n[launcher]\nmenu_style=" << menu_style << "\ncovers=" << launcher_covers << "\nbackground=" << launcher_background
       << "\ncover_fill=" << cover_fill << "\n";
     for (int g = 0; g < kSystemCount; g++) o << "show_" << kSystemKeys[g] << "=" << show_game[g] << "\n";

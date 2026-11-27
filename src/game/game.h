@@ -41,6 +41,7 @@ struct GameConfig {
     int  ext = 0;                        // widescreen: extra pixels on each side of the console's picture
     bool hud_anchor = true;              // move HUD elements to the screen edges in widescreen
     int  cpu_turbo = 1;                  // SNES: CPU speed for the game's frame work (Snes::cpuTurbo); 1 = the original's
+    bool story_fresh_press = false;      // MD: a button held as a level ends doesn't skip the next story (false: the original)
     std::map<std::string, bool> cheats;  // enabled cheats
     bool cheat(const char* k) const { auto it = cheats.find(k); return it != cheats.end() && it->second; }
 };
