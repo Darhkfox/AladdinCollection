@@ -278,6 +278,11 @@ MUSIC = {
     'bed_mdp_title':   lambda: bed('bed_mdp_title', 'md', 0, 40, MDP),
     'bed_md_friend':   lambda: bed('bed_md_friend', 'md', 10, 45),
     'bed_sms_awnw':    lambda: bed('bed_sms_awnw', 'sms', 6, 45),
+    # the games' own chip music in place of the soundtrack packs (YouTube's Content ID matches the packs' film recordings)
+    'bed_md_title':    lambda: bed('bed_md_title', 'md', 0, 40),
+    'bed_md_onejump':  lambda: bed('bed_md_onejump', 'md', 4, 50),
+    'bed_md_camel':    lambda: bed('bed_md_camel', 'md', 3, 45),
+    'bed_snes_awnw':   lambda: bed('bed_snes_awnw', 'snes', 10, 50),
 }
 UI.update(MUSIC)
 

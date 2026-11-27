@@ -571,7 +571,7 @@ def timeline():
                           'md')),
         ('msu',        ui([('mp_snes', 60, 130), ('mp_snes', 450, 110), ('snes_msu_play', 140, 210)],
                           'MSU-1 SOUNDTRACKS',
-                          'Bring your own MSU-1 pack for the SNES game - here an orchestral one\n'
+                          'Bring your own MSU-1 pack for the SNES game\n'
                           'Switched at once, even in the middle of a level', 'snes')),
         # ---- the picture
         ('filters',    scene_filters([('snes_filt_nearest', 'NEAREST'), ('snes_filt', 'SHARP BILINEAR'),
@@ -616,10 +616,12 @@ def timeline():
 
 # ---------------------------------------------------------------- sound
 # (first scene of the section, recording or 'own' (the scenes' own sound), start offset in seconds)
-MUSIC = [('title', 'bed_mdp_title', 0.0), ('md', 'own', 0.0), ('md_wide', 'bed_md_friend', 0.0),
-         ('snes_wide', 'bed_snes_agrabah', 0.0), ('square', 'bed_mdp_onejump', 0.0), ('ach', 'bed_msu_agrabah', 0.0),
-         ('music', 'own', 0.0), ('filters', 'bed_md_prince', 0.0), ('covers', 'bed_sms_awnw', 0.0),
-         ('montage', 'bed_msu_awnw', 0.0)]
+# Only the games' own chip music: the MD+ and MSU-1 packs use the film's recordings, which YouTube's Content ID
+# claims ("A Whole New World", "Street Urchins"), so the pack scenes show the packs over the original tunes.
+MUSIC = [('title', 'bed_md_title', 0.0), ('md', 'own', 0.0), ('md_wide', 'bed_md_friend', 0.0),
+         ('snes_wide', 'bed_snes_agrabah', 0.0), ('square', 'bed_md_onejump', 0.0), ('ach', 'bed_sms_agrabah', 0.0),
+         ('music', 'own', 0.0), ('mdplus', 'bed_md_camel', 0.0), ('filters', 'bed_md_prince', 0.0),
+         ('covers', 'bed_sms_awnw', 0.0), ('montage', 'bed_snes_awnw', 0.0)]
 XFADE = 1.0
 TARGET_RMS = 2600.0
 GAIN = {'bed_msu_agrabah': 1.3, 'bed_msu_awnw': 1.5}

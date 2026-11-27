@@ -32,7 +32,7 @@ On Windows, put them next to the exe or in a roms folder (zipped is fine; they'r
 ⏱️ Chapters
 {CHAPTERS}
 
-🎵 Music: the games' own soundtracks, played through the collection's Music Player by each game's own sound driver, plus the "Aladdin CD - MD+" pack (ArcadeTV) and an MSU-1 orchestral pack in the soundtrack sections. Soundtrack packs aren't included with the collection: they belong to their makers.
+🎵 Music: the games' own soundtracks, played through the collection's Music Player by each game's own sound driver. The MD+ and MSU-1 soundtrack packs shown in the video aren't included with the collection; they belong to their makers.
 🖼️ The covers and background in the "your own covers" scene were made for this video; none come with the collection.
 
 Find me over at:
