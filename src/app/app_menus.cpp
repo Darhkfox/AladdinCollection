@@ -1,5 +1,6 @@
 // Pause menu, options pages, cheats, level select.
 #include "app.h"
+#include <algorithm>
 #include <cstdio>
 
 namespace {

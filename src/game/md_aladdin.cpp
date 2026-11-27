@@ -3,6 +3,8 @@
 #include "game.h"
 #include "md_common.h"
 #include "../core/md.h"
+#include <cmath>
+#include <cstdlib>
 #include <algorithm>
 #include <climits>
 #include <cstring>

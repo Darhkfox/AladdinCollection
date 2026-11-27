@@ -4,6 +4,7 @@
 #define _CRT_SECURE_NO_WARNINGS
 #include "../src/core/ym2612.h"
 #include "../src/core/psg.h"
+#include <cstdlib>
 #include <algorithm>
 #include <chrono>
 #include <cmath>

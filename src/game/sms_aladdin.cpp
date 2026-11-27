@@ -3,6 +3,8 @@
 #include "game.h"
 #include "sms_common.h"
 #include "../core/sms.h"
+#include <cmath>
+#include <cstdlib>
 #include <algorithm>
 #include <climits>
 #include <cstring>

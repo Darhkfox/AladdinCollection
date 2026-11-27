@@ -1,6 +1,7 @@
 // S-DSP sample-level emulation. Models BRR decoding, gaussian interpolation,
 // ADSR/GAIN envelopes, noise, pitch modulation and the echo FIR unit.
 #include "dsp.h"
+#include <cstdlib>
 #include <algorithm>
 #include <cmath>
 #include <cstring>

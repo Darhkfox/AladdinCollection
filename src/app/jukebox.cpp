@@ -4,6 +4,7 @@
 #include "app.h"
 #include "../core/md.h"
 #include "../core/msu1.h"
+#include <cstdlib>
 #include <algorithm>
 #include <cmath>
 #include <cstdio>

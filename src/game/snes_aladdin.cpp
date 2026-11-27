@@ -20,6 +20,8 @@
 #include "game.h"
 #include "snes_common.h"
 #include "../core/snes.h"
+#include <cmath>
+#include <cstdlib>
 #include <algorithm>
 #include <cstring>
 

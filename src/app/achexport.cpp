@@ -1,6 +1,7 @@
 // Achievements exported for other tools: see achexport.h. (The badge drawing follows the Mickey & Donald Collection's
 // and the Super Mario All-Stars port's, with Aladdin's own symbols.)
 #include "achexport.h"
+#include <cstdlib>
 #include <algorithm>
 #include <cmath>
 #include <cstring>
