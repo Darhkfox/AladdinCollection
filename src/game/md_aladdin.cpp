@@ -46,6 +46,8 @@ constexpr uint32_t SCRIPT_START = 0x4082;
 constexpr uint32_t PC_MAIN_LOOP = 0x1A8C16;   // top of the gameplay loop
 constexpr uint32_t PC_PAUSE_LOOP = 0x1A9230;  // the pause loop
 constexpr uint32_t PC_PAUSE_HANDLED = 0x1A923A;   // the pause loop, back from its input handler ($1B0A46)
+constexpr uint32_t PC_STORY_SKIP_SETUP = 0x1B0F74;   // the story's call of its skip set-up ($1B3258)
+constexpr uint32_t PAD_TH_HIGH = 0xFFF156;         // the gameplay loop's pad read with TH high (B = bit 4, C = bit 5)
 constexpr uint32_t PC_LEVEL_END = 0x1A8E5C;   // a level is over: next level / ending
 constexpr uint32_t PC_DEATH = 0x1A8F82;       // the death screen (Aladdin, Abu and the carpet on black)
 constexpr uint32_t PC_PIT = 0x1A902E;         // fell below the map: a life lost without the death screen
@@ -2350,6 +2352,17 @@ public:
             m.module_state[MS_FADE] = 1;
             m.module_state[MS_DEV] &= ~(BF_MASK | CARPET_DUE);
         };
+        // A story before a level (the level loop's $1B0F66) lets START, A, B or C cut it short: its set-up ($1B3258, called
+        // at $1B0F74) clears the skip flag and sets the START / A byte ($FFF155) to "none", and the VBlank handler tests
+        // those and $FFF156 (B / C, TH high) for a press. Nothing between a level's end and the story writes $FFF156 -
+        // only the gameplay loop's pad read and the level's init do - so a sword or jump held on the level's last frame
+        // of play skips the whole story at once (the original's own; docs/re_md_game.md). The title routine clears both
+        // bytes before the same set-up ($1B3BA4); with the option (GameConfig::story_fresh_press) $FFF156 is cleared there
+        // too, so the story shows as when nothing was held. START and A still cut it short: the story's own waits read
+        // them every frame ($1B319C). Not in the attract mode (its demos play as recorded).
+        md.add_pc_hook(PC_STORY_SKIP_SETUP, [this](MegaDrive& m) {
+            if (cfg_.story_fresh_press && !attract(m)) m.set_ram8(PAD_TH_HIGH, 0xFF);
+        });
         md.add_pc_hook(PC_FADE_IN, fade);
         md.add_pc_hook(PC_RESPAWN_FADE, fade);
         const bool wide = cfg.ext > 0;

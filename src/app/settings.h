@@ -79,6 +79,8 @@ struct Settings {
     bool        achievements = true;
     // SNES: the CPU runs the game's frame work faster (GameConfig::cpu_turbo = kNoSlowdownTurbo): no slowdown
     bool        no_slowdown = true;
+    // MD: a button held as a level ends no longer skips the next story (GameConfig::story_fresh_press); off: the original
+    bool        story_fresh_press = true;
 
     // Update check: once a day the launcher reads the latest release's version on GitHub (nothing else is sent)
     bool        check_updates = true;

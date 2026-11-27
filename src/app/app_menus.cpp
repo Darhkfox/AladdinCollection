@@ -110,6 +110,14 @@ void App::open_options_menu(bool from_launcher) {
         p.items.push_back(MenuItem::toggle("Remove Slowdown", [this]() { return settings_.no_slowdown; },
                                            [this](bool v) { settings_.no_slowdown = v; apply_settings(); },
                                            "SNES: the console's CPU runs the game's work faster where the original slowed down. Off: the original's speed."));
+    // (the Mega Drive game only: offered in it and from the launcher)
+    if (!session_ || session_->system() == System::MegaDrive) {
+        p.items.push_back(MenuItem::header("Mega Drive"));
+        p.items.push_back(MenuItem::toggle("Stories: Skip Only on a New Press", [this]() { return settings_.story_fresh_press; },
+                                           [this](bool v) { settings_.story_fresh_press = v; apply_settings(); },
+                                           "A sword or jump button held as a level ends no longer skips the story before the next level. "
+                                           "Off: the original's way, where it does."));
+    }
     // (right under what it switches off)
     p.items.push_back(MenuItem::header("Achievements"));
     p.items.push_back(achievements_switch());

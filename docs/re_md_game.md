@@ -131,6 +131,21 @@ the Dungeon's story ("With both halves of the scarab, Aladdin is ambushed...", 1
 alike, its title card shown (623 frames of the routine in all); with `$FFF156` set to `$7F` (released) the story plays at
 both. The same in the original game with widescreen off: the cut is the game's own.
 
+**The option *Stories: Skip Only on a New Press*** (Options, Mega Drive; `settings.ini` `[general]`
+`story_fresh_press`, on by default; `GameConfig::story_fresh_press`; `mdtool`: `mdt_module_story_fresh_press`): a PC
+hook at the story's call of its set-up (`$1B0F74`) sets `$FFF156` to `$FF` (nothing held) as the title routine does
+before the same set-up (`$1B3BA4`: `st.b $FFF156`, `st.b $FFF155`). Nothing else changes: the story's own waits read
+the pad every frame, so START, A, B or C pressed during it still cut it short. Not in the attract mode. Measured from
+the user's save state at 4:3 and 21:9: option off 623 frames of the routine (the title card only, as the original),
+on 2,027 (the Dungeon's story, 1,404 frames, then the title card); START / A / B / C pressed 200 frames into the story
+(option on): 766 frames, the rest of the story skipped. Gameplay input is untouched (`$FFF156` is rewritten by the
+next level's init, `$1AA6BA`, and by every iteration of the gameplay loop).
+
+*The SNES and Master System games* don't have this. The SNES game skips a story on a new press only: from power-on
+with B, A, Y or START held from the first frame the opening story (screen `$35`) runs its full length (2,388+ frames),
+while START pressed at frame 1000 ends it at once. The Master System game skips a scene (`0-$1F`) only when both
+buttons are newly pressed together (`$66B7`: `$C207`, the newly pressed byte, `& $30 = $30`; `re_sms_game.md`).
+
 **Level select (the port)**: power-on, 30 frames, then `$7E26` = level, `$F572` = the script position after the
 level's own entry, `$7E21` = difficulty, and START is tapped through the title and the new game's instructions
 screen (`$1B2E9A`) until the level loop begins (`$1A8B50`): the title routine keeps the level (the developers' debug

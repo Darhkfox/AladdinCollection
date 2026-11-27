@@ -174,6 +174,12 @@ achievements of its own: *A Whole New World* (defeat Jafar in all three versions
   for the frame faster, so busy scenes keep a steady 60 frames a second. Interrupts, sound and the game's own pauses
   keep the console's timing, and nothing runs faster than the original. Off: the original's speed, slowdown
   included.
+- Stories: Skip Only on a New Press (Options, Mega Drive, on by default): the Mega Drive game lets a sword or jump
+  button that was held as a level ended skip the whole story before the next level (it tests the last buttons read
+  in play, which nothing updates before the story). With this on, that stale press is cleared as the story starts, as
+  the game's own title screen does, so the story plays; START, A, B or C pressed during it still skip it. Off: the
+  original's way. A fix to the game at every width and with widescreen off; the attract demos play as recorded
+  either way (the option does nothing in them).
 
 ## The games
 

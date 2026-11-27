@@ -74,6 +74,7 @@ _HAS_MODULES = hasattr(_dll, 'mdt_module_create')   # only in the CMake build (b
 if _HAS_MODULES:
     _dll.mdt_module_create.argtypes = [C.c_void_p, C.c_char_p]
     _dll.mdt_module_configure.argtypes = [C.c_void_p, C.c_int, C.c_int, C.c_char_p]
+    _dll.mdt_module_story_fresh_press.argtypes = [C.c_void_p, C.c_int]
 if hasattr(_dll, 'mdt_module_can_configure'):
     _dll.mdt_module_can_configure.argtypes = [C.c_void_p, C.c_int, C.c_int, C.c_char_p]
     _dll.mdt_module_start_level.argtypes = [C.c_void_p, C.c_int, C.c_int]
@@ -367,6 +368,11 @@ class ModuleMD(MD):
     def configure(self, ext=0, hud_anchor=True, cheats=()):
         self.config = (ext, hud_anchor, tuple(cheats))   # (bp_clear drops the module's PC hooks: configure again)
         _dll.mdt_module_configure(self.h, ext, 1 if hud_anchor else 0, ','.join(cheats).encode())
+
+    def story_fresh_press(self, on=True):
+        """a button held as a level ends doesn't skip the next story (the app's option, on by default there; off here,
+        the original's way, unless set)"""
+        _dll.mdt_module_story_fresh_press(self.h, 1 if on else 0)
 
     def can_configure(self, ext=0, hud_anchor=True, cheats=()):
         """whether configure() could change the ROM now without pulling code from under the 68000 (the app

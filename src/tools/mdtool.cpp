@@ -343,7 +343,9 @@ API int mdt_module_create(void* h, const char* id) {
 API void mdt_module_configure(void* h, int ext, int hud_anchor, const char* cheats) {
     Tool* t = (Tool*)h;
     if (!t->module) return;
+    const bool fresh = t->cfg.story_fresh_press;   // (kept across configures: mdt_module_story_fresh_press)
     t->cfg = GameConfig();
+    t->cfg.story_fresh_press = fresh;
     t->cfg.ext = ext;
     t->cfg.hud_anchor = hud_anchor != 0;
     std::stringstream ss(cheats ? cheats : "");
@@ -354,12 +356,19 @@ API void mdt_module_configure(void* h, int ext, int hud_anchor, const char* chea
     t->md.vdp.ignore_left_blank = ext > 0;
     t->module->configure(t->md, t->cfg);
 }
+// MD: a button held as a level ends doesn't skip the next story (GameConfig::story_fresh_press; 0: the original)
+API void mdt_module_story_fresh_press(void* h, int on) {
+    Tool* t = (Tool*)h;
+    t->cfg.story_fresh_press = on != 0;
+    if (t->module) t->module->configure(t->md, t->cfg);
+}
 // Whether mdt_module_configure(ext, hud_anchor, cheats) could be applied now without changing ROM code the
 // 68000 is in or returns into (the app's session waits for such a frame; see patches_safe).
 API int mdt_module_can_configure(void* h, int ext, int hud_anchor, const char* cheats) {
     Tool* t = (Tool*)h;
     if (!t->module) return 1;
     GameConfig c;
+    c.story_fresh_press = t->cfg.story_fresh_press;
     c.ext = ext;
     c.hud_anchor = hud_anchor != 0;
     std::stringstream ss(cheats ? cheats : "");
