@@ -1,6 +1,7 @@
 // The Arabian Nights style's ornaments (see ornaments.h): each is a few layers of simple shapes, rasterised with
 // 4x4 supersampling into a picture the first time it's drawn.
 #include "ornaments.h"
+#include <cstddef>
 #include <algorithm>
 #include <cmath>
 #include <functional>

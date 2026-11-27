@@ -1,6 +1,7 @@
 // One running game: a console core + its game module + frame/audio conversion. The console-specific half is a
 // subclass per system (session_md.cpp, session_snes.cpp, session_sms.cpp); Session::create picks it.
 #pragma once
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>

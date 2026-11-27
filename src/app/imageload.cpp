@@ -1,5 +1,6 @@
 // PNG and JPEG pictures: see imageload.h.
 #include "imageload.h"
+#include <cstddef>
 #include <algorithm>
 #include "sys.h"
 

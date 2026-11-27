@@ -1,5 +1,6 @@
 // Minimal .zip reading for zipped ROMs: stored, deflated and LZMA entries (no ZIP64, no encryption).
 #pragma once
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>

@@ -2,6 +2,7 @@
 // sound/music tables and achievements. The collection runs games on three consoles; each module is written
 // for its console's machine (MdModule, SnesModule, SmsModule) and the app talks to it through GameModule.
 #pragma once
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>

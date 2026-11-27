@@ -2,6 +2,7 @@
 #include "session.h"
 #include "palette.h"
 #include "../core/sms.h"
+#include <cstddef>
 #include <algorithm>
 
 namespace {

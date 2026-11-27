@@ -4,6 +4,7 @@
 #include "palette.h"
 #include "../core/snes.h"
 #include "../game/snes_common.h"
+#include <cstddef>
 #include <algorithm>
 
 namespace {

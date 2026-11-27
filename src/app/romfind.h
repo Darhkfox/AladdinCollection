@@ -1,5 +1,6 @@
 // Locates and verifies the user's ROM files (the port never ships game data).
 #pragma once
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>

@@ -1,6 +1,7 @@
 // Menu system drawn with the Video overlay: stacked pages of items
 // (actions, toggles, choices, sliders, key bindings), plus toast messages.
 #pragma once
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <string>

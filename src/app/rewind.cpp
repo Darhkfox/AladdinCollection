@@ -1,3 +1,4 @@
+#include <cstddef>
 #include "rewind.h"
 
 namespace {

@@ -1,5 +1,6 @@
 // Is there a newer release? See updatecheck.h.
 #include "updatecheck.h"
+#include <cstddef>
 #include <cctype>
 #include <vector>
 #include "sys.h"

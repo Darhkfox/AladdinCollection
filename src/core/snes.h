@@ -1,5 +1,6 @@
 // SNES system: bus, timing, DMA/HDMA, interrupts, joypads, cartridge (LoROM).
 #pragma once
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 #include <string>
